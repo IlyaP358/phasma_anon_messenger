@@ -1,61 +1,103 @@
 import datetime
 import flask
 import redis
+import requests
+from stem import Signal
+from stem.control import Controller
+import socket
+import os
 
 app = flask.Flask("labex-sse-chat")
 app.secret_key = "labex"
 app.config["DEBUG"] = True
 r = redis.StrictRedis()
 
+# ---- Tor SOCKS5 и ControlPort ----
+SOCKS5_ADDR = "127.0.0.1:9050"
+TOR_CONTROL_PORT = 9051
+TOR_COOKIE_PATH = "/var/run/tor/control.authcookie"  # путь по умолчанию для Linux
 
-## Функция маршрута домашней страницы
+# requests с прокси через Tor
+session = requests.Session()
+session.proxies.update({
+    "http": f"socks5h://{SOCKS5_ADDR}",
+    "https": f"socks5h://{SOCKS5_ADDR}",
+})
+
+def tor_control_available():
+    try:
+        with socket.create_connection(("127.0.0.1", TOR_CONTROL_PORT), timeout=1):
+            return True
+    except Exception:
+        return False
+
+def rotate_tor_identity():
+    # Проверка доступности Tor ControlPort
+    if not tor_control_available():
+        print("Tor ControlPort недоступен.")
+        return False
+    try:
+        with Controller.from_port(port=TOR_CONTROL_PORT) as controller:
+            controller.authenticate(cookie_path=TOR_COOKIE_PATH if os.path.exists(TOR_COOKIE_PATH) else None)
+            controller.signal(Signal.NEWNYM)
+            print("Tor identity rotated.")
+            return True
+    except Exception as e:
+        print("Ошибка подключения к Tor ControlPort:", e)
+        return False
+
+def fetch_via_tor(url, **kwargs):
+    # GET через Tor SOCKS5
+    return session.get(url, timeout=15, **kwargs)
+
+# ---- Flask routes ----
 @app.route("/")
 def home():
-    ## Если пользователь не авторизован, перенаправляем его на страницу входа
     if "user" not in flask.session:
         return flask.redirect("/login")
-    user = flask.session["user"]
-    return flask.render_template("index.html", user=user)
+    return flask.render_template("index.html", user=flask.session["user"])
 
-
-## Генератор сообщений
 def event_stream():
-    ## Создаем систему публикации/подписки
     pubsub = r.pubsub()
-    ## Используем метод подписки системы публикации/подписки для подписки на канал
     pubsub.subscribe("chat")
     for message in pubsub.listen():
-        data = message["data"]
-        if type(data) == bytes:
-            yield "data: {}\n\n".format(data.decode())
+        if message.get("data") and isinstance(message["data"], bytes):
+            yield f"data: {message['data'].decode()}\n\n"
 
-
-## Функция входа, вход требуется при первом посещении
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if flask.request.method == "POST":
-        ## Сохраняем имя пользователя в словаре сессии и затем перенаправляем на домашнюю страницу
         flask.session["user"] = flask.request.form["user"]
         return flask.redirect("/")
     return flask.render_template("login.html")
 
-
-## Получаем данные, отправленные JavaScript с использованием метода POST
 @app.route("/post", methods=["POST"])
 def post():
-    message = flask.request.form["message"]
+    message = flask.request.form.get("message", "")
     user = flask.session.get("user", "anonymous")
     now = datetime.datetime.now().replace(microsecond=0).time()
-    r.publish("chat", "[{}] {}: {}\n".format(now.isoformat(), user, message))
+    r.publish("chat", f"[{now.isoformat()}] {user}: {message}\n")
+
+    # Смена Tor-личности
+    rotate_tor_identity()
+
+    # Исходящий запрос через Tor
+    try:
+        resp = fetch_via_tor("https://ifconfig.co/json")
+        if resp.ok:
+            print("Outgoing request via Tor. Exit IP:", resp.json().get("ip"))
+    except Exception as e:
+        print("Tor request failed:", e)
+
     return flask.Response(status=204)
 
-
-## Интерфейс потока событий
 @app.route("/stream")
 def stream():
-    ## Объект, возвращаемый функцией этого маршрута, должен быть типа text/event-stream
     return flask.Response(event_stream(), mimetype="text/event-stream")
 
-
-## Запускаем приложение Flask
-app.run()
+# ---- Запуск ----
+if __name__ == "__main__":
+    print("Starting Flask app with Tor SOCKS5:", SOCKS5_ADDR)
+    if not tor_control_available():
+        print("Warning: Tor ControlPort 9051 недоступен. rotate_tor_identity() не будет работать.")
+    app.run(host="127.0.0.1", port=5000, debug=True)
