@@ -3,3 +3,6 @@ redis
 requests 
 pysocks 
 stem
+sqlalchemy
+psycopg2
+flask_sqlalchemy

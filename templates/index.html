@@ -49,6 +49,14 @@
   </div>
 
   <script>
+    const USER = {{ user|tojson }};
+
+    try {
+      history.replaceState(null, '', '/');
+    } catch (e) {
+      // ignore
+    }
+
     function sse() {
       const source = new EventSource("/stream");
       const out = document.getElementById("out");
@@ -62,7 +70,8 @@
 
     $("#in").keyup(function (e) {
       if (e.keyCode === 13) {
-        $.post("/post", { message: $(this).val() });
+        const text = $(this).val();
+            $.post("/post", { message: text, user: USER });
         $(this).val("");
       }
     });
