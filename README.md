@@ -62,7 +62,7 @@ Install and configure PostgreSQL based on your operating system.
   ```
   sudo -u postgres psql
   ```
-- In the `psql` prompt, create a database (e.g., `phonebook_db`) and user (e.g., `phoneuser`):
+- In the `psql` prompt, create a database (e.g., `phasma`) and user (e.g., `phasma_user`):
   ```
   CREATE DATABASE phasma;
   CREATE USER phasma_user WITH PASSWORD 'your_password';
