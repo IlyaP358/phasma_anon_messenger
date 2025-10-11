@@ -8,6 +8,8 @@ import redis
 import requests
 from stem import Signal
 from stem.control import Controller
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 
 # ---- Flask app config ----
 app = Flask(__name__)
@@ -22,6 +24,15 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # ---- Database ----
 db = SQLAlchemy(app)
 r = redis.StrictRedis(host="127.0.0.1", port=6379, db=0, decode_responses=False)
+
+# ---- Argon2 Hasher ----
+argon2Hasher = PasswordHasher(
+    time_cost=4,
+    memory_cost=64 * 1024,  # 64 MB
+    parallelism=1,
+    hash_len=32,
+    salt_len=16
+)
 
 # ---- Models ----
 class User(db.Model):
@@ -138,25 +149,49 @@ def event_stream():
                 data = str(data)
         yield f"data: {data}\n\n"
 
-# ---- Flask routes ----
-@app.route("/")
-def root():
-    # Always redirect to /login — no sessions used
-    return redirect("/login")
+# ---- Auth Routes ----
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("user", "").strip()
+        password = request.form.get("password", "").strip()
+        if not username or not password:
+            return "Enter your username and password", 400
+
+        if User.query.filter_by(username=username).first():
+            return "A user with this name already EXISTS.", 400
+
+        password_hash = argon2Hasher.hash(password)
+        new_user = User(username=username, password_hash=password_hash)
+        db.session.add(new_user)
+        db.session.commit()
+        return redirect("/login")
+
+    return render_template("register.html")
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form.get("user", "").strip()
-        if not username:
-            return "User name required", 400
+        password = request.form.get("password", "").strip()
+
+        if not username or not password:
+            return "Enter your username and password", 400
+
         user = User.query.filter_by(username=username).first()
         if not user:
-            db.session.add(User(username=username))
-            db.session.commit()
-        return render_template("index.html", user=username)
+            return "INCORRECT username or password", 400
+
+        try:
+            argon2Hasher.verify(user.password_hash, password)
+            # Если всё ок — показать чат
+            return render_template("index.html", user=username)
+        except VerifyMismatchError:
+            return "INCORRECT password", 400
+
     return render_template("login.html")
 
+# ---- Chat and Message Routes ----
 @app.route("/post", methods=["POST"])
 def post():
     username = request.form.get("user", "").strip()
@@ -177,6 +212,10 @@ def post():
 @app.route("/stream")
 def stream():
     return Response(event_stream(), mimetype="text/event-stream")
+
+@app.route("/")
+def root():
+    return redirect("/login")
 
 # ---- Startup ----
 if __name__ == "__main__":
