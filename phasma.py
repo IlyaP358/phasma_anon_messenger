@@ -10,8 +10,11 @@ from stem import Signal
 from stem.control import Controller
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from cryptography.fernet import Fernet, InvalidToken
 
-# ---- Flask app config ----
+# ===============================================================
+# ---- Flask app configuration ----
+# ===============================================================
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "phasma_secret_change_me")
 app.config["DEBUG"] = True
@@ -21,11 +24,15 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # NOTE: flask.session is NOT used — no persistent cookies are set
 
-# ---- Database ----
+# ===============================================================
+# ---- Database and Redis ----
+# ===============================================================
 db = SQLAlchemy(app)
 r = redis.StrictRedis(host="127.0.0.1", port=6379, db=0, decode_responses=False)
 
-# ---- Argon2 Hasher ----
+# ===============================================================
+# ---- Argon2 Hasher (secure password hashing) ----
+# ===============================================================
 argon2Hasher = PasswordHasher(
     time_cost=4,
     memory_cost=64 * 1024,  # 64 MB
@@ -34,7 +41,9 @@ argon2Hasher = PasswordHasher(
     salt_len=16
 )
 
-# ---- Models ----
+# ===============================================================
+# ---- Database Models ----
+# ===============================================================
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
@@ -44,21 +53,101 @@ class User(db.Model):
 class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
     username = db.Column(db.String(100), nullable=False)
-    content = db.Column(db.Text, nullable=False)
+    content = db.Column(db.Text, nullable=False)  # Encrypted message content
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+
+    def get_plain(self):
+        return decrypt_message(self.content)
 
     def as_text(self):
         ts = self.created_at.strftime("%H:%M:%S")
-        return f"[{ts}] {self.username}: {self.content}"
+        return f"[{ts}] {self.username}: {self.get_plain()}"
 
+class Secret(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(256), unique=True, nullable=False, index=True)
+    value = db.Column(db.Text, nullable=False)  # Encrypted with master key
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+# ===============================================================
+# ---- Master key management (FERNET_MASTER_KEY) ----
+# ===============================================================
+def load_master_fernet():
+    key = os.environ.get("FERNET_MASTER_KEY")
+    if not key:
+        tmp = Fernet.generate_key().decode()
+        print("[WARN] FERNET_MASTER_KEY not set. Generated TEMPORARY master key (local only).")
+        key = tmp
+    return Fernet(key.encode())
+
+def set_secret_encrypted(name: str, plaintext: str):
+    enc = master_fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+    s = Secret.query.filter_by(name=name).first()
+    if s:
+        s.value = enc
+    else:
+        s = Secret(name=name, value=enc)
+        db.session.add(s)
+    db.session.commit()
+    return s
+
+def get_secret_decrypted(name: str):
+    s = Secret.query.filter_by(name=name).first()
+    if not s:
+        return None
+    try:
+        return master_fernet.decrypt(s.value.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        print(f"[ERROR] Could not decrypt Secret {name} with current master key.")
+        return None
+
+# ===============================================================
+# ---- Initialize database, master key, and data key ----
+# ===============================================================
 with app.app_context():
     db.create_all()
     print("[OK] Database tables created (if missing)")
+    master_fernet = load_master_fernet()
 
+    # Import tor_pass.txt if needed
+    if Secret.query.filter_by(name="TOR_PASS_ENC").first() is None:
+        if os.path.exists("tor_pass.txt"):
+            with open("tor_pass.txt", "r", encoding="utf-8") as f:
+                torpass = f.read().strip()
+            if torpass:
+                set_secret_encrypted("TOR_PASS_ENC", torpass)
+                print("[INFO] Imported tor_pass.txt into DB (encrypted).")
+
+    # Generate or load DATA_KEY
+    data_key = get_secret_decrypted("DATA_KEY_ENC")
+    if not data_key:
+        new_key = Fernet.generate_key().decode()
+        set_secret_encrypted("DATA_KEY_ENC", new_key)
+        data_key = new_key
+        print("[INFO] Generated new DATA_KEY and stored encrypted in DB.")
+    data_fernet = Fernet(data_key.encode("utf-8"))
+
+# ===============================================================
+# ---- Encryption helpers ----
+# ===============================================================
+def encrypt_message(plaintext: str) -> str:
+    return data_fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+
+def decrypt_message(ciphertext: str) -> str:
+    try:
+        return data_fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        return "[UNDECRYPTABLE MESSAGE]"
+
+def get_tor_password():
+    return get_secret_decrypted("TOR_PASS_ENC")
+
+# ===============================================================
 # ---- Tor SOCKS5 and ControlPort ----
+# ===============================================================
 SOCKS5_ADDR = "127.0.0.1:9050"
 TOR_CONTROL_PORT = 9051
-TOR_PASS_FILE = "tor_pass.txt"
 tor_session = None
 
 def create_tor_session():
@@ -78,17 +167,19 @@ def tor_control_available():
         return False
 
 def rotate_tor_identity():
+    """Rotate Tor identity via ControlPort."""
     global tor_session
     if not tor_control_available():
         print("[WARN] Tor ControlPort unavailable")
         return
     try:
         with Controller.from_port(port=TOR_CONTROL_PORT) as c:
-            if not os.path.exists(TOR_PASS_FILE):
-                print("[WARN] Password file tor_pass.txt not found")
+            with app.app_context():
+                torpass = get_tor_password()
+            if not torpass:
+                print("[WARN] TOR password not found in DB.")
                 return
-            password = open(TOR_PASS_FILE).read().strip()
-            c.authenticate(password=password)
+            c.authenticate(password=torpass)
             c.signal(Signal.NEWNYM)
             print("[INFO] -> Tor identity rotated")
             time.sleep(5)
@@ -102,7 +193,7 @@ def fetch_via_tor(url, **kwargs):
         tor_session = create_tor_session()
     return tor_session.get(url, timeout=15, **kwargs)
 
-# ---- Auto-rotate Tor in background ----
+# ---- Background Tor rotation thread ----
 def auto_rotate_tor(interval=10):
     while True:
         rotate_tor_identity()
@@ -110,34 +201,34 @@ def auto_rotate_tor(interval=10):
 
 threading.Thread(target=auto_rotate_tor, args=(10,), daemon=True).start()
 
-# ---- Helpers ----
+# ===============================================================
+# ---- Message helpers ----
+# ===============================================================
 def save_message(username, content):
-    msg = Message(username=username, content=content)
+    ciphertext = encrypt_message(content)
+    msg = Message(username=username, content=ciphertext)
     db.session.add(msg)
     db.session.commit()
     r.publish("chat", msg.as_text().encode("utf-8"))
     return msg
 
 def _log_tor_ip_background():
+    """Check and log Tor exit IP."""
     try:
         resp = fetch_via_tor("https://ifconfig.co/json")
         if resp.ok:
-            data = resp.json()
-            ip = data.get("ip")
-            print("[INFO] Outgoing request via Tor. Exit IP:", ip)
+            print("[INFO] Outgoing request via Tor. Exit IP:", resp.json().get("ip"))
         else:
             print("[WARN] Tor fetch failed, status:", resp.status_code)
     except Exception as e:
         print("[ERROR] Tor request failed:", e)
 
 def event_stream():
-    # Send recent history first
+    """Stream chat messages via Server-Sent Events."""
     with app.app_context():
         last = Message.query.order_by(Message.created_at.desc()).limit(200).all()
         for m in reversed(last):
             yield f"data: {m.as_text()}\n\n"
-
-    # Redis channel
     pubsub = r.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe("chat")
     for message in pubsub.listen():
@@ -149,12 +240,16 @@ def event_stream():
                 data = str(data)
         yield f"data: {data}\n\n"
 
+# ===============================================================
 # ---- Auth Routes ----
+# ===============================================================
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    """User registration route."""
     if request.method == "POST":
         username = request.form.get("user", "").strip()
         password = request.form.get("password", "").strip()
+
         if not username or not password:
             return "Enter your username and password", 400
 
@@ -162,8 +257,7 @@ def register():
             return "A user with this name already EXISTS.", 400
 
         password_hash = argon2Hasher.hash(password)
-        new_user = User(username=username, password_hash=password_hash)
-        db.session.add(new_user)
+        db.session.add(User(username=username, password_hash=password_hash))
         db.session.commit()
         return redirect("/login")
 
@@ -171,6 +265,7 @@ def register():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    """User login route."""
     if request.method == "POST":
         username = request.form.get("user", "").strip()
         password = request.form.get("password", "").strip()
@@ -184,14 +279,16 @@ def login():
 
         try:
             argon2Hasher.verify(user.password_hash, password)
-            # Если всё ок — показать чат
+            # If OK — show chat
             return render_template("index.html", user=username)
         except VerifyMismatchError:
             return "INCORRECT password", 400
 
     return render_template("login.html")
 
-# ---- Chat and Message Routes ----
+# ===============================================================
+# ---- Chat message routes ----
+# ===============================================================
 @app.route("/post", methods=["POST"])
 def post():
     username = request.form.get("user", "").strip()
@@ -211,13 +308,17 @@ def post():
 
 @app.route("/stream")
 def stream():
+    """Live chat stream endpoint."""
     return Response(event_stream(), mimetype="text/event-stream")
 
 @app.route("/")
 def root():
+    """Redirect root to login page."""
     return redirect("/login")
 
+# ===============================================================
 # ---- Startup ----
+# ===============================================================
 if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     app.run(host="127.0.0.1", port=5000, debug=True)

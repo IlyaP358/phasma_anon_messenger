@@ -7,3 +7,4 @@ sqlalchemy
 psycopg2
 flask_sqlalchemy
 argon2-cffi
+cryptography
