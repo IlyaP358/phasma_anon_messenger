@@ -29,14 +29,27 @@
       border-top: 1px solid #333;
       background: #111;
     }
-    input {
-      width: 95%;
-      padding: 0.5em;
+    input, button {
       font: inherit;
       background: #222;
       color: #fff;
-      border: none;
+      border: 1px solid #333;
+      padding: 0.5em;
+      cursor: pointer;
+    }
+    #in {
+      width: 95%;
       outline: none;
+    }
+    #upload-btn {
+      width: 38%;
+      margin-top: 0.5em;
+    }
+    #file-input {
+      display: none;
+    }
+    .photo-msg {
+      color: #0f0;
     }
   </style>
 </head>
@@ -46,6 +59,8 @@
   <div id="input-container">
     <b>Hi, {{ user }}!</b><br>
     Message: <input id="in" autocomplete="off" />
+    <button id="upload-btn">+ upload photo</button>
+    <input id="file-input" type="file" accept="image/jpeg,image/png" />
   </div>
 
   <script>
@@ -64,6 +79,9 @@
       source.onmessage = function (e) {
         const msg = document.createElement("div");
         msg.textContent = e.data;
+        if (e.data.includes("[PHOTO]")) {
+          msg.classList.add("photo-msg");
+        }
         out.prepend(msg);
       };
     }
@@ -71,13 +89,41 @@
     $("#in").keyup(function (e) {
       if (e.keyCode === 13) {
         const text = $(this).val();
-            $.post("/post", { message: text, user: USER });
+        $.post("/post", { message: text, user: USER });
         $(this).val("");
       }
+    });
+
+    $("#upload-btn").click(function () {
+      $("#file-input").click();
+    });
+
+    $("#file-input").change(function () {
+      const file = this.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("user", USER);
+
+      $.ajax({
+        url: "/upload",
+        type: "POST",
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function (response) {
+          console.log("Photo uploaded, ID:", response.photo_id);
+          $("#file-input").val("");
+        },
+        error: function (err) {
+          alert("Upload failed: " + err.responseText);
+          $("#file-input").val("");
+        }
+      });
     });
 
     sse();
   </script>
 </body>
 </html>
-

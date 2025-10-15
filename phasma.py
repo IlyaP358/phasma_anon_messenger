@@ -2,7 +2,9 @@ import os
 import datetime
 import threading
 import time
-from flask import Flask, render_template, request, redirect, Response, abort
+import uuid
+from werkzeug.utils import secure_filename
+from flask import Flask, render_template, request, redirect, Response, abort, send_file
 from flask_sqlalchemy import SQLAlchemy
 import redis
 import requests
@@ -11,6 +13,7 @@ from stem.control import Controller
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet, InvalidToken
+import mimetypes
 
 # ===============================================================
 # ---- Flask app configuration ----
@@ -22,7 +25,15 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-# NOTE: flask.session is NOT used — no persistent cookies are set
+# NOTE: flask.session is NOT used – no persistent cookies are set
+
+# ===============================================================
+# ---- Upload configuration ----
+# ===============================================================
+UPLOAD_FOLDER = "uploads"
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
+ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # ===============================================================
 # ---- Database and Redis ----
@@ -62,6 +73,15 @@ class Message(db.Model):
     def as_text(self):
         ts = self.created_at.strftime("%H:%M:%S")
         return f"[{ts}] {self.username}: {self.get_plain()}"
+
+class Photo(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), nullable=False)
+    filename = db.Column(db.String(256), unique=True, nullable=False, index=True)  # UUID-based filename
+    original_filename = db.Column(db.String(256), nullable=False)
+    filesize = db.Column(db.Integer, nullable=False)
+    mime_type = db.Column(db.String(50), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
 class Secret(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -129,6 +149,18 @@ with app.app_context():
     data_fernet = Fernet(data_key.encode("utf-8"))
 
 # ===============================================================
+# ---- Upload folder initialization ----
+# ===============================================================
+def init_upload_folder():
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+        print(f"[OK] Created upload folder: {UPLOAD_FOLDER}")
+    else:
+        print(f"[OK] Upload folder exists: {UPLOAD_FOLDER}")
+
+init_upload_folder()
+
+# ===============================================================
 # ---- Encryption helpers ----
 # ===============================================================
 def encrypt_message(plaintext: str) -> str:
@@ -140,8 +172,104 @@ def decrypt_message(ciphertext: str) -> str:
     except InvalidToken:
         return "[UNDECRYPTABLE MESSAGE]"
 
+def encrypt_file(file_data: bytes) -> bytes:
+    return data_fernet.encrypt(file_data)
+
+def decrypt_file(encrypted_data: bytes) -> bytes:
+    try:
+        return data_fernet.decrypt(encrypted_data)
+    except InvalidToken:
+        return None
+
 def get_tor_password():
     return get_secret_decrypted("TOR_PASS_ENC")
+
+# ===============================================================
+# ---- Photo helpers ----
+# ===============================================================
+def allowed_file(filename: str, mime_type: str) -> bool:
+    """Check if file is allowed based on extension and MIME type."""
+    if not filename or '.' not in filename:
+        return False
+    ext = filename.rsplit('.', 1)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return False
+    if mime_type not in ALLOWED_MIMETYPES:
+        return False
+    return True
+
+def save_photo(username: str, file_obj) -> Photo or None:
+    """Save encrypted photo to disk and create DB entry."""
+    try:
+        # Read file data
+        file_data = file_obj.read()
+        
+        # Check file size
+        if len(file_data) > MAX_FILE_SIZE:
+            return None
+        
+        # Get MIME type
+        mime_type = file_obj.content_type or mimetypes.guess_type(file_obj.filename)[0]
+        
+        # Validate file
+        if not allowed_file(file_obj.filename, mime_type):
+            return None
+        
+        # Generate unique filename (UUID)
+        unique_filename = f"{uuid.uuid4()}.bin"
+        file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+        
+        # Encrypt file data
+        encrypted_data = encrypt_file(file_data)
+        
+        # Save encrypted file to disk
+        with open(file_path, 'wb') as f:
+            f.write(encrypted_data)
+        
+        # Create database entry
+        original_name = secure_filename(file_obj.filename)
+        photo = Photo(
+            username=username,
+            filename=unique_filename,
+            original_filename=original_name,
+            filesize=len(file_data),
+            mime_type=mime_type
+        )
+        db.session.add(photo)
+        db.session.commit()
+        
+        print(f"[OK] Photo saved: {unique_filename} by {username}")
+        return photo
+    except Exception as e:
+        print(f"[ERROR] Failed to save photo: {e}")
+        return None
+
+def load_photo(photo_id: int) -> tuple or None:
+    """Load and decrypt photo from disk."""
+    try:
+        photo = Photo.query.filter_by(id=photo_id).first()
+        if not photo:
+            return None
+        
+        file_path = os.path.join(UPLOAD_FOLDER, photo.filename)
+        if not os.path.exists(file_path):
+            print(f"[ERROR] Photo file not found: {file_path}")
+            return None
+        
+        # Read encrypted file
+        with open(file_path, 'rb') as f:
+            encrypted_data = f.read()
+        
+        # Decrypt file data
+        decrypted_data = decrypt_file(encrypted_data)
+        if decrypted_data is None:
+            print(f"[ERROR] Could not decrypt photo: {photo.filename}")
+            return None
+        
+        return (decrypted_data, photo.mime_type, photo.original_filename)
+    except Exception as e:
+        print(f"[ERROR] Failed to load photo: {e}")
+        return None
 
 # ===============================================================
 # ---- Tor SOCKS5 and ControlPort ----
@@ -279,7 +407,7 @@ def login():
 
         try:
             argon2Hasher.verify(user.password_hash, password)
-            # If OK — show chat
+            # If OK – show chat
             return render_template("index.html", user=username)
         except VerifyMismatchError:
             return "INCORRECT password", 400
@@ -311,6 +439,53 @@ def stream():
     """Live chat stream endpoint."""
     return Response(event_stream(), mimetype="text/event-stream")
 
+# ===============================================================
+# ---- Photo upload and download routes ----
+# ===============================================================
+@app.route("/upload", methods=["POST"])
+def upload():
+    """Upload photo route."""
+    username = request.form.get("user", "").strip()
+    if not username:
+        return abort(403)
+    
+    if "file" not in request.files:
+        return "No file part", 400
+    
+    file = request.files["file"]
+    if file.filename == "":
+        return "No selected file", 400
+    
+    photo = save_photo(username, file)
+    if not photo:
+        return "Invalid file or file too large", 400
+    
+    # Notify chat
+    notification = f"[PHOTO] {username} uploaded: {photo.original_filename}"
+    save_message(username, notification)
+    
+    def tor_rotate_and_log():
+        rotate_tor_identity()
+        _log_tor_ip_background()
+    
+    threading.Thread(target=tor_rotate_and_log, daemon=True).start()
+    return {"photo_id": photo.id}, 200
+
+@app.route("/photo/<int:photo_id>")
+def get_photo(photo_id: int):
+    """Download decrypted photo."""
+    result = load_photo(photo_id)
+    if not result:
+        return abort(404)
+    
+    decrypted_data, mime_type, original_filename = result
+    return send_file(
+        io.BytesIO(decrypted_data),
+        mimetype=mime_type,
+        as_attachment=True,
+        download_name=original_filename
+    )
+
 @app.route("/")
 def root():
     """Redirect root to login page."""
@@ -320,6 +495,6 @@ def root():
 # ---- Startup ----
 # ===============================================================
 if __name__ == "__main__":
+    import io
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     app.run(host="127.0.0.1", port=5000, debug=True)
-
