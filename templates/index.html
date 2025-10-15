@@ -29,27 +29,36 @@
       border-top: 1px solid #333;
       background: #111;
     }
-    input, button {
+    input {
+      width: 95%;
+      padding: 0.5em;
       font: inherit;
       background: #222;
       color: #fff;
-      border: 1px solid #333;
-      padding: 0.5em;
-      cursor: pointer;
-    }
-    #in {
-      width: 95%;
+      border: none;
       outline: none;
     }
     #upload-btn {
       width: 38%;
       margin-top: 0.5em;
+      background: #222;
+      color: #fff;
+      border: none;
+      padding: 0.5em;
+      font: inherit;
+      cursor: pointer;
     }
     #file-input {
       display: none;
     }
     .photo-msg {
       color: #0f0;
+    }
+    .photo-msg img {
+      max-width: 300px;
+      margin-top: 0.5em;
+      border: 1px solid #0f0;
+      cursor: pointer;
     }
   </style>
 </head>
@@ -77,12 +86,28 @@
       const out = document.getElementById("out");
 
       source.onmessage = function (e) {
-        const msg = document.createElement("div");
-        msg.textContent = e.data;
-        if (e.data.includes("[PHOTO]")) {
-          msg.classList.add("photo-msg");
+        const text = e.data;
+        
+        // Check if message contains photo marker [PHOTO_ID:123]
+        const photoMatch = text.match(/\[PHOTO_ID:(\d+)\]/);
+        
+        if (photoMatch) {
+          const photoId = photoMatch[1];
+          
+          const msgDiv = document.createElement("div");
+          msgDiv.classList.add("photo-msg");
+          
+          const img = document.createElement("img");
+          img.src = `/photo/${photoId}`;
+          img.alt = "Photo";
+          
+          msgDiv.appendChild(img);
+          out.prepend(msgDiv);
+        } else {
+          const msg = document.createElement("div");
+          msg.textContent = text;
+          out.prepend(msg);
         }
-        out.prepend(msg);
       };
     }
 

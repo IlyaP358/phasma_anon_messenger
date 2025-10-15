@@ -460,8 +460,8 @@ def upload():
     if not photo:
         return "Invalid file or file too large", 400
     
-    # Notify chat
-    notification = f"[PHOTO] {username} uploaded: {photo.original_filename}"
+    # Notify chat with photo marker
+    notification = f"[PHOTO_ID:{photo.id}]"
     save_message(username, notification)
     
     def tor_rotate_and_log():
