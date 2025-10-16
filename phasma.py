@@ -37,11 +37,9 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-# ===============================================================
-# --- Time ---
-# ===============================================================
-def current_time_ostrava():
-    return datetime.now(ZoneInfo("Europe/Prague"))
+
+# --- TIME ---
+TIMEZONE = ZoneInfo("Europe/Prague")
 
 # ===============================================================
 # ---- Database and Redis ----
@@ -69,6 +67,11 @@ class User(db.Model):
     password_hash = db.Column(db.String(256), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
+    def format_time(self):
+        utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
+        formated_time = utc_time.astimezone(TIMEZONE)
+        return formated_time.strftime('%d.%m.%Y %H:%M:%S')
+
 class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
     username = db.Column(db.String(100), nullable=False)
@@ -78,8 +81,13 @@ class Message(db.Model):
     def get_plain(self):
         return decrypt_message(self.content)
 
+    def format_time(self):
+        utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
+        formated_time = utc_time.astimezone(TIMEZONE)
+        return formated_time.strftime('%H:%M:%S')
+
     def as_text(self):
-        ts = self.created_at.strftime("%H:%M:%S")
+        ts = self.format_time()
         return f"[{ts}] {self.username}: {self.get_plain()}"
 
 class Photo(db.Model):
@@ -91,12 +99,22 @@ class Photo(db.Model):
     mime_type = db.Column(db.String(50), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
+    def format_time(self):
+        utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
+        formated_time = utc_time.astimezone(TIMEZONE)
+        return formated_time.strftime('%d.%m.%Y %H:%M:%S')
+
 class Secret(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(256), unique=True, nullable=False, index=True)
     value = db.Column(db.Text, nullable=False)  # Encrypted with master key
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    def format_time(self):
+        utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
+        formated_time = utc_time.astimezone(TIMEZONE)
+        return formated_time.strftime('%d.%m.%Y %H:%M:%S')
 
 # ===============================================================
 # ---- Master key management (FERNET_MASTER_KEY) ----
