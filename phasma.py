@@ -14,6 +14,8 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet, InvalidToken
 import mimetypes
+import io
+from zoneinfo import ZoneInfo
 
 # ===============================================================
 # ---- Flask app configuration ----
@@ -34,6 +36,12 @@ UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# ===============================================================
+# --- Time ---
+# ===============================================================
+def current_time_ostrava():
+    return datetime.now(ZoneInfo("Europe/Prague"))
 
 # ===============================================================
 # ---- Database and Redis ----
@@ -495,6 +503,5 @@ def root():
 # ---- Startup ----
 # ===============================================================
 if __name__ == "__main__":
-    import io
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     app.run(host="127.0.0.1", port=5000, debug=True)

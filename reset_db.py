@@ -1,8 +1,7 @@
-from phasma import app, db, User, Message
+from phasma import app, db, User, Message, Photo
 from sqlalchemy import inspect
 import os
 import glob
-import os
 
 app.app_context().push()
 
@@ -13,13 +12,20 @@ folder = os.path.join(os.path.dirname(__file__), 'uploads')
 if option == "1":
     inspector = inspect(db.engine)
 
+
+#message delete
     if inspector.has_table(Message.__tablename__):
         Message.__table__.drop(db.engine)
         print("[OK] Table 'message' deleted.")
-
+#users delete
     if inspector.has_table(User.__tablename__):
         User.__table__.drop(db.engine)
         print("[OK] Table 'user' deleted.")
+
+#photo delete
+    if inspector.has_table(Photo.__tablename__):
+        Photo.__table__.drop(db.engine)
+        print("[OK] Table 'photo' deleted.")
 
         db.create_all()
         print("[OK] Tables recreated (if needed).")
@@ -35,6 +41,10 @@ elif option == "2":
     if inspector.has_table(Message.__tablename__):
         Message.__table__.drop(db.engine)
         print("[OK] Table 'message' deleted.")
+
+    if inspector.has_table(Photo.__tablename__):
+        Photo.__table__.drop(db.engine)
+        print("[OK] Table 'photo' deleted.")
 
         db.create_all()
         print("[OK] Tables recreated (if needed).")
@@ -56,6 +66,16 @@ elif option == "3":
 
 # --- DELETE PHOTOS ---
 elif option == "4":
+
+    inspector = inspect(db.engine)
+
+    if inspector.has_table(Photo.__tablename__):
+        Photo.__table__.drop(db.engine)
+        print("[OK] Table 'photo' deleted.")
+
+    db.create_all()
+    print("[OK] Tables recreated (if needed).")
+
     for file in glob.glob(os.path.join(folder, "*")):
         print(file) 
         os.remove(file)
