@@ -1,20 +1,33 @@
-<!doctype html>
-<title>Login</title>
+<!doctype html>            
+<title>Login</title>       
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   body {
-    max-width: 500px;
-    margin: auto;
-    padding: 1em;
-    background: black;
+    max-width: 500px;      
+    margin-top: 90px;      
+    margin-left: 700px;    
+    padding: 1em;          
+    background: black;     
     color: #fff;
     font: 16px/1.6 menlo, monospace;
   }
   a { color: #0ff; }
+
+  .logo {
+    position: absolute;
+    top: 5px;
+    left: 640px;
+    width: 290px;
+    height: auto;
+    z-index: -1;
+  }
 </style>
 <body>
-  <h2>Enter the chat</h2>
-  <form action="" method="post">
+  <div>
+    <img src="/static/phisma_title.png" alt="kartinka ERROR" class="logo">
+  </div>
+  <h2>Enter the chat</h2>  
+  <form action="" method="post">  
     <p>Username: <input name="user" required /></p>
     <p>Password: <input type="password" name="password" required /></p>
     <p><input type="submit" value="Log in" /></p>
