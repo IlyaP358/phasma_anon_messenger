@@ -75,6 +75,7 @@
 
   <script>
     const USER = {{ user|tojson }};
+    const AUTH_TOKEN = {{ auth_token|tojson }};
 
     try {
       history.replaceState(null, '', '/');
@@ -83,39 +84,60 @@
     }
 
     function sse() {
-      const source = new EventSource("/stream");
       const out = document.getElementById("out");
-
-      source.onmessage = function (e) {
-        const text = e.data;
+      
+      fetch("/stream", {
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+      }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
         
-        // Check if message contains photo marker [PHOTO_ID:123]
-        const photoMatch = text.match(/\[PHOTO_ID:(\d+)\]/);
-        
-        if (photoMatch) {
-          const photoId = photoMatch[1];
-          
-          const msgDiv = document.createElement("div");
-          msgDiv.classList.add("photo-msg");
-          
-          const img = document.createElement("img");
-          img.src = `/photo/${photoId}`;
-          img.alt = "Photo";
-          
-          msgDiv.appendChild(img);
-          out.prepend(msgDiv);
-        } else {
-          const msg = document.createElement("div");
-          msg.textContent = text;
-          out.prepend(msg);
+        function read() {
+          reader.read().then(({ done, value }) => {
+            if (done) return;
+            
+            const text = decoder.decode(value, { stream: true });
+            const lines = text.split('\n');
+            
+            lines.forEach(line => {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (!data) return;
+                
+                const photoMatch = data.match(/\[PHOTO_ID:(\d+)\]/);
+                
+                if (photoMatch) {
+                  const photoId = photoMatch[1];
+                  const msgDiv = document.createElement("div");
+                  msgDiv.classList.add("photo-msg");
+                  const img = document.createElement("img");
+                  img.src = `/photo/${photoId}`;
+                  img.alt = "Photo";
+                  msgDiv.appendChild(img);
+                  out.prepend(msgDiv);
+                } else {
+                  const msg = document.createElement("div");
+                  msg.textContent = data;
+                  out.prepend(msg);
+                }
+              }
+            });
+            read();
+          });
         }
-      };
+        read();
+      });
     }
 
     $("#in").keyup(function (e) {
       if (e.keyCode === 13) {
         const text = $(this).val();
-        $.post("/post", { message: text, user: USER });
+        $.ajax({
+          url: "/post",
+          type: "POST",
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+          data: { message: text }
+        });
         $(this).val("");
       }
     });
@@ -130,11 +152,11 @@
 
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("user", USER);
 
       $.ajax({
         url: "/upload",
         type: "POST",
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
         data: formData,
         processData: false,
         contentType: false,

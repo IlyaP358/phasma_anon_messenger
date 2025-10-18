@@ -4,7 +4,7 @@ import threading
 import time
 import uuid
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, Response, abort, send_file
+from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 import redis
 import requests
@@ -27,7 +27,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-# NOTE: flask.session is NOT used – no persistent cookies are set
+# NOTE: flask.session is NOT used no persistent cookies are set
 
 # ===============================================================
 # ---- Upload configuration ----
@@ -37,6 +37,8 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
+# ---- Authentication Token TTL ----
+AUTH_TOKEN_TTL = 3600  # seconds = 1 hour
 
 # --- TIME ---
 TIMEZONE = ZoneInfo("Europe/Prague")
@@ -209,6 +211,33 @@ def decrypt_file(encrypted_data: bytes) -> bytes:
 
 def get_tor_password():
     return get_secret_decrypted("TOR_PASS_ENC")
+
+# ===============================================================
+# ---- Authentication token helpers ----
+# ===============================================================
+def generate_auth_token(username: str) -> str:
+    token = str(uuid.uuid4())
+    r.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, username.encode("utf-8"))
+    print(f"[OK] Auth token generated for {username}")
+    return token
+
+def verify_token(token: str) -> str or None:
+    if not token:
+        return None
+    username_bytes = r.get(f"auth_token:{token}")
+    if not username_bytes:
+        return None
+    return username_bytes.decode("utf-8")
+
+def revoke_token(token: str):
+    r.delete(f"auth_token:{token}")
+    print(f"[OK] Auth token revoked")
+
+def extract_token_from_request() -> str or None:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+    return auth_header[7:]  # Remove "Bearer " prefix
 
 # ===============================================================
 # ---- Photo helpers ----
@@ -433,8 +462,10 @@ def login():
 
         try:
             argon2Hasher.verify(user.password_hash, password)
-            # If OK – show chat
-            return render_template("index.html", user=username)
+            # Generate ephemeral auth token
+            auth_token = generate_auth_token(username)
+            # Return token to client (store in memory, not cookies)
+            return render_template("index.html", auth_token=auth_token, user=username)
         except VerifyMismatchError:
             return "INCORRECT password", 400
 
@@ -445,9 +476,13 @@ def login():
 # ===============================================================
 @app.route("/post", methods=["POST"])
 def post():
-    username = request.form.get("user", "").strip()
+    # Extract and verify token from Authorization header
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
     if not username:
-        return abort(403)
+        return abort(401)
+    
     text = request.form.get("message", "").strip()
     if not text:
         return ("", 204)
@@ -463,6 +498,13 @@ def post():
 @app.route("/stream")
 def stream():
     """Live chat stream endpoint."""
+    # Extract and verify token from Authorization header
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return abort(401)
+    
     return Response(event_stream(), mimetype="text/event-stream")
 
 # ===============================================================
@@ -471,9 +513,12 @@ def stream():
 @app.route("/upload", methods=["POST"])
 def upload():
     """Upload photo route."""
-    username = request.form.get("user", "").strip()
+    # Extract and verify token from Authorization header
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
     if not username:
-        return abort(403)
+        return abort(401)
     
     if "file" not in request.files:
         return "No file part", 400
@@ -511,6 +556,14 @@ def get_photo(photo_id: int):
         as_attachment=True,
         download_name=original_filename
     )
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    """Logout route - revoke token."""
+    token = extract_token_from_request()
+    if token:
+        revoke_token(token)
+    return "", 204
 
 @app.route("/")
 def root():
