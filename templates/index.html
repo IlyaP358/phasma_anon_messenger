@@ -76,12 +76,32 @@
   <script>
     const USER = {{ user|tojson }};
     const AUTH_TOKEN = {{ auth_token|tojson }};
+    const OLD_SESSION = {{ old_session|tojson }};
+
+    if (OLD_SESSION) {
+      alert("Your account was logged in from another device. Previous session closed.");
+    }
 
     try {
       history.replaceState(null, '', '/');
     } catch (e) {
       // ignore
     }
+
+    function checkSessionValidity() {
+      fetch("/verify-session", {
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+      }).then(response => {
+        if (response.status === 401) {
+          alert("Your session was closed from another device.");
+          window.location.href = "/login";
+        }
+      }).catch(err => {
+        console.log("Session check failed:", err);
+      });
+    }
+
+    setInterval(checkSessionValidity, 10000);
 
     function sse() {
       const out = document.getElementById("out");
@@ -172,6 +192,12 @@
     });
 
     sse();
+
+    window.addEventListener('beforeunload', function () {
+      navigator.sendBeacon('/logout', JSON.stringify({
+        'Authorization': `Bearer ${AUTH_TOKEN}`
+      }));
+    });
   </script>
 </body>
 </html>

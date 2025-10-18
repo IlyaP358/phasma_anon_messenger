@@ -27,7 +27,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-# NOTE: flask.session is NOT used no persistent cookies are set
+# NOTE: flask.session is NOT used – no persistent cookies are set
 
 # ===============================================================
 # ---- Upload configuration ----
@@ -215,13 +215,23 @@ def get_tor_password():
 # ===============================================================
 # ---- Authentication token helpers ----
 # ===============================================================
-def generate_auth_token(username: str) -> str:
+def generate_auth_token(username: str) -> tuple:
+    """Generate ephemeral auth token. One session per user. Returns (token, old_token)."""
+    old_token_bytes = r.get(f"user_session:{username}")
+    old_token = old_token_bytes.decode("utf-8") if old_token_bytes else None
+    
+    # Revoke old token if exists
+    if old_token:
+        r.delete(f"auth_token:{old_token}")
+    
     token = str(uuid.uuid4())
     r.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, username.encode("utf-8"))
+    r.setex(f"user_session:{username}", AUTH_TOKEN_TTL, token.encode("utf-8"))
     print(f"[OK] Auth token generated for {username}")
-    return token
+    return token, old_token
 
 def verify_token(token: str) -> str or None:
+    """Verify token and return username, or None if invalid/expired."""
     if not token:
         return None
     username_bytes = r.get(f"auth_token:{token}")
@@ -230,10 +240,16 @@ def verify_token(token: str) -> str or None:
     return username_bytes.decode("utf-8")
 
 def revoke_token(token: str):
+    """Revoke token immediately (active logout)."""
+    username_bytes = r.get(f"auth_token:{token}")
+    if username_bytes:
+        username = username_bytes.decode("utf-8")
+        r.delete(f"user_session:{username}")
     r.delete(f"auth_token:{token}")
     print(f"[OK] Auth token revoked")
 
 def extract_token_from_request() -> str or None:
+    """Extract Bearer token from Authorization header."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
@@ -462,10 +478,11 @@ def login():
 
         try:
             argon2Hasher.verify(user.password_hash, password)
-            # Generate ephemeral auth token
-            auth_token = generate_auth_token(username)
+            # Generate ephemeral auth token (one session per user)
+            auth_token, old_token = generate_auth_token(username)
+            old_token_exists = old_token is not None
             # Return token to client (store in memory, not cookies)
-            return render_template("index.html", auth_token=auth_token, user=username)
+            return render_template("index.html", auth_token=auth_token, user=username, old_session=old_token_exists)
         except VerifyMismatchError:
             return "INCORRECT password", 400
 
@@ -497,7 +514,6 @@ def post():
 
 @app.route("/stream")
 def stream():
-    """Live chat stream endpoint."""
     # Extract and verify token from Authorization header
     token = extract_token_from_request()
     username = verify_token(token)
@@ -559,11 +575,21 @@ def get_photo(photo_id: int):
 
 @app.route("/logout", methods=["POST"])
 def logout():
-    """Logout route - revoke token."""
+    """Logout route - revoke token immediately."""
     token = extract_token_from_request()
     if token:
         revoke_token(token)
     return "", 204
+
+@app.route("/verify-session", methods=["GET"])
+def verify_session():
+    """Verify if current session is still valid."""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"valid": False}), 401
+    return jsonify({"valid": True}), 200
 
 @app.route("/")
 def root():
