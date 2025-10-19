@@ -28,7 +28,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-# NOTE: flask.session is NOT used — no persistent cookies are set
+# NOTE: flask.session is NOT used – no persistent cookies are set
 
 # ===============================================================
 # ---- Upload configuration ----
@@ -38,6 +38,11 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
 ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG"}  # Pillow Image.format values
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# ---- Image resolution limits ----
+MAX_IMAGE_WIDTH = 1920
+MAX_IMAGE_HEIGHT = 1080
+MAX_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT
 
 # ---- MIME type mapping ----
 SAFE_MIME_MAPPING = {
@@ -286,6 +291,16 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
         # Open image with Pillow - validates bytes and structure
         img = Image.open(io.BytesIO(file_data))
         
+        # Check image resulution BEFORE further processing
+        if img.width > MAX_IMAGE_WIDTH or img.height > MAX_IMAGE_HEIGHT:
+            print(f"[WARN] Image resulution {img.width}x{img.height} exceed maximum {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT}")
+            return None
+        
+        # Check total px count 
+        if img.width * img.height > MAX_PIXELS:
+            print(f"[WARN] Total pixels {img.width * img.height} exceeds maximum {MAX_PIXELS}")
+            return None
+        
         # Get REAL image format from Pillow
         image_format = img.format
         if image_format not in ALLOWED_IMAGE_FORMATS:
@@ -298,7 +313,7 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
             print(f"[ERROR] No MIME mapping for format '{image_format}'")
             return None
         
-        print(f"[OK] Image validated: format={image_format}, mime={mime_type}")
+        print(f"[OK] Image validated: {img.width}x{img.height}, format={image_format}, mime={mime_type}")
         return mime_type
     
     except Exception as e:
