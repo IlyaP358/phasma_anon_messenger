@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet, InvalidToken
 import mimetypes
 import io
 from zoneinfo import ZoneInfo
+from PIL import Image
 
 # ===============================================================
 # ---- Flask app configuration ----
@@ -27,7 +28,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-# NOTE: flask.session is NOT used – no persistent cookies are set
+# NOTE: flask.session is NOT used — no persistent cookies are set
 
 # ===============================================================
 # ---- Upload configuration ----
@@ -35,7 +36,14 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
+ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG"}  # Pillow Image.format values
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# ---- MIME type mapping ----
+SAFE_MIME_MAPPING = {
+    "PNG": "image/png",
+    "JPEG": "image/jpeg"
+}
 
 # ---- Authentication Token TTL ----
 AUTH_TOKEN_TTL = 3600  # seconds = 1 hour
@@ -98,7 +106,7 @@ class Photo(db.Model):
     filename = db.Column(db.String(256), unique=True, nullable=False, index=True)  # UUID-based filename
     original_filename = db.Column(db.String(256), nullable=False)
     filesize = db.Column(db.Integer, nullable=False)
-    mime_type = db.Column(db.String(50), nullable=False)
+    mime_type = db.Column(db.String(50), nullable=False)  # Trusted MIME from Pillow validation
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
     def format_time(self):
@@ -258,16 +266,44 @@ def extract_token_from_request() -> str or None:
 # ===============================================================
 # ---- Photo helpers ----
 # ===============================================================
-def allowed_file(filename: str, mime_type: str) -> bool:
-    """Check if file is allowed based on extension and MIME type."""
-    if not filename or '.' not in filename:
-        return False
-    ext = filename.rsplit('.', 1)[1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        return False
-    if mime_type not in ALLOWED_MIMETYPES:
-        return False
-    return True
+def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str or None:
+    try:
+        # Check file size
+        if len(file_data) > MAX_FILE_SIZE:
+            print(f"[WARN] File size exceeds MAX_FILE_SIZE")
+            return None
+        
+        # Check extension (quick filter)
+        if not original_filename or '.' not in original_filename:
+            print(f"[WARN] Invalid filename format")
+            return None
+        
+        ext = original_filename.rsplit('.', 1)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            print(f"[WARN] File extension '{ext}' not in ALLOWED_EXTENSIONS")
+            return None
+        
+        # Open image with Pillow - validates bytes and structure
+        img = Image.open(io.BytesIO(file_data))
+        
+        # Get REAL image format from Pillow
+        image_format = img.format
+        if image_format not in ALLOWED_IMAGE_FORMATS:
+            print(f"[WARN] Image format '{image_format}' not in ALLOWED_IMAGE_FORMATS")
+            return None
+        
+        # Get trusted MIME type from mapping (NOT FROM CLIENT)
+        mime_type = SAFE_MIME_MAPPING.get(image_format)
+        if not mime_type:
+            print(f"[ERROR] No MIME mapping for format '{image_format}'")
+            return None
+        
+        print(f"[OK] Image validated: format={image_format}, mime={mime_type}")
+        return mime_type
+    
+    except Exception as e:
+        print(f"[WARN] Image validation failed: {e}")
+        return None
 
 def save_photo(username: str, file_obj) -> Photo or None:
     """Save encrypted photo to disk and create DB entry."""
@@ -275,15 +311,9 @@ def save_photo(username: str, file_obj) -> Photo or None:
         # Read file data
         file_data = file_obj.read()
         
-        # Check file size
-        if len(file_data) > MAX_FILE_SIZE:
-            return None
-        
-        # Get MIME type
-        mime_type = file_obj.content_type or mimetypes.guess_type(file_obj.filename)[0]
-        
-        # Validate file
-        if not allowed_file(file_obj.filename, mime_type):
+        # Validate image: magic bytes, format, and get trusted MIME type
+        mime_type = validate_and_get_mime_type(file_data, file_obj.filename)
+        if not mime_type:
             return None
         
         # Generate unique filename (UUID)
@@ -297,14 +327,14 @@ def save_photo(username: str, file_obj) -> Photo or None:
         with open(file_path, 'wb') as f:
             f.write(encrypted_data)
         
-        # Create database entry
+        # Create database entry (with trusted MIME type)
         original_name = secure_filename(file_obj.filename)
         photo = Photo(
             username=username,
             filename=unique_filename,
             original_filename=original_name,
             filesize=len(file_data),
-            mime_type=mime_type
+            mime_type=mime_type  # Trusted MIME from Pillow validation
         )
         db.session.add(photo)
         db.session.commit()
@@ -560,18 +590,29 @@ def upload():
 
 @app.route("/photo/<int:photo_id>")
 def get_photo(photo_id: int):
-    """Download decrypted photo."""
+    """Download decrypted photo (inline display, safe MIME type)."""
     result = load_photo(photo_id)
     if not result:
         return abort(404)
     
     decrypted_data, mime_type, original_filename = result
-    return send_file(
+    
+    # Create response with decrypted image data
+    response = send_file(
         io.BytesIO(decrypted_data),
         mimetype=mime_type,
-        as_attachment=True,
+        as_attachment=False,  # Inline display for <img> tag
         download_name=original_filename
     )
+    
+    # Add strict CSP header to prevent XSS execution
+    response.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'"
+    
+    # Add additional safety headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    
+    return response
 
 @app.route("/logout", methods=["POST"])
 def logout():
