@@ -28,7 +28,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-# NOTE: flask.session is NOT used – no persistent cookies are set
+# NOTE: flask.session is NOT used â€" no persistent cookies are set
 
 # ===============================================================
 # ---- Upload configuration ----
@@ -559,7 +559,6 @@ def post():
 
 @app.route("/stream")
 def stream():
-    # Extract and verify token from Authorization header
     token = extract_token_from_request()
     username = verify_token(token)
     
@@ -574,7 +573,6 @@ def stream():
 @app.route("/upload", methods=["POST"])
 def upload():
     """Upload photo route."""
-    # Extract and verify token from Authorization header
     token = extract_token_from_request()
     username = verify_token(token)
     
