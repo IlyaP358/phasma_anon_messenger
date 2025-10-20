@@ -9,3 +9,4 @@ flask_sqlalchemy
 argon2-cffi
 cryptography
 Pillow
+flask_limiter

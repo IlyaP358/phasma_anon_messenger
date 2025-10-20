@@ -6,6 +6,8 @@ import uuid
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import redis
 import requests
 from stem import Signal
@@ -28,7 +30,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-# NOTE: flask.session is NOT used â€" no persistent cookies are set
+# NOTE: flask.session is NOT used — no persistent cookies are set
 
 # ===============================================================
 # ---- Upload configuration ----
@@ -269,6 +271,26 @@ def extract_token_from_request() -> str or None:
     return auth_header[7:]  # Remove "Bearer " prefix
 
 # ===============================================================
+# ---- Rate Limiter ----
+# ===============================================================
+def get_username_key():
+    token = extract_token_from_request()
+    username = verify_token(token)
+    if username:
+        return f"user:{username}"
+    username_form = request.form.get("user", "").strip()
+    if username_form:
+        return f"form:{username_form}"
+    return get_remote_address()
+
+limiter = Limiter(
+    app=app,
+    key_func=get_username_key,
+    storage_uri="redis://127.0.0.1:6379",
+    default_limits=[]
+)
+
+# ===============================================================
 # ---- Photo helpers ----
 # ===============================================================
 def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str or None:
@@ -488,6 +510,7 @@ def event_stream():
 # ---- Auth Routes ----
 # ===============================================================
 @app.route("/register", methods=["GET", "POST"])
+@limiter.limit("5 per 15 minutes")
 def register():
     """User registration route."""
     if request.method == "POST":
@@ -508,6 +531,7 @@ def register():
     return render_template("register.html")
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per 15 minutes")
 def login():
     """User login route."""
     if request.method == "POST":
@@ -537,6 +561,7 @@ def login():
 # ---- Chat message routes ----
 # ===============================================================
 @app.route("/post", methods=["POST"])
+@limiter.limit("30 per minute")
 def post():
     # Extract and verify token from Authorization header
     token = extract_token_from_request()
@@ -558,6 +583,7 @@ def post():
     return ("", 204)
 
 @app.route("/stream")
+@limiter.limit("100 per minute")
 def stream():
     token = extract_token_from_request()
     username = verify_token(token)
@@ -571,6 +597,7 @@ def stream():
 # ---- Photo upload and download routes ----
 # ===============================================================
 @app.route("/upload", methods=["POST"])
+@limiter.limit("5 per hour")
 def upload():
     """Upload photo route."""
     token = extract_token_from_request()
@@ -636,6 +663,7 @@ def logout():
     return "", 204
 
 @app.route("/verify-session", methods=["GET"])
+@limiter.limit("100 per minute")
 def verify_session():
     """Verify if current session is still valid."""
     token = extract_token_from_request()
