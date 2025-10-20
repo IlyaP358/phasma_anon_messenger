@@ -19,6 +19,7 @@ import mimetypes
 import io
 from zoneinfo import ZoneInfo
 from PIL import Image
+import bleach
 
 # ===============================================================
 # ---- Flask app configuration ----
@@ -226,6 +227,21 @@ def decrypt_file(encrypted_data: bytes) -> bytes:
 
 def get_tor_password():
     return get_secret_decrypted("TOR_PASS_ENC")
+
+# ===============================================================
+# --- TEXT sanitization ---
+# ===============================================================
+def sanitize_text(text: str) -> str:
+    if not text:
+        return ""
+    #REMOVE all Html tags (keep text)
+    sanitized = bleach.clean(
+        text,
+        tags= [],
+        attributes= {},
+        strip= True
+        )
+    return sanitized.strip()
 
 # ===============================================================
 # ---- Authentication token helpers ----
@@ -471,7 +487,14 @@ threading.Thread(target=auto_rotate_tor, args=(10,), daemon=True).start()
 # ---- Message helpers ----
 # ===============================================================
 def save_message(username, content):
-    ciphertext = encrypt_message(content)
+    #Sanitize message before encrypt...
+    sanitized_content = sanitize_text(content)
+
+    #skip empty message after sanitization
+    if not sanitized_content:
+        return None
+
+    ciphertext = encrypt_message(sanitized_content)
     msg = Message(username=username, content=ciphertext)
     db.session.add(msg)
     db.session.commit()
@@ -573,7 +596,10 @@ def post():
     text = request.form.get("message", "").strip()
     if not text:
         return ("", 204)
-    save_message(username, text)
+    
+    msg = save_message(username, text)
+    if not msg:  # Message was empty after sanitization
+        return ("", 204)
 
     def tor_rotate_and_log():
         rotate_tor_identity()
