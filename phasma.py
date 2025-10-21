@@ -307,6 +307,17 @@ limiter = Limiter(
 )
 
 # ===============================================================
+# ---- Rate Limit Error Handler ----
+# ===============================================================
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Handle rate limit exceeded errors."""
+    return jsonify({
+        "error": "Rate limit exceeded",
+        "message": "[ERROR 429] You are sending more than 30 messages per minute. Please try again later."
+    }), 429
+
+# ===============================================================
 # ---- Photo helpers ----
 # ===============================================================
 def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str or None:
@@ -641,7 +652,7 @@ def upload():
     
     photo = save_photo(username, file)
     if not photo:
-        return "Invalid file or file too large", 400
+        return "[ERROR] invalid file or file too large \n max photo resolution is 1920x1080", 400
     
     # Notify chat with photo marker
     notification = f"[PHOTO_ID:{photo.id}]"
