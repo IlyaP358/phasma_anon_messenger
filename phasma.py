@@ -3,11 +3,14 @@ import datetime
 import threading
 import time
 import uuid
+import re
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from dotenv import load_dotenv
+load_dotenv()
 import redis
 import requests
 from stem import Signal
@@ -22,11 +25,34 @@ from PIL import Image
 import bleach
 
 # ===============================================================
+# ---- PRODUCTION vs DEVELOPMENT MODE ----
+# ===============================================================
+# Set FLASK_ENV=production for production deployment
+# In development mode (default), security requirements are OPTIONAL:
+# - FLASK_SECRET, REDIS_PASSWORD, FERNET_MASTER_KEY are optional
+# - Temporary keys are generated with warnings
+# 
+# In production mode, ALL security variables are REQUIRED
+# ===============================================================
+
+# ===============================================================
 # ---- Flask app configuration ----
 # ===============================================================
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET", "phasma_secret_change_me")
-app.config["DEBUG"] = True
+
+# SECRET_KEY configuration
+secret_key = os.environ.get("FLASK_SECRET")
+is_production = os.environ.get("FLASK_ENV") == "production"
+
+if not secret_key:
+    if is_production:
+        raise RuntimeError("[CRITICAL] FLASK_SECRET must be set in production mode!")
+    else:
+        print("[WARN] FLASK_SECRET not set. Using temporary key (development only!)")
+        secret_key = "dev_secret_key_change_in_production"
+
+app.secret_key = secret_key
+
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
@@ -56,22 +82,72 @@ SAFE_MIME_MAPPING = {
 # ---- Authentication Token TTL ----
 AUTH_TOKEN_TTL = 3600  # seconds = 1 hour
 
+# ---- Username/Password validation ----
+USERNAME_MIN_LENGTH = 3
+USERNAME_MAX_LENGTH = 32
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+# ---- Message limit for event stream ----
+MESSAGE_HISTORY_LIMIT = 50
+
+# ---- Tor rotation settings ----
+TOR_ROTATION_INTERVAL = 300  # 5 minutes
+TOR_ROTATION_MESSAGE_THRESHOLD = 30  # Rotate after N messages
+
 # --- TIME ---
 TIMEZONE = ZoneInfo("Europe/Prague")
 
 # ===============================================================
-# ---- Database and Redis ----
+# ---- Database and Redis (with authentication) ----
 # ===============================================================
 db = SQLAlchemy(app)
-r = redis.StrictRedis(host="127.0.0.1", port=6379, db=0, decode_responses=False)
+
+# Redis password (optional for development, required for production)
+redis_password = os.environ.get("REDIS_PASSWORD")
+
+# Determine if we're in production mode
+is_production = os.environ.get("FLASK_ENV") == "production"
+
+if is_production and not redis_password:
+    raise RuntimeError("[CRITICAL] REDIS_PASSWORD must be set in production mode!")
+
+# Create Redis connection with / without password
+if redis_password:
+    r = redis.StrictRedis(
+        host="127.0.0.1",
+        port=6379,
+        db=0,
+        password=redis_password,
+        decode_responses=False
+    )
+else:
+    print("[WARN] Running Redis WITHOUT password (development mode only!)")
+    r = redis.StrictRedis(
+        host="127.0.0.1",
+        port=6379,
+        db=0,
+        decode_responses=False
+    )
+
+# Test Redis connection
+try:
+    r.ping()
+    if redis_password:
+        print("[OK] Redis connection established with authentication")
+    else:
+        print("[OK] Redis connection established (NO PASSWORD - dev mode)")
+except redis.ConnectionError as e:
+    raise RuntimeError(f"[CRITICAL] Redis connection failed: {e}")
 
 # ===============================================================
-# ---- Argon2 Hasher (secure password hashing) ----
+# ---- Argon2 Hasher (strengthened parameters) ----
 # ===============================================================
 argon2Hasher = PasswordHasher(
     time_cost=4,
-    memory_cost=64 * 1024,  # 64 MB
-    parallelism=1,
+    memory_cost=256 * 1024,  # 256 MB
+    parallelism=2,
     hash_len=32,
     salt_len=16
 )
@@ -92,9 +168,14 @@ class User(db.Model):
 
 class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
-    username = db.Column(db.String(100), nullable=False)
+    username = db.Column(db.String(100), nullable=False, index=True)  # Added index
     content = db.Column(db.Text, nullable=False)  # Encrypted message content
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+
+    # Composite index for username + created_at queries
+    __table_args__ = (
+        db.Index('ix_message_username_created', 'username', 'created_at'),
+    )
 
     def get_plain(self):
         return decrypt_message(self.content)
@@ -110,7 +191,7 @@ class Message(db.Model):
 
 class Photo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), nullable=False)
+    username = db.Column(db.String(100), nullable=False, index=True)  # Added index
     filename = db.Column(db.String(256), unique=True, nullable=False, index=True)  # UUID-based filename
     original_filename = db.Column(db.String(256), nullable=False)
     filesize = db.Column(db.Integer, nullable=False)
@@ -140,9 +221,14 @@ class Secret(db.Model):
 def load_master_fernet():
     key = os.environ.get("FERNET_MASTER_KEY")
     if not key:
-        tmp = Fernet.generate_key().decode()
-        print("[WARN] FERNET_MASTER_KEY not set. Generated TEMPORARY master key (local only).")
-        key = tmp
+        if is_production:
+            raise RuntimeError("[CRITICAL] FERNET_MASTER_KEY must be set in production mode!")
+        else:
+            # Generate temporary key for development
+            tmp = Fernet.generate_key().decode()
+            print("[WARN] FERNET_MASTER_KEY not set. Generated TEMPORARY key (development only).")
+            print(f"[WARN] To persist data, add to .env: FERNET_MASTER_KEY={tmp}")
+            key = tmp
     return Fernet(key.encode())
 
 def set_secret_encrypted(name: str, plaintext: str):
@@ -174,14 +260,14 @@ with app.app_context():
     print("[OK] Database tables created (if missing)")
     master_fernet = load_master_fernet()
 
-    # Import tor_pass.txt if needed
+    # Import Tor password from environment variable (NOT from file)
     if Secret.query.filter_by(name="TOR_PASS_ENC").first() is None:
-        if os.path.exists("tor_pass.txt"):
-            with open("tor_pass.txt", "r", encoding="utf-8") as f:
-                torpass = f.read().strip()
-            if torpass:
-                set_secret_encrypted("TOR_PASS_ENC", torpass)
-                print("[INFO] Imported tor_pass.txt into DB (encrypted).")
+        tor_pass_env = os.environ.get("TOR_CONTROL_PASSWORD")
+        if tor_pass_env:
+            set_secret_encrypted("TOR_PASS_ENC", tor_pass_env)
+            print("[INFO] Imported TOR_CONTROL_PASSWORD from environment (encrypted).")
+        else:
+            print("[WARN] TOR_CONTROL_PASSWORD not set. Tor rotation will be disabled.")
 
     # Generate or load DATA_KEY
     data_key = get_secret_decrypted("DATA_KEY_ENC")
@@ -203,6 +289,38 @@ def init_upload_folder():
         print(f"[OK] Upload folder exists: {UPLOAD_FOLDER}")
 
 init_upload_folder()
+
+# ===============================================================
+# ---- Validation helpers ----
+# ===============================================================
+def validate_username(username: str) -> tuple[bool, str]:
+    """Validate username format and length. Returns (is_valid, error_message)."""
+    if not username:
+        return False, "Username cannot be empty"
+    
+    if len(username) < USERNAME_MIN_LENGTH:
+        return False, f"Username must be at least {USERNAME_MIN_LENGTH} characters"
+    
+    if len(username) > USERNAME_MAX_LENGTH:
+        return False, f"Username must not exceed {USERNAME_MAX_LENGTH} characters"
+    
+    if not USERNAME_PATTERN.match(username):
+        return False, "Username can only contain letters, numbers, underscores, and hyphens"
+    
+    return True, ""
+
+def validate_password(password: str) -> tuple[bool, str]:
+    """Validate password length. Returns (is_valid, error_message)."""
+    if not password:
+        return False, "Password cannot be empty"
+    
+    if len(password) < PASSWORD_MIN_LENGTH:
+        return False, f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
+    
+    if len(password) > PASSWORD_MAX_LENGTH:
+        return False, f"Password must not exceed {PASSWORD_MAX_LENGTH} characters"
+    
+    return True, ""
 
 # ===============================================================
 # ---- Encryption helpers ----
@@ -234,13 +352,13 @@ def get_tor_password():
 def sanitize_text(text: str) -> str:
     if not text:
         return ""
-    #REMOVE all Html tags (keep text)
+    # REMOVE all HTML tags (keep text)
     sanitized = bleach.clean(
         text,
-        tags= [],
-        attributes= {},
-        strip= True
-        )
+        tags=[],
+        attributes={},
+        strip=True
+    )
     return sanitized.strip()
 
 # ===============================================================
@@ -280,29 +398,41 @@ def revoke_token(token: str):
     print(f"[OK] Auth token revoked")
 
 def extract_token_from_request() -> str or None:
-    """Extract Bearer token from Authorization header."""
+    """Extract Bearer token from Authorization header or POST body."""
+    # Try Authorization header first
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return None
-    return auth_header[7:]  # Remove "Bearer " prefix
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]  # Remove "Bearer " prefix
+    
+    # Fallback to POST body
+    if request.method == "POST":
+        token = request.form.get("token", "").strip()
+        if token:
+            return token
+    
+    return None
 
 # ===============================================================
 # ---- Rate Limiter ----
 # ===============================================================
 def get_username_key():
+    """Get rate limit key based on authenticated user or IP address."""
     token = extract_token_from_request()
     username = verify_token(token)
     if username:
         return f"user:{username}"
-    username_form = request.form.get("user", "").strip()
-    if username_form:
-        return f"form:{username_form}"
-    return get_remote_address()
+    return f"ip:{get_remote_address()}"
+
+# Build storage URI based on whether Redis has password
+if redis_password:
+    storage_uri = f"redis://:{redis_password}@127.0.0.1:6379"
+else:
+    storage_uri = "redis://127.0.0.1:6379"
 
 limiter = Limiter(
     app=app,
     key_func=get_username_key,
-    storage_uri="redis://127.0.0.1:6379",
+    storage_uri=storage_uri,
     default_limits=[]
 )
 
@@ -314,8 +444,33 @@ def ratelimit_handler(e):
     """Handle rate limit exceeded errors."""
     return jsonify({
         "error": "Rate limit exceeded",
-        "message": "[ERROR 429] You are sending more than 30 messages per minute. Please try again later."
+        "message": "[ERROR 429] You are sending requests too quickly. Please try again later."
     }), 429
+
+# ===============================================================
+# ---- Security Headers ----
+# ===============================================================
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses."""
+    # Skip if CSP already set (e.g., for /photo endpoint)
+    if 'Content-Security-Policy' not in response.headers:
+        # CSP for HTML pages
+        if response.mimetype == 'text/html' or request.path in ['/', '/login', '/register']:
+            response.headers['Content-Security-Policy'] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self'; "
+                "connect-src 'self';"
+            )
+    
+    # Security headers for all responses
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    
+    return response
 
 # ===============================================================
 # ---- Photo helpers ----
@@ -340,9 +495,9 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
         # Open image with Pillow - validates bytes and structure
         img = Image.open(io.BytesIO(file_data))
         
-        # Check image resulution BEFORE further processing
+        # Check image resolution BEFORE further processing
         if img.width > MAX_IMAGE_WIDTH or img.height > MAX_IMAGE_HEIGHT:
-            print(f"[WARN] Image resulution {img.width}x{img.height} exceed maximum {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT}")
+            print(f"[WARN] Image resolution {img.width}x{img.height} exceeds maximum {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT}")
             return None
         
         # Check total px count 
@@ -437,13 +592,16 @@ def load_photo(photo_id: int) -> tuple or None:
         return None
 
 # ===============================================================
-# ---- Tor SOCKS5 and ControlPort ----
+# ---- Tor SOCKS5 and ControlPort (Thread-Safe) ----
 # ===============================================================
 SOCKS5_ADDR = "127.0.0.1:9050"
 TOR_CONTROL_PORT = 9051
-tor_session = None
+
+# Thread-local storage for Tor sessions
+thread_local = threading.local()
 
 def create_tor_session():
+    """Create a new Tor session with SOCKS5 proxy."""
     s = requests.Session()
     s.proxies.update({
         "http": f"socks5h://{SOCKS5_ADDR}",
@@ -451,7 +609,14 @@ def create_tor_session():
     })
     return s
 
+def get_tor_session():
+    """Get thread-local Tor session."""
+    if not hasattr(thread_local, 'session'):
+        thread_local.session = create_tor_session()
+    return thread_local.session
+
 def tor_control_available():
+    """Check if Tor ControlPort is available."""
     import socket
     try:
         with socket.create_connection(("127.0.0.1", TOR_CONTROL_PORT), timeout=1):
@@ -461,7 +626,6 @@ def tor_control_available():
 
 def rotate_tor_identity():
     """Rotate Tor identity via ControlPort."""
-    global tor_session
     if not tor_control_available():
         print("[WARN] Tor ControlPort unavailable")
         return
@@ -470,38 +634,54 @@ def rotate_tor_identity():
             with app.app_context():
                 torpass = get_tor_password()
             if not torpass:
-                print("[WARN] TOR password not found in DB.")
+                print("[WARN] TOR password not found in DB. Rotation disabled.")
                 return
             c.authenticate(password=torpass)
             c.signal(Signal.NEWNYM)
             print("[INFO] -> Tor identity rotated")
             time.sleep(5)
-            tor_session = create_tor_session()
+            
+            # Clear thread-local session to force recreation
+            if hasattr(thread_local, 'session'):
+                delattr(thread_local, 'session')
     except Exception as e:
         print("[ERROR] Tor rotation failed:", e)
 
 def fetch_via_tor(url, **kwargs):
-    global tor_session
-    if tor_session is None:
-        tor_session = create_tor_session()
-    return tor_session.get(url, timeout=15, **kwargs)
+    """Fetch URL via Tor using thread-local session."""
+    session = get_tor_session()
+    return session.get(url, timeout=15, **kwargs)
+
+def increment_message_count():
+    """Increment message counter for Tor rotation."""
+    try:
+        count = r.incr("tor:message_count")
+        if count >= TOR_ROTATION_MESSAGE_THRESHOLD:
+            print(f"[INFO] Message threshold reached ({count} messages). Rotating Tor...")
+            threading.Thread(target=rotate_tor_identity, daemon=True).start()
+            r.set("tor:message_count", 0)
+    except Exception as e:
+        print(f"[ERROR] Failed to increment message count: {e}")
 
 # ---- Background Tor rotation thread ----
-def auto_rotate_tor(interval=10):
+def auto_rotate_tor(interval=TOR_ROTATION_INTERVAL):
+    """Background thread for periodic Tor rotation."""
     while True:
-        rotate_tor_identity()
         time.sleep(interval)
+        rotate_tor_identity()
+        r.set("tor:message_count", 0)  # Reset counter after time-based rotation
 
-threading.Thread(target=auto_rotate_tor, args=(10,), daemon=True).start()
+threading.Thread(target=auto_rotate_tor, daemon=True).start()
 
 # ===============================================================
 # ---- Message helpers ----
 # ===============================================================
 def save_message(username, content):
-    #Sanitize message before encrypt...
+    """Save message to database (sanitized and encrypted)."""
+    # Sanitize message before encrypt
     sanitized_content = sanitize_text(content)
 
-    #skip empty message after sanitization
+    # Skip empty message after sanitization
     if not sanitized_content:
         return None
 
@@ -510,6 +690,10 @@ def save_message(username, content):
     db.session.add(msg)
     db.session.commit()
     r.publish("chat", msg.as_text().encode("utf-8"))
+    
+    # Increment message count for Tor rotation
+    increment_message_count()
+    
     return msg
 
 def _log_tor_ip_background():
@@ -526,9 +710,12 @@ def _log_tor_ip_background():
 def event_stream():
     """Stream chat messages via Server-Sent Events."""
     with app.app_context():
-        last = Message.query.order_by(Message.created_at.desc()).limit(200).all()
+        # Load last N messages
+        last = Message.query.order_by(Message.created_at.desc()).limit(MESSAGE_HISTORY_LIMIT).all()
         for m in reversed(last):
             yield f"data: {m.as_text()}\n\n"
+    
+    # Subscribe to Redis pubsub for new messages
     pubsub = r.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe("chat")
     for message in pubsub.listen():
@@ -551,12 +738,21 @@ def register():
         username = request.form.get("user", "").strip()
         password = request.form.get("password", "").strip()
 
-        if not username or not password:
-            return "Enter your username and password", 400
+        # Validate username
+        valid_username, username_error = validate_username(username)
+        if not valid_username:
+            return username_error, 400
 
+        # Validate password
+        valid_password, password_error = validate_password(password)
+        if not valid_password:
+            return password_error, 400
+
+        # Check if user exists
         if User.query.filter_by(username=username).first():
             return "A user with this name already EXISTS.", 400
 
+        # Hash password and create user
         password_hash = argon2Hasher.hash(password)
         db.session.add(User(username=username, password_hash=password_hash))
         db.session.commit()
@@ -572,8 +768,15 @@ def login():
         username = request.form.get("user", "").strip()
         password = request.form.get("password", "").strip()
 
-        if not username or not password:
-            return "Enter your username and password", 400
+        # Validate username format
+        valid_username, username_error = validate_username(username)
+        if not valid_username:
+            return "INCORRECT username or password", 400
+
+        # Validate password format
+        valid_password, password_error = validate_password(password)
+        if not valid_password:
+            return "INCORRECT username or password", 400
 
         user = User.query.filter_by(username=username).first()
         if not user:
@@ -587,7 +790,7 @@ def login():
             # Return token to client (store in memory, not cookies)
             return render_template("index.html", auth_token=auth_token, user=username, old_session=old_token_exists)
         except VerifyMismatchError:
-            return "INCORRECT password", 400
+            return "INCORRECT username or password", 400
 
     return render_template("login.html")
 
@@ -597,6 +800,7 @@ def login():
 @app.route("/post", methods=["POST"])
 @limiter.limit("30 per minute")
 def post():
+    """Post message to chat."""
     # Extract and verify token from Authorization header
     token = extract_token_from_request()
     username = verify_token(token)
@@ -612,16 +816,12 @@ def post():
     if not msg:  # Message was empty after sanitization
         return ("", 204)
 
-    def tor_rotate_and_log():
-        rotate_tor_identity()
-        _log_tor_ip_background()
-
-    threading.Thread(target=tor_rotate_and_log, daemon=True).start()
     return ("", 204)
 
 @app.route("/stream")
 @limiter.limit("100 per minute")
 def stream():
+    """Server-Sent Events stream for chat messages."""
     token = extract_token_from_request()
     username = verify_token(token)
     
@@ -658,11 +858,6 @@ def upload():
     notification = f"[PHOTO_ID:{photo.id}]"
     save_message(username, notification)
     
-    def tor_rotate_and_log():
-        rotate_tor_identity()
-        _log_tor_ip_background()
-    
-    threading.Thread(target=tor_rotate_and_log, daemon=True).start()
     return {"photo_id": photo.id}, 200
 
 @app.route("/photo/<int:photo_id>")
@@ -718,6 +913,10 @@ def root():
 # ===============================================================
 # ---- Startup ----
 # ===============================================================
+# Debug mode is OFF by default (only enabled via environment variable)
+app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "0") == "1"
+
 if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    print(f"[INFO] Debug mode: {app.config['DEBUG']}")
+    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])

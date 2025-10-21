@@ -150,33 +150,33 @@
     }
 
     $("#in").keyup(function (e) {
-  if (e.keyCode === 13) {
-    const text = $(this).val();
-    $.ajax({
-      url: "/post",
-      type: "POST",
-      headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
-      data: { message: text },
-      success: function() {
-        // Message sent successfully
-      },
-      error: function(xhr) {
-        if (xhr.status === 429) {
-          try {
-            const response = JSON.parse(xhr.responseText);
-            alert(response.message || "You are sending more than 30 messages per minute. Please try again later.");
-          } catch(e) {
-            alert("You are sending more than 30 messages per minute. Please try again later.");
+      if (e.keyCode === 13) {
+        const text = $(this).val();
+        $.ajax({
+          url: "/post",
+          type: "POST",
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+          data: { message: text },
+          success: function() {
+            // Message sent successfully
+          },
+          error: function(xhr) {
+            if (xhr.status === 429) {
+              try {
+                const response = JSON.parse(xhr.responseText);
+                alert(response.message || "You are sending requests too quickly. Please try again later.");
+              } catch(e) {
+                alert("You are sending requests too quickly. Please try again later.");
+              }
+            } else if (xhr.status === 401) {
+              alert("Session expired. Please login again.");
+              window.location.href = "/login";
+            }
           }
-        } else if (xhr.status === 401) {
-          alert("Session expired. Please login again.");
-          window.location.href = "/login";
-        }
+        });
+        $(this).val("");
       }
     });
-    $(this).val("");
-  }
-});
 
     $("#upload-btn").click(function () {
       $("#file-input").click();
@@ -209,10 +209,13 @@
 
     sse();
 
+    // Improved logout with fetch + keepalive (works on tab close)
     window.addEventListener('beforeunload', function () {
-      navigator.sendBeacon('/logout', JSON.stringify({
-        'Authorization': `Bearer ${AUTH_TOKEN}`
-      }));
+      fetch('/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        keepalive: true  // Ensures request completes even if page is closing
+      });
     });
   </script>
 </body>
