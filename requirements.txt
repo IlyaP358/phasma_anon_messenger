@@ -11,3 +11,4 @@ cryptography
 Pillow
 flask_limiter
 bleach
+python-dotenv
