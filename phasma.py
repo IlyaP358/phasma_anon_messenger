@@ -731,7 +731,7 @@ def event_stream():
 # ---- Auth Routes ----
 # ===============================================================
 @app.route("/register", methods=["GET", "POST"])
-@limiter.limit("5 per 15 minutes")
+@limiter.limit("5 per 15 minutes", methods=["POST"])
 def register():
     """User registration route."""
     if request.method == "POST":
@@ -761,7 +761,7 @@ def register():
     return render_template("register.html")
 
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("5 per 15 minutes")
+@limiter.limit("5 per 15 minutes", methods=["POST"])
 def login():
     """User login route."""
     if request.method == "POST":
