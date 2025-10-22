@@ -477,9 +477,19 @@ def ratelimit_handler(e):
 # ===============================================================
 @app.before_request
 def enforce_https():
-    """Enforce HTTPS in production mode."""
-    if is_production and not request.is_secure:
+    """Enforce HTTPS in production mode (unless HTTP_ALLOW is set)."""
+    # Check if HTTP access is explicitly allowed (for testing)
+    http_allow = os.environ.get("HTTP_ALLOW", "0") == "1"
+    
+    if is_production and not request.is_secure and not http_allow:
         return jsonify({"error": "HTTPS required"}), 403
+    
+    # Log warning if HTTP is allowed in production
+    if is_production and http_allow and not request.is_secure:
+        # Only log once per startup to avoid spam
+        if not hasattr(enforce_https, '_warning_shown'):
+            print("[WARN] HTTP_ALLOW is enabled in production mode! This is insecure for public deployment.")
+            enforce_https._warning_shown = True
 
 # ===============================================================
 # ---- Security Headers (with CSP nonce) ----
