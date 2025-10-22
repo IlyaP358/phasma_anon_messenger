@@ -4,11 +4,14 @@ import threading
 import time
 import uuid
 import re
+import secrets
+import logging
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_cors import CORS
 from dotenv import load_dotenv
 load_dotenv()
 import redis
@@ -57,7 +60,32 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-# NOTE: flask.session is NOT used — no persistent cookies are set
+
+# ===============================================================
+# ---- Disable Flask/Werkzeug logging ----
+# ===============================================================
+if is_production:
+    # Disable werkzeug access logs completely in production
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+    log.disabled = True
+else:
+    # In development, reduce logging to WARNINGS only
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.WARNING)
+
+# ===============================================================
+# ---- CORS Configuration ----
+# ===============================================================
+if is_production:
+    # In production: set your actual DOMAIN 
+    CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://yourdomain.com").split(",")
+    CORS(app, origins=CORS_ORIGINS, supports_credentials=True)
+    print(f"[OK] CORS enabled for origins: {CORS_ORIGINS}")
+else:
+    # In development: allow localhost
+    CORS(app, origins=["http://localhost:5000", "http://127.0.0.1:5000"], supports_credentials=True)
+    print("[OK] CORS enabled for localhost (development mode)")
 
 # ===============================================================
 # ---- Upload configuration ----
@@ -91,12 +119,13 @@ USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 # ---- Message limit for event stream ----
 MESSAGE_HISTORY_LIMIT = 50
+MAX_MESSAGE_LENGTH = 5000  # Maximum message length
 
 # ---- Tor rotation settings ----
 TOR_ROTATION_INTERVAL = 300  # 5 minutes
 TOR_ROTATION_MESSAGE_THRESHOLD = 30  # Rotate after N messages
 
-# --- TIME ---
+# --- TIME (SERVER TIME)---
 TIMEZONE = ZoneInfo("Europe/Prague")
 
 # ===============================================================
@@ -106,9 +135,6 @@ db = SQLAlchemy(app)
 
 # Redis password (optional for development, required for production)
 redis_password = os.environ.get("REDIS_PASSWORD")
-
-# Determine if we're in production mode
-is_production = os.environ.get("FLASK_ENV") == "production"
 
 if is_production and not redis_password:
     raise RuntimeError("[CRITICAL] REDIS_PASSWORD must be set in production mode!")
@@ -152,6 +178,8 @@ argon2Hasher = PasswordHasher(
     salt_len=16
 )
 
+DUMMY_HASH = argon2Hasher.hash("dummy_password_for_timing_attack_prevention")
+
 # ===============================================================
 # ---- Database Models ----
 # ===============================================================
@@ -168,11 +196,10 @@ class User(db.Model):
 
 class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
-    username = db.Column(db.String(100), nullable=False, index=True)  # Added index
+    username = db.Column(db.String(100), nullable=False, index=True)
     content = db.Column(db.Text, nullable=False)  # Encrypted message content
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
-    # Composite index for username + created_at queries
     __table_args__ = (
         db.Index('ix_message_username_created', 'username', 'created_at'),
     )
@@ -191,11 +218,11 @@ class Message(db.Model):
 
 class Photo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), nullable=False, index=True)  # Added index
-    filename = db.Column(db.String(256), unique=True, nullable=False, index=True)  # UUID-based filename
-    original_filename = db.Column(db.String(256), nullable=False)
+    username = db.Column(db.String(100), nullable=False, index=True)
+    filename = db.Column(db.String(256), unique=True, nullable=False, index=True)
+    photo_token = db.Column(db.String(128), unique=True, nullable=False, index=True)  # Secret token for URL
     filesize = db.Column(db.Integer, nullable=False)
-    mime_type = db.Column(db.String(50), nullable=False)  # Trusted MIME from Pillow validation
+    mime_type = db.Column(db.String(50), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
     def format_time(self):
@@ -206,7 +233,7 @@ class Photo(db.Model):
 class Secret(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(256), unique=True, nullable=False, index=True)
-    value = db.Column(db.Text, nullable=False)  # Encrypted with master key
+    value = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -224,7 +251,6 @@ def load_master_fernet():
         if is_production:
             raise RuntimeError("[CRITICAL] FERNET_MASTER_KEY must be set in production mode!")
         else:
-            # Generate temporary key for development
             tmp = Fernet.generate_key().decode()
             print("[WARN] FERNET_MASTER_KEY not set. Generated TEMPORARY key (development only).")
             print(f"[WARN] To persist data, add to .env: FERNET_MASTER_KEY={tmp}")
@@ -260,7 +286,6 @@ with app.app_context():
     print("[OK] Database tables created (if missing)")
     master_fernet = load_master_fernet()
 
-    # Import Tor password from environment variable (NOT from file)
     if Secret.query.filter_by(name="TOR_PASS_ENC").first() is None:
         tor_pass_env = os.environ.get("TOR_CONTROL_PASSWORD")
         if tor_pass_env:
@@ -269,7 +294,6 @@ with app.app_context():
         else:
             print("[WARN] TOR_CONTROL_PASSWORD not set. Tor rotation will be disabled.")
 
-    # Generate or load DATA_KEY
     data_key = get_secret_decrypted("DATA_KEY_ENC")
     if not data_key:
         new_key = Fernet.generate_key().decode()
@@ -294,7 +318,6 @@ init_upload_folder()
 # ---- Validation helpers ----
 # ===============================================================
 def validate_username(username: str) -> tuple[bool, str]:
-    """Validate username format and length. Returns (is_valid, error_message)."""
     if not username:
         return False, "Username cannot be empty"
     
@@ -310,7 +333,6 @@ def validate_username(username: str) -> tuple[bool, str]:
     return True, ""
 
 def validate_password(password: str) -> tuple[bool, str]:
-    """Validate password length. Returns (is_valid, error_message)."""
     if not password:
         return False, "Password cannot be empty"
     
@@ -352,7 +374,6 @@ def get_tor_password():
 def sanitize_text(text: str) -> str:
     if not text:
         return ""
-    # REMOVE all HTML tags (keep text)
     sanitized = bleach.clean(
         text,
         tags=[],
@@ -362,25 +383,30 @@ def sanitize_text(text: str) -> str:
     return sanitized.strip()
 
 # ===============================================================
-# ---- Authentication token helpers ----
+# ---- Authentication token helpers (with Redis transactions) ----
 # ===============================================================
 def generate_auth_token(username: str) -> tuple:
-    """Generate ephemeral auth token. One session per user. Returns (token, old_token)."""
+    """Generate ephemeral auth token using Redis MULTI/EXEC transaction."""
     old_token_bytes = r.get(f"user_session:{username}")
     old_token = old_token_bytes.decode("utf-8") if old_token_bytes else None
     
-    # Revoke old token if exists
-    if old_token:
-        r.delete(f"auth_token:{old_token}")
-    
     token = str(uuid.uuid4())
-    r.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, username.encode("utf-8"))
-    r.setex(f"user_session:{username}", AUTH_TOKEN_TTL, token.encode("utf-8"))
+    
+    # Use Redis pipeline for atomic transaction
+    pipe = r.pipeline()
+    pipe.multi()
+    
+    if old_token:
+        pipe.delete(f"auth_token:{old_token}")
+    
+    pipe.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, username.encode("utf-8"))
+    pipe.setex(f"user_session:{username}", AUTH_TOKEN_TTL, token.encode("utf-8"))
+    pipe.execute()
+    
     print(f"[OK] Auth token generated for {username}")
     return token, old_token
 
 def verify_token(token: str) -> str or None:
-    """Verify token and return username, or None if invalid/expired."""
     if not token:
         return None
     username_bytes = r.get(f"auth_token:{token}")
@@ -389,7 +415,6 @@ def verify_token(token: str) -> str or None:
     return username_bytes.decode("utf-8")
 
 def revoke_token(token: str):
-    """Revoke token immediately (active logout)."""
     username_bytes = r.get(f"auth_token:{token}")
     if username_bytes:
         username = username_bytes.decode("utf-8")
@@ -398,13 +423,10 @@ def revoke_token(token: str):
     print(f"[OK] Auth token revoked")
 
 def extract_token_from_request() -> str or None:
-    """Extract Bearer token from Authorization header or POST body."""
-    # Try Authorization header first
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        return auth_header[7:]  # Remove "Bearer " prefix
+        return auth_header[7:]
     
-    # Fallback to POST body
     if request.method == "POST":
         token = request.form.get("token", "").strip()
         if token:
@@ -413,17 +435,21 @@ def extract_token_from_request() -> str or None:
     return None
 
 # ===============================================================
+# ---- Nonce generation for CSP ----
+# ===============================================================
+def generate_nonce():
+    return secrets.token_urlsafe(16)
+
+# ===============================================================
 # ---- Rate Limiter ----
 # ===============================================================
 def get_username_key():
-    """Get rate limit key based on authenticated user or IP address."""
     token = extract_token_from_request()
     username = verify_token(token)
     if username:
         return f"user:{username}"
     return f"ip:{get_remote_address()}"
 
-# Build storage URI based on whether Redis has password
 if redis_password:
     storage_uri = f"redis://:{redis_password}@127.0.0.1:6379"
 else:
@@ -441,48 +467,65 @@ limiter = Limiter(
 # ===============================================================
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    """Handle rate limit exceeded errors."""
     return jsonify({
         "error": "Rate limit exceeded",
         "message": "[ERROR 429] You are sending requests too quickly. Please try again later."
     }), 429
 
 # ===============================================================
-# ---- Security Headers ----
+# ---- HTTPS Enforcement (Production only) ----
+# ===============================================================
+@app.before_request
+def enforce_https():
+    """Enforce HTTPS in production mode."""
+    if is_production and not request.is_secure:
+        return jsonify({"error": "HTTPS required"}), 403
+
+# ===============================================================
+# ---- Security Headers (with CSP nonce) ----
 # ===============================================================
 @app.after_request
 def add_security_headers(response):
-    """Add security headers to all responses."""
-    # Skip if CSP already set (e.g., for /photo endpoint)
-    if 'Content-Security-Policy' not in response.headers:
-        # CSP for HTML pages
-        if response.mimetype == 'text/html' or request.path in ['/', '/login', '/register']:
-            response.headers['Content-Security-Policy'] = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self'; "
-                "connect-src 'self';"
-            )
+    # Get nonce from request context if available
+    nonce = getattr(request, '_csp_nonce', None)
     
-    # Security headers for all responses
+    if 'Content-Security-Policy' not in response.headers:
+        if response.mimetype == 'text/html' or request.path in ['/', '/login', '/register']:
+            if nonce:
+                response.headers['Content-Security-Policy'] = (
+                    f"default-src 'self'; "
+                    f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
+                    f"style-src 'self' 'unsafe-inline'; "
+                    f"img-src 'self'; "
+                    f"connect-src 'self';"
+                )
+            else:
+                response.headers['Content-Security-Policy'] = (
+                    "default-src 'self'; "
+                    "script-src 'self' https://cdn.jsdelivr.net; "
+                    "style-src 'self' 'unsafe-inline'; "
+                    "img-src 'self'; "
+                    "connect-src 'self';"
+                )
+    
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'no-referrer'
     
+    if is_production:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    
     return response
 
 # ===============================================================
-# ---- Photo helpers ----
+# ---- Photo helpers (with secrets token) ----
 # ===============================================================
 def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str or None:
     try:
-        # Check file size
         if len(file_data) > MAX_FILE_SIZE:
             print(f"[WARN] File size exceeds MAX_FILE_SIZE")
             return None
         
-        # Check extension (quick filter)
         if not original_filename or '.' not in original_filename:
             print(f"[WARN] Invalid filename format")
             return None
@@ -492,26 +535,21 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
             print(f"[WARN] File extension '{ext}' not in ALLOWED_EXTENSIONS")
             return None
         
-        # Open image with Pillow - validates bytes and structure
         img = Image.open(io.BytesIO(file_data))
         
-        # Check image resolution BEFORE further processing
         if img.width > MAX_IMAGE_WIDTH or img.height > MAX_IMAGE_HEIGHT:
             print(f"[WARN] Image resolution {img.width}x{img.height} exceeds maximum {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT}")
             return None
         
-        # Check total px count 
         if img.width * img.height > MAX_PIXELS:
             print(f"[WARN] Total pixels {img.width * img.height} exceeds maximum {MAX_PIXELS}")
             return None
         
-        # Get REAL image format from Pillow
         image_format = img.format
         if image_format not in ALLOWED_IMAGE_FORMATS:
             print(f"[WARN] Image format '{image_format}' not in ALLOWED_IMAGE_FORMATS")
             return None
         
-        # Get trusted MIME type from mapping (NOT FROM CLIENT)
         mime_type = SAFE_MIME_MAPPING.get(image_format)
         if not mime_type:
             print(f"[ERROR] No MIME mapping for format '{image_format}'")
@@ -525,49 +563,44 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
         return None
 
 def save_photo(username: str, file_obj) -> Photo or None:
-    """Save encrypted photo to disk and create DB entry."""
+    """Save encrypted photo with secret token."""
     try:
-        # Read file data
         file_data = file_obj.read()
         
-        # Validate image: magic bytes, format, and get trusted MIME type
         mime_type = validate_and_get_mime_type(file_data, file_obj.filename)
         if not mime_type:
             return None
         
-        # Generate unique filename (UUID)
-        unique_filename = f"{uuid.uuid4()}.bin"
+        # Generate cryptographically secure filename and token
+        unique_filename = f"{secrets.token_urlsafe(32)}.bin"
+        photo_token = secrets.token_urlsafe(24)
         file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
         
-        # Encrypt file data
         encrypted_data = encrypt_file(file_data)
         
-        # Save encrypted file to disk
         with open(file_path, 'wb') as f:
             f.write(encrypted_data)
         
-        # Create database entry (with trusted MIME type)
-        original_name = secure_filename(file_obj.filename)
         photo = Photo(
             username=username,
             filename=unique_filename,
-            original_filename=original_name,
+            photo_token=photo_token,
             filesize=len(file_data),
-            mime_type=mime_type  # Trusted MIME from Pillow validation
+            mime_type=mime_type
         )
         db.session.add(photo)
         db.session.commit()
         
-        print(f"[OK] Photo saved: {unique_filename} by {username}")
+        print(f"[OK] Photo saved: {unique_filename} by {username}, token={photo_token}")
         return photo
     except Exception as e:
         print(f"[ERROR] Failed to save photo: {e}")
         return None
 
-def load_photo(photo_id: int) -> tuple or None:
-    """Load and decrypt photo from disk."""
+def load_photo_by_token(photo_token: str) -> tuple or None:
+    """Load and decrypt photo by secret token."""
     try:
-        photo = Photo.query.filter_by(id=photo_id).first()
+        photo = Photo.query.filter_by(photo_token=photo_token).first()
         if not photo:
             return None
         
@@ -576,17 +609,15 @@ def load_photo(photo_id: int) -> tuple or None:
             print(f"[ERROR] Photo file not found: {file_path}")
             return None
         
-        # Read encrypted file
         with open(file_path, 'rb') as f:
             encrypted_data = f.read()
         
-        # Decrypt file data
         decrypted_data = decrypt_file(encrypted_data)
         if decrypted_data is None:
             print(f"[ERROR] Could not decrypt photo: {photo.filename}")
             return None
         
-        return (decrypted_data, photo.mime_type, photo.original_filename)
+        return (decrypted_data, photo.mime_type)
     except Exception as e:
         print(f"[ERROR] Failed to load photo: {e}")
         return None
@@ -597,11 +628,9 @@ def load_photo(photo_id: int) -> tuple or None:
 SOCKS5_ADDR = "127.0.0.1:9050"
 TOR_CONTROL_PORT = 9051
 
-# Thread-local storage for Tor sessions
 thread_local = threading.local()
 
 def create_tor_session():
-    """Create a new Tor session with SOCKS5 proxy."""
     s = requests.Session()
     s.proxies.update({
         "http": f"socks5h://{SOCKS5_ADDR}",
@@ -610,13 +639,11 @@ def create_tor_session():
     return s
 
 def get_tor_session():
-    """Get thread-local Tor session."""
     if not hasattr(thread_local, 'session'):
         thread_local.session = create_tor_session()
     return thread_local.session
 
 def tor_control_available():
-    """Check if Tor ControlPort is available."""
     import socket
     try:
         with socket.create_connection(("127.0.0.1", TOR_CONTROL_PORT), timeout=1):
@@ -625,7 +652,6 @@ def tor_control_available():
         return False
 
 def rotate_tor_identity():
-    """Rotate Tor identity via ControlPort."""
     if not tor_control_available():
         print("[WARN] Tor ControlPort unavailable")
         return
@@ -641,14 +667,12 @@ def rotate_tor_identity():
             print("[INFO] -> Tor identity rotated")
             time.sleep(5)
             
-            # Clear thread-local session to force recreation
             if hasattr(thread_local, 'session'):
                 delattr(thread_local, 'session')
     except Exception as e:
         print("[ERROR] Tor rotation failed:", e)
 
 def fetch_via_tor(url, **kwargs):
-    """Fetch URL via Tor using thread-local session."""
     session = get_tor_session()
     return session.get(url, timeout=15, **kwargs)
 
@@ -663,13 +687,11 @@ def increment_message_count():
     except Exception as e:
         print(f"[ERROR] Failed to increment message count: {e}")
 
-# ---- Background Tor rotation thread ----
 def auto_rotate_tor(interval=TOR_ROTATION_INTERVAL):
-    """Background thread for periodic Tor rotation."""
     while True:
         time.sleep(interval)
         rotate_tor_identity()
-        r.set("tor:message_count", 0)  # Reset counter after time-based rotation
+        r.set("tor:message_count", 0)
 
 threading.Thread(target=auto_rotate_tor, daemon=True).start()
 
@@ -677,12 +699,14 @@ threading.Thread(target=auto_rotate_tor, daemon=True).start()
 # ---- Message helpers ----
 # ===============================================================
 def save_message(username, content):
-    """Save message to database (sanitized and encrypted)."""
-    # Sanitize message before encrypt
+    """Save message to database (sanitized, length-checked, and encrypted)."""
     sanitized_content = sanitize_text(content)
 
-    # Skip empty message after sanitization
     if not sanitized_content:
+        return None
+    
+    # Check message length
+    if len(sanitized_content) > MAX_MESSAGE_LENGTH:
         return None
 
     ciphertext = encrypt_message(sanitized_content)
@@ -691,13 +715,11 @@ def save_message(username, content):
     db.session.commit()
     r.publish("chat", msg.as_text().encode("utf-8"))
     
-    # Increment message count for Tor rotation
     increment_message_count()
     
     return msg
 
 def _log_tor_ip_background():
-    """Check and log Tor exit IP."""
     try:
         resp = fetch_via_tor("https://ifconfig.co/json")
         if resp.ok:
@@ -708,14 +730,11 @@ def _log_tor_ip_background():
         print("[ERROR] Tor request failed:", e)
 
 def event_stream():
-    """Stream chat messages via Server-Sent Events."""
     with app.app_context():
-        # Load last N messages
         last = Message.query.order_by(Message.created_at.desc()).limit(MESSAGE_HISTORY_LIMIT).all()
         for m in reversed(last):
             yield f"data: {m.as_text()}\n\n"
     
-    # Subscribe to Redis pubsub for new messages
     pubsub = r.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe("chat")
     for message in pubsub.listen():
@@ -733,53 +752,62 @@ def event_stream():
 @app.route("/register", methods=["GET", "POST"])
 @limiter.limit("5 per 15 minutes", methods=["POST"])
 def register():
-    """User registration route."""
     if request.method == "POST":
         username = request.form.get("user", "").strip()
         password = request.form.get("password", "").strip()
 
-        # Validate username
         valid_username, username_error = validate_username(username)
         if not valid_username:
             return username_error, 400
 
-        # Validate password
         valid_password, password_error = validate_password(password)
         if not valid_password:
             return password_error, 400
 
-        # Check if user exists
         if User.query.filter_by(username=username).first():
             return "A user with this name already EXISTS.", 400
 
-        # Hash password and create user
         password_hash = argon2Hasher.hash(password)
         db.session.add(User(username=username, password_hash=password_hash))
         db.session.commit()
         return redirect("/login")
 
-    return render_template("register.html")
+    # Generate nonce for GET request
+    nonce = generate_nonce()
+    request._csp_nonce = nonce
+    return render_template("register.html", nonce=nonce)
 
 @app.route("/login", methods=["GET", "POST"])
 @limiter.limit("5 per 15 minutes", methods=["POST"])
 def login():
-    """User login route."""
     if request.method == "POST":
         username = request.form.get("user", "").strip()
         password = request.form.get("password", "").strip()
 
-        # Validate username format
         valid_username, username_error = validate_username(username)
         if not valid_username:
+            # Always verify dummy hash
+            try:
+                argon2Hasher.verify(DUMMY_HASH, password)
+            except:
+                pass
             return "INCORRECT username or password", 400
 
-        # Validate password format
         valid_password, password_error = validate_password(password)
         if not valid_password:
+            try:
+                argon2Hasher.verify(DUMMY_HASH, password)
+            except:
+                pass
             return "INCORRECT username or password", 400
 
         user = User.query.filter_by(username=username).first()
         if not user:
+            # User not found - verify dummy hash to maintain timing consistency
+            try:
+                argon2Hasher.verify(DUMMY_HASH, password)
+            except:
+                pass
             return "INCORRECT username or password", 400
 
         try:
@@ -787,12 +815,18 @@ def login():
             # Generate ephemeral auth token (one session per user)
             auth_token, old_token = generate_auth_token(username)
             old_token_exists = old_token is not None
-            # Return token to client (store in memory, not cookies)
-            return render_template("index.html", auth_token=auth_token, user=username, old_session=old_token_exists)
+            
+            # Generate nonce for response
+            nonce = generate_nonce()
+            request._csp_nonce = nonce
+            return render_template("index.html", auth_token=auth_token, user=username, old_session=old_token_exists, nonce=nonce)
         except VerifyMismatchError:
             return "INCORRECT username or password", 400
 
-    return render_template("login.html")
+    # Generate nonce for GET request
+    nonce = generate_nonce()
+    request._csp_nonce = nonce
+    return render_template("login.html", nonce=nonce)
 
 # ===============================================================
 # ---- Chat message routes ----
@@ -800,8 +834,6 @@ def login():
 @app.route("/post", methods=["POST"])
 @limiter.limit("30 per minute")
 def post():
-    """Post message to chat."""
-    # Extract and verify token from Authorization header
     token = extract_token_from_request()
     username = verify_token(token)
     
@@ -812,8 +844,12 @@ def post():
     if not text:
         return ("", 204)
     
+    # Check message length before processing
+    if len(text) > MAX_MESSAGE_LENGTH:
+        return jsonify({"error": "Message too long", "max_length": MAX_MESSAGE_LENGTH}), 400
+    
     msg = save_message(username, text)
-    if not msg:  # Message was empty after sanitization
+    if not msg:
         return ("", 204)
 
     return ("", 204)
@@ -821,7 +857,6 @@ def post():
 @app.route("/stream")
 @limiter.limit("100 per minute")
 def stream():
-    """Server-Sent Events stream for chat messages."""
     token = extract_token_from_request()
     username = verify_token(token)
     
@@ -836,7 +871,6 @@ def stream():
 @app.route("/upload", methods=["POST"])
 @limiter.limit("5 per hour")
 def upload():
-    """Upload photo route."""
     token = extract_token_from_request()
     username = verify_token(token)
     
@@ -854,33 +888,29 @@ def upload():
     if not photo:
         return "[ERROR] invalid file or file too large \n max photo resolution is 1920x1080", 400
     
-    # Notify chat with photo marker
-    notification = f"[PHOTO_ID:{photo.id}]"
+    # Notify chat with photo token (not ID)
+    notification = f"[PHOTO_TOKEN:{photo.photo_token}]"
     save_message(username, notification)
     
-    return {"photo_id": photo.id}, 200
+    return {"photo_token": photo.photo_token}, 200
 
-@app.route("/photo/<int:photo_id>")
-def get_photo(photo_id: int):
-    """Download decrypted photo (inline display, safe MIME type)."""
-    result = load_photo(photo_id)
+@app.route("/photo/<photo_token>")
+@limiter.limit("60 per minute")
+def get_photo(photo_token: str):
+    """Download decrypted photo by secret token."""
+    result = load_photo_by_token(photo_token)
     if not result:
         return abort(404)
     
-    decrypted_data, mime_type, original_filename = result
+    decrypted_data, mime_type = result
     
-    # Create response with decrypted image data
     response = send_file(
         io.BytesIO(decrypted_data),
         mimetype=mime_type,
-        as_attachment=False,  # Inline display for <img> tag
-        download_name=original_filename
+        as_attachment=False
     )
     
-    # Add strict CSP header to prevent XSS execution
     response.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'"
-    
-    # Add additional safety headers
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     
@@ -888,7 +918,6 @@ def get_photo(photo_id: int):
 
 @app.route("/logout", methods=["POST"])
 def logout():
-    """Logout route - revoke token immediately."""
     token = extract_token_from_request()
     if token:
         revoke_token(token)
@@ -897,7 +926,6 @@ def logout():
 @app.route("/verify-session", methods=["GET"])
 @limiter.limit("100 per minute")
 def verify_session():
-    """Verify if current session is still valid."""
     token = extract_token_from_request()
     username = verify_token(token)
     
@@ -907,16 +935,15 @@ def verify_session():
 
 @app.route("/")
 def root():
-    """Redirect root to login page."""
     return redirect("/login")
 
 # ===============================================================
 # ---- Startup ----
 # ===============================================================
-# Debug mode is OFF by default (only enabled via environment variable)
 app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "0") == "1"
 
 if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
+    print(f"[INFO] Production mode: {is_production}")
     app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])

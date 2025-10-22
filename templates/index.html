@@ -73,7 +73,7 @@
     <input id="file-input" type="file" accept="image/jpeg,image/png" />
   </div>
 
-  <script>
+  <script nonce="{{ nonce }}">
     const USER = {{ user|tojson }};
     const AUTH_TOKEN = {{ auth_token|tojson }};
     const OLD_SESSION = {{ old_session|tojson }};
@@ -124,14 +124,15 @@
                 const data = line.slice(6);
                 if (!data) return;
                 
-                const photoMatch = data.match(/\[PHOTO_ID:(\d+)\]/);
+                // Updated to use PHOTO_TOKEN instead of PHOTO_ID
+                const photoMatch = data.match(/\[PHOTO_TOKEN:([A-Za-z0-9_-]+)\]/);
                 
                 if (photoMatch) {
-                  const photoId = photoMatch[1];
+                  const photoToken = photoMatch[1];
                   const msgDiv = document.createElement("div");
                   msgDiv.classList.add("photo-msg");
                   const img = document.createElement("img");
-                  img.src = `/photo/${photoId}`;
+                  img.src = `/photo/${photoToken}`;
                   img.alt = "Photo";
                   msgDiv.appendChild(img);
                   out.prepend(msgDiv);
@@ -171,6 +172,15 @@
             } else if (xhr.status === 401) {
               alert("Session expired. Please login again.");
               window.location.href = "/login";
+            } else if (xhr.status === 400) {
+              try {
+                const response = JSON.parse(xhr.responseText);
+                if (response.error === "Message too long") {
+                  alert(`Message too long! Maximum length is ${response.max_length} characters.`);
+                }
+              } catch(e) {
+                alert("Invalid request.");
+              }
             }
           }
         });
@@ -197,7 +207,7 @@
         processData: false,
         contentType: false,
         success: function (response) {
-          console.log("Photo uploaded, ID:", response.photo_id);
+          console.log("Photo uploaded, token:", response.photo_token);
           $("#file-input").val("");
         },
         error: function (err) {
@@ -214,7 +224,7 @@
       fetch('/logout', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
-        keepalive: true  // Ensures request completes even if page is closing
+        keepalive: true
       });
     });
   </script>
