@@ -99,8 +99,8 @@ ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG"}  # Pillow Image.format values
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # ---- Image resolution limits ----
-MAX_IMAGE_WIDTH = 1920
-MAX_IMAGE_HEIGHT = 1080
+MAX_IMAGE_WIDTH = 2560
+MAX_IMAGE_HEIGHT = 1440
 MAX_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT
 
 # ---- MIME type mapping ----

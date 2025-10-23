@@ -124,34 +124,61 @@
                 const data = line.slice(6);
                 if (!data) return;
                 
-                // Updated to use PHOTO_TOKEN instead of PHOTO_ID
-const photoMatch = data.match(/\[PHOTO:(\d+)\]/);
-
-if (photoMatch) {
-  const photoId = photoMatch[1];
-  
-  // Request signed URL from server
-  fetch(`/photo/sign/${photoId}`, {
-    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-  })
-  .then(response => response.json())
-  .then(data => {
-    const msgDiv = document.createElement("div");
-    msgDiv.classList.add("photo-msg");
-    const img = document.createElement("img");
-    img.src = data.url;  // Signed URL with expiration
-    img.alt = "Photo";
-    msgDiv.appendChild(img);
-    out.prepend(msgDiv);
-  })
-  .catch(err => {
-    console.error("Failed to load photo:", err);
-  });
-} else {
-  const msg = document.createElement("div");
-  msg.textContent = data;
-  out.prepend(msg);
-}
+                // Check if message contains photo marker
+                const photoMatch = data.match(/\[PHOTO:(\d+)\]/);
+                
+                if (photoMatch) {
+                  const photoId = photoMatch[1];
+                  
+                  // Extract timestamp and username from message
+                  const messageText = data.replace(/\[PHOTO:\d+\]/, '').trim();
+                  
+                  // Create placeholder immediately to preserve order
+                  const msgDiv = document.createElement("div");
+                  msgDiv.classList.add("photo-msg");
+                  msgDiv.setAttribute('data-photo-id', photoId);
+                  
+                  // Add timestamp/username text if exists
+                  if (messageText) {
+                    const textNode = document.createElement("div");
+                    textNode.textContent = messageText;
+                    msgDiv.appendChild(textNode);
+                  }
+                  
+                  // Add loading indicator
+                  const loader = document.createElement("div");
+                  loader.textContent = "[Loading photo...]";
+                  loader.style.color = "#888";
+                  msgDiv.appendChild(loader);
+                  
+                  // Insert placeholder in correct position
+                  out.prepend(msgDiv);
+                  
+                  // Request signed URL from server
+                  fetch(`/photo/sign/${photoId}`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                  })
+                  .then(response => response.json())
+                  .then(data => {
+                    // Remove loading indicator
+                    loader.remove();
+                    
+                    // Create and add image
+                    const img = document.createElement("img");
+                    img.src = data.url;
+                    img.alt = "Photo";
+                    msgDiv.appendChild(img);
+                  })
+                  .catch(err => {
+                    console.error("Failed to load photo:", err);
+                    loader.textContent = "[Failed to load photo]";
+                    loader.style.color = "#f00";
+                  });
+                } else {
+                  const msg = document.createElement("div");
+                  msg.textContent = data;
+                  out.prepend(msg);
+                }
               }
             });
             read();
@@ -217,9 +244,9 @@ if (photoMatch) {
         data: formData,
         processData: false,
         contentType: false,
-  success: function (response) {
-  console.log("Photo uploaded, ID:", response.photo_id);
-  $("#file-input").val("");
+        success: function (response) {
+          console.log("Photo uploaded, ID:", response.photo_id);
+          $("#file-input").val("");
         },
         error: function (err) {
           alert("Upload failed: " + err.responseText);
