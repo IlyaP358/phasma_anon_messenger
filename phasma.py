@@ -26,6 +26,8 @@ import io
 from zoneinfo import ZoneInfo
 from PIL import Image
 import bleach
+import hmac
+import hashlib
 
 # ===============================================================
 # ---- PRODUCTION vs DEVELOPMENT MODE ----
@@ -120,6 +122,10 @@ USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 # ---- Message limit for event stream ----
 MESSAGE_HISTORY_LIMIT = 50
 MAX_MESSAGE_LENGTH = 5000  # Maximum message length
+
+# ---- Photo signed URL settings ----
+PHOTO_URL_TTL = 86400  # 24 hours in seconds
+SIGNED_URL_SECRET = None  # Will be loaded from DB
 
 # ---- Tor rotation settings ----
 TOR_ROTATION_INTERVAL = 300  # 5 minutes
@@ -385,12 +391,33 @@ def sanitize_text(text: str) -> str:
 # ===============================================================
 # ---- Authentication token helpers (with Redis transactions) ----
 # ===============================================================
+def get_client_ip_subnet() -> str:
+    """Get first 3 octets of client IP (network subnet)."""
+    ip = get_remote_address()
+    if not ip:
+        return "0.0.0"
+    
+    # Handle IPv4
+    if '.' in ip:
+        octets = ip.split('.')
+        return '.'.join(octets[:3])  # First 3 octets: x.x.x
+    
+    # Handle IPv6 (first 48 bits = /48 prefix)
+    if ':' in ip:
+        segments = ip.split(':')
+        return ':'.join(segments[:3])  # First 3 segments
+    
+    return "0.0.0"
+
 def generate_auth_token(username: str) -> tuple:
-    """Generate ephemeral auth token using Redis MULTI/EXEC transaction."""
     old_token_bytes = r.get(f"user_session:{username}")
     old_token = old_token_bytes.decode("utf-8") if old_token_bytes else None
     
     token = str(uuid.uuid4())
+    ip_subnet = get_client_ip_subnet()
+    
+    # Store token data as JSON: username + IP subnet
+    token_data = f"{username}|{ip_subnet}"
     
     # Use Redis pipeline for atomic transaction
     pipe = r.pipeline()
@@ -399,20 +426,38 @@ def generate_auth_token(username: str) -> tuple:
     if old_token:
         pipe.delete(f"auth_token:{old_token}")
     
-    pipe.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, username.encode("utf-8"))
+    pipe.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, token_data.encode("utf-8"))
     pipe.setex(f"user_session:{username}", AUTH_TOKEN_TTL, token.encode("utf-8"))
     pipe.execute()
     
-    print(f"[OK] Auth token generated for {username}")
+    print(f"[OK] Auth token generated for {username} from subnet {ip_subnet}")
     return token, old_token
 
 def verify_token(token: str) -> str or None:
+    """Verify token and check IP subnet binding."""
     if not token:
         return None
-    username_bytes = r.get(f"auth_token:{token}")
-    if not username_bytes:
+    
+    token_data_bytes = r.get(f"auth_token:{token}")
+    if not token_data_bytes:
         return None
-    return username_bytes.decode("utf-8")
+    
+    token_data = token_data_bytes.decode("utf-8")
+    
+    # Parse token data: username/ip_subnet
+    if '|' not in token_data:
+        return token_data
+    
+    username, stored_subnet = token_data.split('|', 1)
+    current_subnet = get_client_ip_subnet()
+    
+    # Check if IP subnet matches
+    if stored_subnet != current_subnet:
+        print(f"[SECURITY] IP subnet mismatch for {username}: stored={stored_subnet}, current={current_subnet}")
+        revoke_token(token)
+        return None
+    
+    return username
 
 def revoke_token(token: str):
     username_bytes = r.get(f"auth_token:{token}")
@@ -571,6 +616,73 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
     except Exception as e:
         print(f"[WARN] Image validation failed: {e}")
         return None
+
+# ===============================================================
+# ---- Photo Signed URL helpers ----
+# ===============================================================
+def get_or_create_signed_url_secret():
+    """Get or create secret key for signed URLs."""
+    global SIGNED_URL_SECRET
+    if SIGNED_URL_SECRET:
+        return SIGNED_URL_SECRET
+    
+    with app.app_context():
+        secret = get_secret_decrypted("SIGNED_URL_SECRET")
+        if not secret:
+            secret = secrets.token_urlsafe(32)
+            set_secret_encrypted("SIGNED_URL_SECRET", secret)
+            print("[INFO] Generated new SIGNED_URL_SECRET")
+        SIGNED_URL_SECRET = secret
+        return secret
+
+def generate_signed_photo_url(photo_token: str) -> dict:
+    """Generate signed URL for photo with 24h expiration."""
+    secret = get_or_create_signed_url_secret()
+    expiration = int(time.time()) + PHOTO_URL_TTL
+    
+    # Create signature: HMAC(photo_token + expiration)
+    message = f"{photo_token}:{expiration}"
+    signature = hmac.new(
+        secret.encode('utf-8'),
+        message.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    
+    return {
+        "token": photo_token,
+        "signature": signature,
+        "expires": expiration
+    }
+
+def verify_signed_photo_url(photo_token: str, signature: str, expiration: str) -> bool:
+    """Verify signed photo URL."""
+    try:
+        secret = get_or_create_signed_url_secret()
+        exp_timestamp = int(expiration)
+        
+        # Check expiration
+        if time.time() > exp_timestamp:
+            print(f"[WARN] Signed URL expired: {photo_token}")
+            return False
+        
+        # Verify signature
+        message = f"{photo_token}:{exp_timestamp}"
+        expected_signature = hmac.new(
+            secret.encode('utf-8'),
+            message.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Constant-time comparison to prevent timing attacks
+        if not hmac.compare_digest(signature, expected_signature):
+            print(f"[WARN] Invalid signature for photo: {photo_token}")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"[ERROR] Signature verification failed: {e}")
+        return False
+
 
 def save_photo(username: str, file_obj) -> Photo or None:
     """Save encrypted photo with secret token."""
@@ -768,16 +880,30 @@ def register():
 
         valid_username, username_error = validate_username(username)
         if not valid_username:
+            # Timing attack prevention: always hash password
+            try:
+                argon2Hasher.verify(DUMMY_HASH, password)
+            except:
+                pass
             return username_error, 400
 
         valid_password, password_error = validate_password(password)
         if not valid_password:
+            # Timing attack prevention: always hash password
+            try:
+                argon2Hasher.verify(DUMMY_HASH, password)
+            except:
+                pass
             return password_error, 400
 
+        # Hash password BEFORE checking username existence (timing attack prevention)
+        password_hash = argon2Hasher.hash(password)
+        
+        # Now check if user exists
         if User.query.filter_by(username=username).first():
             return "A user with this name already EXISTS.", 400
 
-        password_hash = argon2Hasher.hash(password)
+        # Create user with pre-hashed password
         db.session.add(User(username=username, password_hash=password_hash))
         db.session.commit()
         return redirect("/login")
@@ -899,15 +1025,45 @@ def upload():
         return "[ERROR] invalid file or file too large \n max photo resolution is 1920x1080", 400
     
     # Notify chat with photo token (not ID)
-    notification = f"[PHOTO_TOKEN:{photo.photo_token}]"
+    notification = f"[PHOTO:{photo.id}]"
     save_message(username, notification)
     
-    return {"photo_token": photo.photo_token}, 200
+    return {"photo_id": photo.id}, 200
+
+@app.route("/photo/sign/<int:photo_id>", methods=["GET"])
+@limiter.limit("20 per minute")
+def sign_photo_url(photo_id: int):
+    """Generate signed URL for photo access."""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return abort(401)
+    
+    # Get photo from database
+    photo = Photo.query.filter_by(id=photo_id).first()
+    if not photo:
+        return abort(404)
+    
+    # Generate signed URL
+    signed_data = generate_signed_photo_url(photo.photo_token)
+    
+    return jsonify({
+        "url": f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+    }), 200
 
 @app.route("/photo/<photo_token>")
 @limiter.limit("60 per minute")
 def get_photo(photo_token: str):
-    """Download decrypted photo by secret token."""
+    """Download decrypted photo by signed URL."""
+    # Get signature and expiration from query params
+    signature = request.args.get('sig', '')
+    expiration = request.args.get('exp', '')
+    
+    # Verify signed URL
+    if not verify_signed_photo_url(photo_token, signature, expiration):
+        return abort(403)
+    
     result = load_photo_by_token(photo_token)
     if not result:
         return abort(404)
@@ -934,7 +1090,7 @@ def logout():
     return "", 204
 
 @app.route("/verify-session", methods=["GET"])
-@limiter.limit("100 per minute")
+@limiter.limit("10 per minute")
 def verify_session():
     token = extract_token_from_request()
     username = verify_token(token)

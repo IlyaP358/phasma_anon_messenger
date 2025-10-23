@@ -125,22 +125,33 @@
                 if (!data) return;
                 
                 // Updated to use PHOTO_TOKEN instead of PHOTO_ID
-                const photoMatch = data.match(/\[PHOTO_TOKEN:([A-Za-z0-9_-]+)\]/);
-                
-                if (photoMatch) {
-                  const photoToken = photoMatch[1];
-                  const msgDiv = document.createElement("div");
-                  msgDiv.classList.add("photo-msg");
-                  const img = document.createElement("img");
-                  img.src = `/photo/${photoToken}`;
-                  img.alt = "Photo";
-                  msgDiv.appendChild(img);
-                  out.prepend(msgDiv);
-                } else {
-                  const msg = document.createElement("div");
-                  msg.textContent = data;
-                  out.prepend(msg);
-                }
+const photoMatch = data.match(/\[PHOTO:(\d+)\]/);
+
+if (photoMatch) {
+  const photoId = photoMatch[1];
+  
+  // Request signed URL from server
+  fetch(`/photo/sign/${photoId}`, {
+    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+  })
+  .then(response => response.json())
+  .then(data => {
+    const msgDiv = document.createElement("div");
+    msgDiv.classList.add("photo-msg");
+    const img = document.createElement("img");
+    img.src = data.url;  // Signed URL with expiration
+    img.alt = "Photo";
+    msgDiv.appendChild(img);
+    out.prepend(msgDiv);
+  })
+  .catch(err => {
+    console.error("Failed to load photo:", err);
+  });
+} else {
+  const msg = document.createElement("div");
+  msg.textContent = data;
+  out.prepend(msg);
+}
               }
             });
             read();
@@ -206,9 +217,9 @@
         data: formData,
         processData: false,
         contentType: false,
-        success: function (response) {
-          console.log("Photo uploaded, token:", response.photo_token);
-          $("#file-input").val("");
+  success: function (response) {
+  console.log("Photo uploaded, ID:", response.photo_id);
+  $("#file-input").val("");
         },
         error: function (err) {
           alert("Upload failed: " + err.responseText);
