@@ -835,7 +835,22 @@ def save_message(username, content):
     msg = Message(username=username, content=ciphertext)
     db.session.add(msg)
     db.session.commit()
-    r.publish("chat", msg.as_text().encode("utf-8"))
+    
+    # Generate signed URL for new photos 
+    plain_text = sanitized_content
+    photo_match = re.search(r'\[PHOTO:(\d+)\]', plain_text)
+    if photo_match:
+        photo_id = int(photo_match.group(1))
+        photo = Photo.query.filter_by(id=photo_id).first()
+        if photo:
+            signed_data = generate_signed_photo_url(photo.photo_token)
+            photo_url = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+            plain_text = plain_text.replace(f"[PHOTO:{photo_id}]", f"[PHOTO:{photo_id}:{photo_url}]")
+    
+    # publish message with URL photo (if exist)
+    ts = msg.format_time()
+    message_text = f"[{ts}] {username}: {plain_text}"
+    r.publish("chat", message_text.encode("utf-8"))
     
     increment_message_count()
     
@@ -853,10 +868,43 @@ def _log_tor_ip_background():
 
 def event_stream():
     with app.app_context():
+        # Загружаем последние сообщения
         last = Message.query.order_by(Message.created_at.desc()).limit(MESSAGE_HISTORY_LIMIT).all()
+        
+        # Собираем все photo_id из истории
+        photo_ids = []
         for m in reversed(last):
-            yield f"data: {m.as_text()}\n\n"
+            plain_text = m.get_plain()
+            # Ищем все [PHOTO:ID] в сообщении
+            photo_matches = re.findall(r'\[PHOTO:(\d+)\]', plain_text)
+            photo_ids.extend([int(pid) for pid in photo_matches])
+        
+        # Предзагружаем signed URLs для всех фото из истории
+        photo_urls = {}
+        if photo_ids:
+            photos = Photo.query.filter(Photo.id.in_(photo_ids)).all()
+            for photo in photos:
+                signed_data = generate_signed_photo_url(photo.photo_token)
+                photo_urls[photo.id] = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+        
+        # Отправляем историю с предзагруженными URL фото
+        for m in reversed(last):
+            plain_text = m.get_plain()
+            
+            # Заменяем [PHOTO:ID] на [PHOTO:ID:URL]
+            def replace_photo(match):
+                photo_id = int(match.group(1))
+                if photo_id in photo_urls:
+                    return f"[PHOTO:{photo_id}:{photo_urls[photo_id]}]"
+                return match.group(0)
+            
+            plain_text = re.sub(r'\[PHOTO:(\d+)\]', replace_photo, plain_text)
+            
+            ts = m.format_time()
+            message_text = f"[{ts}] {m.username}: {plain_text}"
+            yield f"data: {message_text}\n\n"
     
+    # Подписываемся на новые сообщения
     pubsub = r.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe("chat")
     for message in pubsub.listen():
@@ -914,7 +962,7 @@ def register():
     return render_template("register.html", nonce=nonce)
 
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("5 per 15 minutes", methods=["POST"])
+@limiter.limit("30 per 15 minutes", methods=["POST"])
 def login():
     if request.method == "POST":
         username = request.form.get("user", "").strip()
@@ -1005,7 +1053,7 @@ def stream():
 # ---- Photo upload and download routes ----
 # ===============================================================
 @app.route("/upload", methods=["POST"])
-@limiter.limit("5 per hour")
+@limiter.limit("30 per hour")
 def upload():
     token = extract_token_from_request()
     username = verify_token(token)

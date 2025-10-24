@@ -61,6 +61,10 @@
       border: 1px solid #0f0;
       cursor: pointer;
     }
+    .photo-loading {
+      color: #888;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
@@ -124,16 +128,17 @@
                 const data = line.slice(6);
                 if (!data) return;
                 
-                // Check if message contains photo marker
-                const photoMatch = data.match(/\[PHOTO:(\d+)\]/);
+                // Check for photo with pre-signed URL: [PHOTO:ID:URL]
+                const photoWithUrlMatch = data.match(/\[PHOTO:(\d+):([^\]]+)\]/);
                 
-                if (photoMatch) {
-                  const photoId = photoMatch[1];
+                if (photoWithUrlMatch) {
+                  const photoId = photoWithUrlMatch[1];
+                  const photoUrl = photoWithUrlMatch[2];
                   
                   // Extract timestamp and username from message
-                  const messageText = data.replace(/\[PHOTO:\d+\]/, '').trim();
+                  const messageText = data.replace(/\[PHOTO:\d+:[^\]]+\]/, '').trim();
                   
-                  // Create placeholder immediately to preserve order
+                  // Create message div
                   const msgDiv = document.createElement("div");
                   msgDiv.classList.add("photo-msg");
                   msgDiv.setAttribute('data-photo-id', photoId);
@@ -145,39 +150,74 @@
                     msgDiv.appendChild(textNode);
                   }
                   
-                  // Add loading indicator
-                  const loader = document.createElement("div");
-                  loader.textContent = "[Loading photo...]";
-                  loader.style.color = "#888";
-                  msgDiv.appendChild(loader);
+                  // Add image immediately (URL is already signed)
+                  const img = document.createElement("img");
+                  img.src = photoUrl;
+                  img.alt = "Photo";
+                  img.loading = "lazy";
+                  msgDiv.appendChild(img);
                   
-                  // Insert placeholder in correct position
+                  // Insert in correct position
                   out.prepend(msgDiv);
                   
-                  // Request signed URL from server
-                  fetch(`/photo/sign/${photoId}`, {
-                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-                  })
-                  .then(response => response.json())
-                  .then(data => {
-                    // Remove loading indicator
-                    loader.remove();
-                    
-                    // Create and add image
-                    const img = document.createElement("img");
-                    img.src = data.url;
-                    img.alt = "Photo";
-                    msgDiv.appendChild(img);
-                  })
-                  .catch(err => {
-                    console.error("Failed to load photo:", err);
-                    loader.textContent = "[Failed to load photo]";
-                    loader.style.color = "#f00";
-                  });
                 } else {
-                  const msg = document.createElement("div");
-                  msg.textContent = data;
-                  out.prepend(msg);
+                  // Check for old format photo marker (fallback): [PHOTO:ID]
+                  const photoMatch = data.match(/\[PHOTO:(\d+)\]/);
+                  
+                  if (photoMatch) {
+                    const photoId = photoMatch[1];
+                    
+                    // Extract timestamp and username from message
+                    const messageText = data.replace(/\[PHOTO:\d+\]/, '').trim();
+                    
+                    // Create placeholder immediately to preserve order
+                    const msgDiv = document.createElement("div");
+                    msgDiv.classList.add("photo-msg");
+                    msgDiv.setAttribute('data-photo-id', photoId);
+                    
+                    // Add timestamp/username text if exists
+                    if (messageText) {
+                      const textNode = document.createElement("div");
+                      textNode.textContent = messageText;
+                      msgDiv.appendChild(textNode);
+                    }
+                    
+                    // Add loading indicator
+                    const loader = document.createElement("div");
+                    loader.textContent = "[Loading photo...]";
+                    loader.classList.add("photo-loading");
+                    msgDiv.appendChild(loader);
+                    
+                    // Insert placeholder in correct position
+                    out.prepend(msgDiv);
+                    
+                    // Request signed URL from server (fallback for old messages)
+                    fetch(`/photo/sign/${photoId}`, {
+                      headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                      // Remove loading indicator
+                      loader.remove();
+                      
+                      // Create and add image
+                      const img = document.createElement("img");
+                      img.src = data.url;
+                      img.alt = "Photo";
+                      img.loading = "lazy";
+                      msgDiv.appendChild(img);
+                    })
+                    .catch(err => {
+                      console.error("Failed to load photo:", err);
+                      loader.textContent = "[Failed to load photo]";
+                      loader.style.color = "#f00";
+                    });
+                  } else {
+                    // Regular text message
+                    const msg = document.createElement("div");
+                    msg.textContent = data;
+                    out.prepend(msg);
+                  }
                 }
               }
             });

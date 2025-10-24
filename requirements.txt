@@ -13,3 +13,5 @@ flask_limiter
 bleach
 python-dotenv
 flask_cors
+gunicorn
+gevent
