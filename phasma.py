@@ -856,6 +856,45 @@ def save_message(username, content):
     
     return msg
 
+# ===============================================================
+# ---- Cursor encryption helpers (preload old_messages)----
+# ===============================================================
+def encrypt_cursor(message_id: int) -> str:
+    import time
+    nonce = secrets.token_urlsafe(8)
+    timestamp = int(time.time())
+    cursor_data = f"{message_id}:{timestamp}:{nonce}"
+    encrypted = data_fernet.encrypt(cursor_data.encode("utf-8")).decode("utf-8")
+    return encrypted
+
+def decrypt_cursor(cursor: str) -> int or None:
+    try:
+        decrypted = data_fernet.decrypt(cursor.encode("utf-8")).decode("utf-8")
+        parts = decrypted.split(":")
+        if len(parts) != 3:
+            return None
+        
+        message_id = int(parts[0])
+        timestamp = int(parts[1])
+        
+        # Check if cursor is not older than 1 hour
+        if time.time() - timestamp > 3600: #seconds
+            print(f"[WARN] Expired cursor: {cursor[:20]}...")
+            return None
+        
+        return message_id
+    except (InvalidToken, ValueError) as e:
+        print(f"[WARN] Invalid cursor: {e}")
+        return None
+
+def get_messages_before(message_id: int, limit: int = 3) -> list:
+    """Get N messages with ID less than given message_id."""
+    messages = Message.query.filter(
+        Message.id < message_id
+    ).order_by(Message.created_at.desc()).limit(limit).all()
+    
+    return list(reversed(messages))
+
 def _log_tor_ip_background():
     try:
         resp = fetch_via_tor("https://ifconfig.co/json")
@@ -868,18 +907,17 @@ def _log_tor_ip_background():
 
 def event_stream():
     with app.app_context():
-        # Загружаем последние сообщения
+        # Load last messages
         last = Message.query.order_by(Message.created_at.desc()).limit(MESSAGE_HISTORY_LIMIT).all()
         
-        # Собираем все photo_id из истории
+        # Collect all photo_ids from history
         photo_ids = []
         for m in reversed(last):
             plain_text = m.get_plain()
-            # Ищем все [PHOTO:ID] в сообщении
             photo_matches = re.findall(r'\[PHOTO:(\d+)\]', plain_text)
             photo_ids.extend([int(pid) for pid in photo_matches])
         
-        # Предзагружаем signed URLs для всех фото из истории
+        # Preload signed URLs for all photos from history
         photo_urls = {}
         if photo_ids:
             photos = Photo.query.filter(Photo.id.in_(photo_ids)).all()
@@ -887,11 +925,17 @@ def event_stream():
                 signed_data = generate_signed_photo_url(photo.photo_token)
                 photo_urls[photo.id] = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
         
-        # Отправляем историю с предзагруженными URL фото
+        # Send initial cursor for infinite scroll (ID of oldest message)
+        if last:
+            oldest_message_id = last[-1].id  # Last in reversed list = oldest
+            initial_cursor = encrypt_cursor(oldest_message_id)
+            yield f"event: cursor\ndata: {initial_cursor}\n\n"
+        
+        # Send history with preloaded photo URLs
         for m in reversed(last):
             plain_text = m.get_plain()
             
-            # Заменяем [PHOTO:ID] на [PHOTO:ID:URL]
+            # Replace [PHOTO:ID] with [PHOTO:ID:URL]
             def replace_photo(match):
                 photo_id = int(match.group(1))
                 if photo_id in photo_urls:
@@ -904,7 +948,7 @@ def event_stream():
             message_text = f"[{ts}] {m.username}: {plain_text}"
             yield f"data: {message_text}\n\n"
     
-    # Подписываемся на новые сообщения
+    # Subscribe to new messages
     pubsub = r.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe("chat")
     for message in pubsub.listen():
@@ -1048,6 +1092,65 @@ def stream():
         return abort(401)
     
     return Response(event_stream(), mimetype="text/event-stream")
+
+@app.route("/messages/history", methods=["GET"])
+@limiter.limit("30 per minute")
+def get_message_history():
+    """Load older messages using encrypted cursor."""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return abort(401)
+    
+    cursor = request.args.get("cursor", "").strip()
+    if not cursor:
+        return jsonify({"error": "Missing cursor"}), 400
+    
+    # Decrypt and validate cursor
+    before_id = decrypt_cursor(cursor)
+    if before_id is None:
+        return jsonify({"error": "Invalid or expired cursor"}), 400
+    
+    # Load messages
+    messages = get_messages_before(before_id, limit=3)
+    
+    if not messages:
+        return jsonify({
+            "messages": [],
+            "cursor": None,
+            "has_more": False
+        }), 200
+    
+    # Prepare messages with decrypted content and signed photo URLs
+    result_messages = []
+    for msg in messages:
+        plain_text = msg.get_plain()
+        
+        # Replace [PHOTO:ID] with [PHOTO:ID:URL]
+        photo_ids = re.findall(r'\[PHOTO:(\d+)\]', plain_text)
+        for photo_id in photo_ids:
+            photo = Photo.query.filter_by(id=int(photo_id)).first()
+            if photo:
+                signed_data = generate_signed_photo_url(photo.photo_token)
+                photo_url = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+                plain_text = plain_text.replace(f"[PHOTO:{photo_id}]", f"[PHOTO:{photo_id}:{photo_url}]")
+        
+        result_messages.append({
+            "id": msg.id,
+            "username": msg.username,
+            "content": plain_text,
+            "timestamp": msg.format_time()
+        })
+    
+    # Generate new cursor for next batch (oldest message ID from current batch)
+    new_cursor = encrypt_cursor(messages[0].id)
+    
+    return jsonify({
+        "messages": result_messages,
+        "cursor": new_cursor,
+        "has_more": True
+    }), 200
 
 # ===============================================================
 # ---- Photo upload and download routes ----
