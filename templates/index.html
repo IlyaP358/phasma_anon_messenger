@@ -74,6 +74,11 @@
       color: #888;
       padding: 0.5em;
       font-style: italic;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
     }
     #end-indicator {
       text-align: center;
@@ -241,6 +246,25 @@
       }
     }
 
+    function showLoadingIndicator() {
+      const out = document.getElementById("out");
+      
+      if (!loadingIndicator) {
+        loadingIndicator = document.createElement("div");
+        loadingIndicator.id = "loading-indicator";
+        loadingIndicator.textContent = "Loading...";
+      }
+      
+      // Insert at the top (visually) = append to end of DOM
+      out.appendChild(loadingIndicator);
+    }
+
+    function hideLoadingIndicator() {
+      if (loadingIndicator && loadingIndicator.parentNode) {
+        loadingIndicator.remove();
+      }
+    }
+
     function loadMoreMessages() {
       if (isLoadingMore || !hasMoreMessages || !currentCursor) {
         return;
@@ -249,16 +273,11 @@
       isLoadingMore = true;
       const out = document.getElementById("out");
       
-      // Show loading indicator
-      if (!loadingIndicator) {
-        loadingIndicator = document.createElement("div");
-        loadingIndicator.id = "loading-indicator";
-        loadingIndicator.textContent = "Loading...";
-      }
-      out.appendChild(loadingIndicator);
+      // Show loading indicator at TOP
+      showLoadingIndicator();
 
-      // Save anchor element (last message) for scroll restoration
-      const lastMessage = out.lastElementChild?.previousElementSibling; // Skip loading indicator
+      // Save anchor element (last message before loading indicator)
+      const lastMessage = out.lastElementChild?.previousElementSibling;
       const anchorOffsetBefore = lastMessage ? lastMessage.offsetTop : 0;
 
       fetch(`/messages/history?cursor=${encodeURIComponent(currentCursor)}`, {
@@ -275,10 +294,8 @@
       .then(data => {
         if (!data) return;
 
-        // Remove loading indicator
-        if (loadingIndicator && loadingIndicator.parentNode) {
-          loadingIndicator.remove();
-        }
+        // Hide loading indicator
+        hideLoadingIndicator();
 
         if (data.messages && data.messages.length > 0) {
           // Add messages to history
@@ -291,7 +308,7 @@
           currentCursor = data.cursor;
           hasMoreMessages = data.has_more;
 
-          // Restore scroll position using anchor element (improved)
+          // Restore scroll position using anchor element
           requestAnimationFrame(() => {
             if (lastMessage && lastMessage.offsetTop !== anchorOffsetBefore) {
               const anchorOffsetAfter = lastMessage.offsetTop;
@@ -318,9 +335,7 @@
       })
       .catch(err => {
         console.error("Failed to load history:", err);
-        if (loadingIndicator && loadingIndicator.parentNode) {
-          loadingIndicator.remove();
-        }
+        hideLoadingIndicator();
         isLoadingMore = false;
       });
     }
@@ -338,8 +353,8 @@
         });
       }, {
         root: out,
-        threshold: 0.7,           // ← INCREASED (triggers when 70% visible)
-        rootMargin: '100px'       // ← ADDED (triggers 100px before reaching trigger)
+        threshold: 0.7,
+        rootMargin: '100px'
       });
 
       observer.observe(trigger);

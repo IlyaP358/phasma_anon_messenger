@@ -888,10 +888,10 @@ def decrypt_cursor(cursor: str) -> int or None:
         return None
 
 def get_messages_before(message_id: int, limit: int = 30) -> list:
-    """Get N messages with ID less than given message_id."""
+    """Get N messages with ID less than given message_id, sorted by created_at and id."""
     messages = Message.query.filter(
         Message.id < message_id
-    ).order_by(Message.created_at.desc()).limit(limit).all()
+    ).order_by(Message.created_at.desc(), Message.id.desc()).limit(limit).all()
     
     return list(reversed(messages))
 
@@ -908,8 +908,8 @@ def _log_tor_ip_background():
 def event_stream():
     with app.app_context():
         # Load last messages
-        last = Message.query.order_by(Message.created_at.desc()).limit(MESSAGE_HISTORY_LIMIT).all()
-        
+        last = Message.query.order_by(Message.created_at.desc(), Message.id.desc()).limit(MESSAGE_HISTORY_LIMIT).all()
+
         # Collect all photo_ids from history
         photo_ids = []
         for m in reversed(last):
