@@ -887,7 +887,7 @@ def decrypt_cursor(cursor: str) -> int or None:
         print(f"[WARN] Invalid cursor: {e}")
         return None
 
-def get_messages_before(message_id: int, limit: int = 3) -> list:
+def get_messages_before(message_id: int, limit: int = 30) -> list:
     """Get N messages with ID less than given message_id."""
     messages = Message.query.filter(
         Message.id < message_id
@@ -1113,7 +1113,7 @@ def get_message_history():
         return jsonify({"error": "Invalid or expired cursor"}), 400
     
     # Load messages
-    messages = get_messages_before(before_id, limit=3)
+    messages = get_messages_before(before_id, limit=30)
     
     if not messages:
         return jsonify({
@@ -1122,19 +1122,34 @@ def get_message_history():
             "has_more": False
         }), 200
     
+    # Collect all photo IDs from messages
+    photo_ids = []
+    for msg in messages:
+        plain_text = msg.get_plain()
+        photo_matches = re.findall(r'\[PHOTO:(\d+)\]', plain_text)
+        photo_ids.extend([int(pid) for pid in photo_matches])
+    
+    # Preload signed URLs for all photos (BATCH!)
+    photo_urls = {}
+    if photo_ids:
+        photos = Photo.query.filter(Photo.id.in_(photo_ids)).all()
+        for photo in photos:
+            signed_data = generate_signed_photo_url(photo.photo_token)
+            photo_urls[photo.id] = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+    
     # Prepare messages with decrypted content and signed photo URLs
     result_messages = []
     for msg in messages:
         plain_text = msg.get_plain()
         
-        # Replace [PHOTO:ID] with [PHOTO:ID:URL]
-        photo_ids = re.findall(r'\[PHOTO:(\d+)\]', plain_text)
-        for photo_id in photo_ids:
-            photo = Photo.query.filter_by(id=int(photo_id)).first()
-            if photo:
-                signed_data = generate_signed_photo_url(photo.photo_token)
-                photo_url = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
-                plain_text = plain_text.replace(f"[PHOTO:{photo_id}]", f"[PHOTO:{photo_id}:{photo_url}]")
+        # Replace [PHOTO:ID] with [PHOTO:ID:URL] using preloaded URLs
+        def replace_photo(match):
+            photo_id = int(match.group(1))
+            if photo_id in photo_urls:
+                return f"[PHOTO:{photo_id}:{photo_urls[photo_id]}]"
+            return match.group(0)
+        
+        plain_text = re.sub(r'\[PHOTO:(\d+)\]', replace_photo, plain_text)
         
         result_messages.append({
             "id": msg.id,

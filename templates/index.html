@@ -257,9 +257,9 @@
       }
       out.appendChild(loadingIndicator);
 
-      // Remember scroll position
-      const oldScrollHeight = out.scrollHeight;
-      const oldScrollTop = out.scrollTop;
+      // Save anchor element (last message) for scroll restoration
+      const lastMessage = out.lastElementChild?.previousElementSibling; // Skip loading indicator
+      const anchorOffsetBefore = lastMessage ? lastMessage.offsetTop : 0;
 
       fetch(`/messages/history?cursor=${encodeURIComponent(currentCursor)}`, {
         headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
@@ -291,10 +291,15 @@
           currentCursor = data.cursor;
           hasMoreMessages = data.has_more;
 
-          // Restore scroll position (prevent jump)
-          const newScrollHeight = out.scrollHeight;
-          const scrollDiff = newScrollHeight - oldScrollHeight;
-          out.scrollTop = oldScrollTop + scrollDiff;
+          // Restore scroll position using anchor element (improved)
+          requestAnimationFrame(() => {
+            if (lastMessage && lastMessage.offsetTop !== anchorOffsetBefore) {
+              const anchorOffsetAfter = lastMessage.offsetTop;
+              const scrollAdjustment = anchorOffsetAfter - anchorOffsetBefore;
+              out.scrollTop += scrollAdjustment;
+              console.log(`Scroll adjusted by ${scrollAdjustment}px`);
+            }
+          });
 
         } else {
           // No more messages
@@ -333,7 +338,8 @@
         });
       }, {
         root: out,
-        threshold: 0.1
+        threshold: 0.7,           // ← INCREASED (triggers when 70% visible)
+        rootMargin: '100px'       // ← ADDED (triggers 100px before reaching trigger)
       });
 
       observer.observe(trigger);
