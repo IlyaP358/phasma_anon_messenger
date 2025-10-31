@@ -19,11 +19,44 @@
     #out {
       flex: 1;
       display: flex;
-      flex-direction: column-reverse;
-      justify-content: flex-start;
+      flex-direction: column;
       overflow-y: auto;
       padding: 1em;
       white-space: pre-wrap;
+      position: relative;
+    }
+    #messages-container {
+      display: flex;
+      flex-direction: column;
+    }
+    #load-more-container {
+      text-align: center;
+      padding: 0.5em;
+      background: rgba(0, 0, 0, 0.9);
+      border-bottom: 1px solid #333;
+      display: none;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    #load-more-btn {
+      background: #222;
+      color: #0f0;
+      border: 1px solid #0f0;
+      padding: 0.5em 1em;
+      font: inherit;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #load-more-btn:hover {
+      background: #0f0;
+      color: #000;
+    }
+    #load-more-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      color: #888;
+      border-color: #888;
     }
     #input-container {
       padding: 1em;
@@ -65,32 +98,14 @@
       color: #888;
       font-style: italic;
     }
-    #scroll-trigger {
-      height: 1px;
-      width: 100%;
-    }
-    #loading-indicator {
-      text-align: center;
-      color: #888;
-      padding: 0.5em;
-      font-style: italic;
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 0.5; }
-      50% { opacity: 1; }
-    }
-    #end-indicator {
-      text-align: center;
-      color: #555;
-      padding: 0.5em;
-      font-style: italic;
-    }
   </style>
 </head>
 <body>
   <div id="out">
-    <div id="scroll-trigger"></div>
+    <div id="load-more-container">
+      <button id="load-more-btn">↑ Load older messages</button>
+    </div>
+    <div id="messages-container"></div>
   </div>
 
   <div id="input-container">
@@ -115,12 +130,19 @@
       // ignore
     }
 
-    // Infinite scroll state
-    let currentCursor = null;
-    let isLoadingMore = false;
-    let hasMoreMessages = true;
-    let loadingIndicator = null;
-    let endIndicator = null;
+    // Message management
+    let loadedMessageIds = new Set();
+    let oldestMessageId = null;
+    let newestMessageId = null;
+    let isLoadingHistory = false;
+    let hasMoreHistory = true;
+    let initialLoadDone = false;
+    let sseStarted = false;
+
+    const out = document.getElementById("out");
+    const messagesContainer = document.getElementById("messages-container");
+    const loadMoreBtn = document.getElementById("load-more-btn");
+    const loadMoreContainer = document.getElementById("load-more-container");
 
     function checkSessionValidity() {
       fetch("/verify-session", {
@@ -137,9 +159,7 @@
 
     setInterval(checkSessionValidity, 10000);
 
-    function addMessage(data, isHistory = false) {
-      const out = document.getElementById("out");
-      
+    function createMessageElement(data) {
       // Check for photo with pre-signed URL: [PHOTO:ID:URL]
       const photoWithUrlMatch = data.match(/\[PHOTO:(\d+):([^\]]+)\]/);
       
@@ -169,12 +189,7 @@
         img.loading = "lazy";
         msgDiv.appendChild(img);
         
-        // Insert in correct position
-        if (isHistory) {
-          out.appendChild(msgDiv); // Append for history (visually at top)
-        } else {
-          out.prepend(msgDiv); // Prepend for new messages (visually at bottom)
-        }
+        return msgDiv;
         
       } else {
         // Check for old format photo marker (fallback): [PHOTO:ID]
@@ -204,13 +219,6 @@
           loader.classList.add("photo-loading");
           msgDiv.appendChild(loader);
           
-          // Insert placeholder in correct position
-          if (isHistory) {
-            out.appendChild(msgDiv);
-          } else {
-            out.prepend(msgDiv);
-          }
-          
           // Request signed URL from server (fallback for old messages)
           fetch(`/photo/sign/${photoId}`, {
             headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
@@ -232,182 +240,191 @@
             loader.textContent = "[Failed to load photo]";
             loader.style.color = "#f00";
           });
+          
+          return msgDiv;
         } else {
           // Regular text message
           const msg = document.createElement("div");
           msg.textContent = data;
-          
-          if (isHistory) {
-            out.appendChild(msg);
-          } else {
-            out.prepend(msg);
-          }
+          return msg;
         }
       }
     }
 
-    function showLoadingIndicator() {
-      const out = document.getElementById("out");
-      
-      if (!loadingIndicator) {
-        loadingIndicator = document.createElement("div");
-        loadingIndicator.id = "loading-indicator";
-        loadingIndicator.textContent = "Loading...";
-      }
-      
-      // Insert at the top (visually) = append to end of DOM
-      out.appendChild(loadingIndicator);
-    }
-
-    function hideLoadingIndicator() {
-      if (loadingIndicator && loadingIndicator.parentNode) {
-        loadingIndicator.remove();
-      }
-    }
-
-    function loadMoreMessages() {
-      if (isLoadingMore || !hasMoreMessages || !currentCursor) {
+    function loadHistory() {
+      if (isLoadingHistory || !hasMoreHistory) {
         return;
       }
 
-      isLoadingMore = true;
-      const out = document.getElementById("out");
-      
-      // Show loading indicator at TOP
-      showLoadingIndicator();
+      isLoadingHistory = true;
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = "Loading...";
 
-      // Save anchor element (last message before loading indicator)
-      const lastMessage = out.lastElementChild?.previousElementSibling;
-      const anchorOffsetBefore = lastMessage ? lastMessage.offsetTop : 0;
+      // Save scroll position
+      const scrollContainer = out;
+      const oldScrollHeight = scrollContainer.scrollHeight;
+      const oldScrollTop = scrollContainer.scrollTop;
 
-      fetch(`/messages/history?cursor=${encodeURIComponent(currentCursor)}`, {
+      const url = oldestMessageId 
+        ? `/history?before_id=${oldestMessageId}&limit=50`
+        : `/history?limit=50`;
+
+      fetch(url, {
         headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
       })
-      .then(response => {
-        if (response.status === 401) {
-          alert("Session expired. Please login again.");
-          window.location.href = "/login";
+      .then(response => response.json())
+      .then(data => {
+        if (data.messages.length === 0) {
+          hasMoreHistory = false;
+          loadMoreBtn.textContent = "No more messages";
+          setTimeout(() => {
+            loadMoreContainer.style.display = "none";
+          }, 2000);
           return;
         }
-        return response.json();
-      })
-      .then(data => {
-        if (!data) return;
 
-        // Hide loading indicator
-        hideLoadingIndicator();
+        console.log(`[History] Loaded ${data.messages.length} messages`);
 
-        if (data.messages && data.messages.length > 0) {
-          // Add messages to history
-          data.messages.forEach(msg => {
-            const messageText = `[${msg.timestamp}] ${msg.username}: ${msg.content}`;
-            addMessage(messageText, true);
-          });
-
-          // Update cursor for next load
-          currentCursor = data.cursor;
-          hasMoreMessages = data.has_more;
-
-          // Restore scroll position using anchor element
-          requestAnimationFrame(() => {
-            if (lastMessage && lastMessage.offsetTop !== anchorOffsetBefore) {
-              const anchorOffsetAfter = lastMessage.offsetTop;
-              const scrollAdjustment = anchorOffsetAfter - anchorOffsetBefore;
-              out.scrollTop += scrollAdjustment;
-              console.log(`Scroll adjusted by ${scrollAdjustment}px`);
+        // Add messages in order (oldest first)
+        data.messages.forEach(msg => {
+          if (!loadedMessageIds.has(msg.id)) {
+            loadedMessageIds.add(msg.id);
+            const msgElement = createMessageElement(msg.text);
+            
+            if (initialLoadDone) {
+              // If loading older messages, insert at TOP
+              messagesContainer.insertBefore(msgElement, messagesContainer.firstChild);
+            } else {
+              // Initial load: add to bottom
+              messagesContainer.appendChild(msgElement);
             }
-          });
-
-        } else {
-          // No more messages
-          hasMoreMessages = false;
-          
-          // Show "end" indicator
-          if (!endIndicator) {
-            endIndicator = document.createElement("div");
-            endIndicator.id = "end-indicator";
-            endIndicator.textContent = "— no more messages —";
-            out.appendChild(endIndicator);
+            
+            // Track oldest and newest
+            if (!oldestMessageId || msg.id < oldestMessageId) {
+              oldestMessageId = msg.id;
+            }
+            if (!newestMessageId || msg.id > newestMessageId) {
+              newestMessageId = msg.id;
+            }
           }
+        });
+
+        // Restore scroll position when loading older messages
+        if (initialLoadDone) {
+          requestAnimationFrame(() => {
+            const newScrollHeight = scrollContainer.scrollHeight;
+            scrollContainer.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
+          });
         }
 
-        isLoadingMore = false;
+        hasMoreHistory = data.has_more;
+        
+        if (!hasMoreHistory) {
+          loadMoreBtn.textContent = "No more messages";
+          setTimeout(() => {
+            loadMoreContainer.style.display = "none";
+          }, 2000);
+        } else {
+          loadMoreBtn.textContent = "↑ Load older messages";
+        }
+
+        // After FIRST load: scroll to bottom and start SSE
+        if (!initialLoadDone) {
+          initialLoadDone = true;
+          console.log("[Init] First history load complete. Scrolling to bottom...");
+          
+          requestAnimationFrame(() => {
+            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+            
+            // Start SSE only once
+            if (!sseStarted) {
+              sseStarted = true;
+              console.log("[Init] Starting SSE...");
+              startSSE();
+            }
+          });
+        }
       })
       .catch(err => {
         console.error("Failed to load history:", err);
-        hideLoadingIndicator();
-        isLoadingMore = false;
+        loadMoreBtn.textContent = "⚠ Error - try again";
+        hasMoreHistory = true;
+      })
+      .finally(() => {
+        isLoadingHistory = false;
+        loadMoreBtn.disabled = false;
       });
     }
 
-    function setupInfiniteScroll() {
-      const trigger = document.getElementById("scroll-trigger");
-      const out = document.getElementById("out");
+    // Show load button when scrolling near top
+    out.addEventListener('scroll', () => {
+      if (out.scrollTop < 100 && hasMoreHistory && !isLoadingHistory) {
+        loadMoreContainer.style.display = "block";
+      } else if (out.scrollTop > 200) {
+        loadMoreContainer.style.display = "none";
+      }
+    });
 
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting && hasMoreMessages && !isLoadingMore) {
-            console.log("Scroll trigger visible - loading more messages");
-            loadMoreMessages();
-          }
-        });
-      }, {
-        root: out,
-        threshold: 0.7,
-        rootMargin: '100px'
-      });
+    loadMoreBtn.addEventListener('click', loadHistory);
 
-      observer.observe(trigger);
-    }
-
-    function sse() {
-      const out = document.getElementById("out");
+    function startSSE() {
+      console.log("[SSE] Connecting to event stream...");
       
       fetch("/stream", {
         headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
       }).then(response => {
+        console.log("[SSE] Connected successfully");
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         
         function read() {
           reader.read().then(({ done, value }) => {
-            if (done) return;
+            if (done) {
+              console.log("[SSE] Stream closed");
+              return;
+            }
             
             const text = decoder.decode(value, { stream: true });
             const lines = text.split('\n');
             
             lines.forEach(line => {
-              // Handle cursor event
-              if (line.startsWith('event: cursor')) {
-                return;
-              }
-              
               if (line.startsWith('data: ')) {
                 const data = line.slice(6);
                 if (!data) return;
                 
-                // Check if this is cursor data
-                if (lines[lines.indexOf(line) - 1] === 'event: cursor') {
-                  currentCursor = data;
-                  console.log("Initial cursor received");
-                  setupInfiniteScroll();
-                  return;
-                }
+                console.log("[SSE] New message:", data.substring(0, 50) + "...");
                 
-                // Regular message
-                addMessage(data, false);
+                // Add new message to BOTTOM
+                const msgElement = createMessageElement(data);
+                messagesContainer.appendChild(msgElement);
+                
+                // Auto-scroll to bottom if user is near bottom
+                const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
+                if (isNearBottom) {
+                  requestAnimationFrame(() => {
+                    out.scrollTop = out.scrollHeight;
+                  });
+                }
               }
             });
             read();
           });
         }
         read();
+      }).catch(err => {
+        console.error("[SSE] Failed to connect:", err);
       });
     }
+
+    // Start by loading initial history (last 50 messages)
+    console.log("[Init] Loading initial history...");
+    loadHistory();
 
     $("#in").keyup(function (e) {
       if (e.keyCode === 13) {
         const text = $(this).val();
+        if (!text.trim()) return;
+        
         $.ajax({
           url: "/post",
           type: "POST",
@@ -462,7 +479,7 @@
         processData: false,
         contentType: false,
         success: function (response) {
-          console.log("Photo uploaded, ID:", response.photo_id);
+          console.log("Photo uploaded, ID:", response.photo_id, "Message ID:", response.message_id);
           $("#file-input").val("");
         },
         error: function (err) {
@@ -472,9 +489,7 @@
       });
     });
 
-    sse();
-
-    // Improved logout with fetch + keepalive (works on tab close)
+    // Logout on tab close
     window.addEventListener('beforeunload', function () {
       fetch('/logout', {
         method: 'POST',

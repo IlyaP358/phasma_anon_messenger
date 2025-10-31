@@ -6,6 +6,7 @@ import uuid
 import re
 import secrets
 import logging
+import json
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -32,17 +33,6 @@ import hashlib
 # ===============================================================
 # ---- PRODUCTION vs DEVELOPMENT MODE ----
 # ===============================================================
-# Set FLASK_ENV=production for production deployment
-# In development mode (default), security requirements are OPTIONAL:
-# - FLASK_SECRET, REDIS_PASSWORD, FERNET_MASTER_KEY are optional
-# - Temporary keys are generated with warnings
-# 
-# In production mode, ALL security variables are REQUIRED
-# ===============================================================
-
-# ===============================================================
-# ---- Flask app configuration ----
-# ===============================================================
 app = Flask(__name__)
 
 # SECRET_KEY configuration
@@ -67,12 +57,10 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # ---- Disable Flask/Werkzeug logging ----
 # ===============================================================
 if is_production:
-    # Disable werkzeug access logs completely in production
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
     log.disabled = True
 else:
-    # In development, reduce logging to WARNINGS only
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.WARNING)
 
@@ -80,12 +68,10 @@ else:
 # ---- CORS Configuration ----
 # ===============================================================
 if is_production:
-    # In production: set your actual DOMAIN 
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "https://yourdomain.com").split(",")
     CORS(app, origins=CORS_ORIGINS, supports_credentials=True)
     print(f"[OK] CORS enabled for origins: {CORS_ORIGINS}")
 else:
-    # In development: allow localhost
     CORS(app, origins=["http://localhost:5000", "http://127.0.0.1:5000"], supports_credentials=True)
     print("[OK] CORS enabled for localhost (development mode)")
 
@@ -95,57 +81,47 @@ else:
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
-ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG"}  # Pillow Image.format values
+ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-# ---- Image resolution limits ----
 MAX_IMAGE_WIDTH = 2560
 MAX_IMAGE_HEIGHT = 1440
 MAX_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT
 
-# ---- MIME type mapping ----
 SAFE_MIME_MAPPING = {
     "PNG": "image/png",
     "JPEG": "image/jpeg"
 }
 
-# ---- Authentication Token TTL ----
 AUTH_TOKEN_TTL = 3600  # seconds = 1 hour
 
-# ---- Username/Password validation ----
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 32
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = 128
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
-# ---- Message limit for event stream ----
 MESSAGE_HISTORY_LIMIT = 50
-MAX_MESSAGE_LENGTH = 5000  # Maximum message length
+MAX_MESSAGE_LENGTH = 5000
 
-# ---- Photo signed URL settings ----
-PHOTO_URL_TTL = 86400  # 24 hours in seconds
-SIGNED_URL_SECRET = None  # Will be loaded from DB
+PHOTO_URL_TTL = 86400  # 24 hours
+SIGNED_URL_SECRET = None
 
-# ---- Tor rotation settings ----
 TOR_ROTATION_INTERVAL = 300  # 5 minutes
-TOR_ROTATION_MESSAGE_THRESHOLD = 30  # Rotate after N messages
+TOR_ROTATION_MESSAGE_THRESHOLD = 30
 
-# --- TIME (SERVER TIME)---
 TIMEZONE = ZoneInfo("Europe/Prague")
 
 # ===============================================================
-# ---- Database and Redis (with authentication) ----
+# ---- Database and Redis ----
 # ===============================================================
 db = SQLAlchemy(app)
 
-# Redis password (optional for development, required for production)
 redis_password = os.environ.get("REDIS_PASSWORD")
 
 if is_production and not redis_password:
     raise RuntimeError("[CRITICAL] REDIS_PASSWORD must be set in production mode!")
 
-# Create Redis connection with / without password
 if redis_password:
     r = redis.StrictRedis(
         host="127.0.0.1",
@@ -163,7 +139,6 @@ else:
         decode_responses=False
     )
 
-# Test Redis connection
 try:
     r.ping()
     if redis_password:
@@ -174,11 +149,11 @@ except redis.ConnectionError as e:
     raise RuntimeError(f"[CRITICAL] Redis connection failed: {e}")
 
 # ===============================================================
-# ---- Argon2 Hasher (strengthened parameters) ----
+# ---- Argon2 Hasher ----
 # ===============================================================
 argon2Hasher = PasswordHasher(
     time_cost=4,
-    memory_cost=256 * 1024,  # 256 MB
+    memory_cost=256 * 1024,
     parallelism=2,
     hash_len=32,
     salt_len=16
@@ -203,7 +178,8 @@ class User(db.Model):
 class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
     username = db.Column(db.String(100), nullable=False, index=True)
-    content = db.Column(db.Text, nullable=False)  # Encrypted message content
+    content = db.Column(db.Text, nullable=False)
+    message_type = db.Column(db.String(20), nullable=False, default='text', index=True)  # 'text' or 'photo'
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
     __table_args__ = (
@@ -211,7 +187,18 @@ class Message(db.Model):
     )
 
     def get_plain(self):
-        return decrypt_message(self.content)
+        try:
+            decrypted = data_fernet.decrypt(self.content.encode("utf-8")).decode("utf-8")
+            
+            if self.message_type == 'photo':
+                # Для фото content - это JSON с photo_id
+                return json.loads(decrypted)
+            else:
+                # Для текста - просто текст
+                return decrypted
+        except (InvalidToken, json.JSONDecodeError) as e:
+            print(f"[ERROR] Failed to decrypt/parse message {self.id}: {e}")
+            return "[UNDECRYPTABLE MESSAGE]"
 
     def format_time(self):
         utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
@@ -220,13 +207,20 @@ class Message(db.Model):
 
     def as_text(self):
         ts = self.format_time()
-        return f"[{ts}] {self.username}: {self.get_plain()}"
+        plain = self.get_plain()
+        
+        if self.message_type == 'photo':
+            if isinstance(plain, dict):
+                return f"[{ts}] {self.username}: [PHOTO:{plain.get('photo_id')}]"
+            return f"[{ts}] {self.username}: [PHOTO]"
+        else:
+            return f"[{ts}] {self.username}: {plain}"
 
 class Photo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), nullable=False, index=True)
     filename = db.Column(db.String(256), unique=True, nullable=False, index=True)
-    photo_token = db.Column(db.String(128), unique=True, nullable=False, index=True)  # Secret token for URL
+    photo_token = db.Column(db.String(128), unique=True, nullable=False, index=True)
     filesize = db.Column(db.Integer, nullable=False)
     mime_type = db.Column(db.String(50), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
@@ -249,7 +243,7 @@ class Secret(db.Model):
         return formated_time.strftime('%d.%m.%Y %H:%M:%S')
 
 # ===============================================================
-# ---- Master key management (FERNET_MASTER_KEY) ----
+# ---- Master key management ----
 # ===============================================================
 def load_master_fernet():
     key = os.environ.get("FERNET_MASTER_KEY")
@@ -285,7 +279,7 @@ def get_secret_decrypted(name: str):
         return None
 
 # ===============================================================
-# ---- Initialize database, master key, and data key ----
+# ---- Initialize database ----
 # ===============================================================
 with app.app_context():
     db.create_all()
@@ -326,28 +320,21 @@ init_upload_folder()
 def validate_username(username: str) -> tuple[bool, str]:
     if not username:
         return False, "Username cannot be empty"
-    
     if len(username) < USERNAME_MIN_LENGTH:
         return False, f"Username must be at least {USERNAME_MIN_LENGTH} characters"
-    
     if len(username) > USERNAME_MAX_LENGTH:
         return False, f"Username must not exceed {USERNAME_MAX_LENGTH} characters"
-    
     if not USERNAME_PATTERN.match(username):
         return False, "Username can only contain letters, numbers, underscores, and hyphens"
-    
     return True, ""
 
 def validate_password(password: str) -> tuple[bool, str]:
     if not password:
         return False, "Password cannot be empty"
-    
     if len(password) < PASSWORD_MIN_LENGTH:
         return False, f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
-    
     if len(password) > PASSWORD_MAX_LENGTH:
         return False, f"Password must not exceed {PASSWORD_MAX_LENGTH} characters"
-    
     return True, ""
 
 # ===============================================================
@@ -375,7 +362,7 @@ def get_tor_password():
     return get_secret_decrypted("TOR_PASS_ENC")
 
 # ===============================================================
-# --- TEXT sanitization ---
+# ---- Text sanitization ----
 # ===============================================================
 def sanitize_text(text: str) -> str:
     if not text:
@@ -389,24 +376,18 @@ def sanitize_text(text: str) -> str:
     return sanitized.strip()
 
 # ===============================================================
-# ---- Authentication token helpers (with Redis transactions) ----
+# ---- Authentication token helpers ----
 # ===============================================================
 def get_client_ip_subnet() -> str:
-    """Get first 3 octets of client IP (network subnet)."""
     ip = get_remote_address()
     if not ip:
         return "0.0.0"
-    
-    # Handle IPv4
     if '.' in ip:
         octets = ip.split('.')
-        return '.'.join(octets[:3])  # First 3 octets: x.x.x
-    
-    # Handle IPv6 (first 48 bits = /48 prefix)
+        return '.'.join(octets[:3])
     if ':' in ip:
         segments = ip.split(':')
-        return ':'.join(segments[:3])  # First 3 segments
-    
+        return ':'.join(segments[:3])
     return "0.0.0"
 
 def generate_auth_token(username: str) -> tuple:
@@ -415,11 +396,8 @@ def generate_auth_token(username: str) -> tuple:
     
     token = str(uuid.uuid4())
     ip_subnet = get_client_ip_subnet()
-    
-    # Store token data as JSON: username + IP subnet
     token_data = f"{username}|{ip_subnet}"
     
-    # Use Redis pipeline for atomic transaction
     pipe = r.pipeline()
     pipe.multi()
     
@@ -434,7 +412,6 @@ def generate_auth_token(username: str) -> tuple:
     return token, old_token
 
 def verify_token(token: str) -> str or None:
-    """Verify token and check IP subnet binding."""
     if not token:
         return None
     
@@ -444,14 +421,12 @@ def verify_token(token: str) -> str or None:
     
     token_data = token_data_bytes.decode("utf-8")
     
-    # Parse token data: username/ip_subnet
     if '|' not in token_data:
         return token_data
     
     username, stored_subnet = token_data.split('|', 1)
     current_subnet = get_client_ip_subnet()
     
-    # Check if IP subnet matches
     if stored_subnet != current_subnet:
         print(f"[SECURITY] IP subnet mismatch for {username}: stored={stored_subnet}, current={current_subnet}")
         revoke_token(token)
@@ -518,30 +493,25 @@ def ratelimit_handler(e):
     }), 429
 
 # ===============================================================
-# ---- HTTPS Enforcement (Production only) ----
+# ---- HTTPS Enforcement ----
 # ===============================================================
 @app.before_request
 def enforce_https():
-    """Enforce HTTPS in production mode (unless HTTP_ALLOW is set)."""
-    # Check if HTTP access is explicitly allowed (for testing)
     http_allow = os.environ.get("HTTP_ALLOW", "0") == "1"
     
     if is_production and not request.is_secure and not http_allow:
         return jsonify({"error": "HTTPS required"}), 403
     
-    # Log warning if HTTP is allowed in production
     if is_production and http_allow and not request.is_secure:
-        # Only log once per startup to avoid spam
         if not hasattr(enforce_https, '_warning_shown'):
             print("[WARN] HTTP_ALLOW is enabled in production mode! This is insecure for public deployment.")
             enforce_https._warning_shown = True
 
 # ===============================================================
-# ---- Security Headers (with CSP nonce) ----
+# ---- Security Headers ----
 # ===============================================================
 @app.after_request
 def add_security_headers(response):
-    # Get nonce from request context if available
     nonce = getattr(request, '_csp_nonce', None)
     
     if 'Content-Security-Policy' not in response.headers:
@@ -573,7 +543,7 @@ def add_security_headers(response):
     return response
 
 # ===============================================================
-# ---- Photo helpers (with secrets token) ----
+# ---- Photo helpers ----
 # ===============================================================
 def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str or None:
     try:
@@ -593,16 +563,16 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
         img = Image.open(io.BytesIO(file_data))
         
         if img.width > MAX_IMAGE_WIDTH or img.height > MAX_IMAGE_HEIGHT:
-            print(f"[WARN] Image resolution {img.width}x{img.height} exceeds maximum {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT}")
+            print(f"[WARN] Image resolution {img.width}x{img.height} exceeds maximum")
             return None
         
         if img.width * img.height > MAX_PIXELS:
-            print(f"[WARN] Total pixels {img.width * img.height} exceeds maximum {MAX_PIXELS}")
+            print(f"[WARN] Total pixels exceeds maximum")
             return None
         
         image_format = img.format
         if image_format not in ALLOWED_IMAGE_FORMATS:
-            print(f"[WARN] Image format '{image_format}' not in ALLOWED_IMAGE_FORMATS")
+            print(f"[WARN] Image format '{image_format}' not allowed")
             return None
         
         mime_type = SAFE_MIME_MAPPING.get(image_format)
@@ -610,7 +580,7 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
             print(f"[ERROR] No MIME mapping for format '{image_format}'")
             return None
         
-        print(f"[OK] Image validated: {img.width}x{img.height}, format={image_format}, mime={mime_type}")
+        print(f"[OK] Image validated: {img.width}x{img.height}, format={image_format}")
         return mime_type
     
     except Exception as e:
@@ -621,7 +591,6 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
 # ---- Photo Signed URL helpers ----
 # ===============================================================
 def get_or_create_signed_url_secret():
-    """Get or create secret key for signed URLs."""
     global SIGNED_URL_SECRET
     if SIGNED_URL_SECRET:
         return SIGNED_URL_SECRET
@@ -636,11 +605,9 @@ def get_or_create_signed_url_secret():
         return secret
 
 def generate_signed_photo_url(photo_token: str) -> dict:
-    """Generate signed URL for photo with 24h expiration."""
     secret = get_or_create_signed_url_secret()
     expiration = int(time.time()) + PHOTO_URL_TTL
     
-    # Create signature: HMAC(photo_token + expiration)
     message = f"{photo_token}:{expiration}"
     signature = hmac.new(
         secret.encode('utf-8'),
@@ -655,17 +622,14 @@ def generate_signed_photo_url(photo_token: str) -> dict:
     }
 
 def verify_signed_photo_url(photo_token: str, signature: str, expiration: str) -> bool:
-    """Verify signed photo URL."""
     try:
         secret = get_or_create_signed_url_secret()
         exp_timestamp = int(expiration)
         
-        # Check expiration
         if time.time() > exp_timestamp:
             print(f"[WARN] Signed URL expired: {photo_token}")
             return False
         
-        # Verify signature
         message = f"{photo_token}:{exp_timestamp}"
         expected_signature = hmac.new(
             secret.encode('utf-8'),
@@ -673,7 +637,6 @@ def verify_signed_photo_url(photo_token: str, signature: str, expiration: str) -
             hashlib.sha256
         ).hexdigest()
         
-        # Constant-time comparison to prevent timing attacks
         if not hmac.compare_digest(signature, expected_signature):
             print(f"[WARN] Invalid signature for photo: {photo_token}")
             return False
@@ -683,9 +646,7 @@ def verify_signed_photo_url(photo_token: str, signature: str, expiration: str) -
         print(f"[ERROR] Signature verification failed: {e}")
         return False
 
-
-def save_photo(username: str, file_obj) -> Photo or None:
-    """Save encrypted photo with secret token."""
+def save_photo(username: str, file_obj) -> tuple or None:
     try:
         file_data = file_obj.read()
         
@@ -693,7 +654,6 @@ def save_photo(username: str, file_obj) -> Photo or None:
         if not mime_type:
             return None
         
-        # Generate cryptographically secure filename and token
         unique_filename = f"{secrets.token_urlsafe(32)}.bin"
         photo_token = secrets.token_urlsafe(24)
         file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
@@ -703,6 +663,7 @@ def save_photo(username: str, file_obj) -> Photo or None:
         with open(file_path, 'wb') as f:
             f.write(encrypted_data)
         
+        # Создаем запись Photo
         photo = Photo(
             username=username,
             filename=unique_filename,
@@ -711,16 +672,33 @@ def save_photo(username: str, file_obj) -> Photo or None:
             mime_type=mime_type
         )
         db.session.add(photo)
+        db.session.flush()  # Получаем photo.id
+        
+        # Создаем запись Message с типом 'photo'
+        photo_data = json.dumps({
+            "photo_id": photo.id,
+            "photo_token": photo_token
+        })
+        encrypted_content = encrypt_message(photo_data)
+        
+        message = Message(
+            username=username,
+            content=encrypted_content,
+            message_type='photo',
+            created_at=photo.created_at  # Синхронизируем время
+        )
+        db.session.add(message)
         db.session.commit()
         
-        print(f"[OK] Photo saved: {unique_filename} by {username}, token={photo_token}")
-        return photo
+        print(f"[OK] Photo saved: {unique_filename} by {username}, Message ID: {message.id}")
+        return (photo, message)
+        
     except Exception as e:
+        db.session.rollback()
         print(f"[ERROR] Failed to save photo: {e}")
         return None
 
 def load_photo_by_token(photo_token: str) -> tuple or None:
-    """Load and decrypt photo by secret token."""
     try:
         photo = Photo.query.filter_by(photo_token=photo_token).first()
         if not photo:
@@ -745,7 +723,7 @@ def load_photo_by_token(photo_token: str) -> tuple or None:
         return None
 
 # ===============================================================
-# ---- Tor SOCKS5 and ControlPort (Thread-Safe) ----
+# ---- Tor helpers ----
 # ===============================================================
 SOCKS5_ADDR = "127.0.0.1:9050"
 TOR_CONTROL_PORT = 9051
@@ -799,7 +777,6 @@ def fetch_via_tor(url, **kwargs):
     return session.get(url, timeout=15, **kwargs)
 
 def increment_message_count():
-    """Increment message counter for Tor rotation."""
     try:
         count = r.incr("tor:message_count")
         if count >= TOR_ROTATION_MESSAGE_THRESHOLD:
@@ -821,136 +798,64 @@ threading.Thread(target=auto_rotate_tor, daemon=True).start()
 # ---- Message helpers ----
 # ===============================================================
 def save_message(username, content):
-    """Save message to database (sanitized, length-checked, and encrypted)."""
+    """Сохраняет текстовое сообщение"""
     sanitized_content = sanitize_text(content)
 
     if not sanitized_content:
         return None
     
-    # Check message length
     if len(sanitized_content) > MAX_MESSAGE_LENGTH:
         return None
 
     ciphertext = encrypt_message(sanitized_content)
-    msg = Message(username=username, content=ciphertext)
+    msg = Message(
+        username=username, 
+        content=ciphertext,
+        message_type='text'
+    )
     db.session.add(msg)
     db.session.commit()
     
-    # Generate signed URL for new photos 
-    plain_text = sanitized_content
-    photo_match = re.search(r'\[PHOTO:(\d+)\]', plain_text)
-    if photo_match:
-        photo_id = int(photo_match.group(1))
-        photo = Photo.query.filter_by(id=photo_id).first()
-        if photo:
-            signed_data = generate_signed_photo_url(photo.photo_token)
-            photo_url = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
-            plain_text = plain_text.replace(f"[PHOTO:{photo_id}]", f"[PHOTO:{photo_id}:{photo_url}]")
-    
-    # publish message with URL photo (if exist)
+    # Публикуем в Redis
     ts = msg.format_time()
-    message_text = f"[{ts}] {username}: {plain_text}"
+    message_text = f"[{ts}] {username}: {sanitized_content}"
     r.publish("chat", message_text.encode("utf-8"))
     
     increment_message_count()
     
     return msg
 
-# ===============================================================
-# ---- Cursor encryption helpers (preload old_messages)----
-# ===============================================================
-def encrypt_cursor(message_id: int) -> str:
-    import time
-    nonce = secrets.token_urlsafe(8)
-    timestamp = int(time.time())
-    cursor_data = f"{message_id}:{timestamp}:{nonce}"
-    encrypted = data_fernet.encrypt(cursor_data.encode("utf-8")).decode("utf-8")
-    return encrypted
-
-def decrypt_cursor(cursor: str) -> int or None:
-    try:
-        decrypted = data_fernet.decrypt(cursor.encode("utf-8")).decode("utf-8")
-        parts = decrypted.split(":")
-        if len(parts) != 3:
-            return None
-        
-        message_id = int(parts[0])
-        timestamp = int(parts[1])
-        
-        # Check if cursor is not older than 1 hour
-        if time.time() - timestamp > 3600: #seconds
-            print(f"[WARN] Expired cursor: {cursor[:20]}...")
-            return None
-        
-        return message_id
-    except (InvalidToken, ValueError) as e:
-        print(f"[WARN] Invalid cursor: {e}")
-        return None
-
-def get_messages_before(message_id: int, limit: int = 30) -> list:
-    """Get N messages with ID less than given message_id, sorted by created_at and id."""
-    messages = Message.query.filter(
-        Message.id < message_id
-    ).order_by(Message.created_at.desc(), Message.id.desc()).limit(limit).all()
+def format_message_for_sse(msg: Message) -> str:
+    """Форматирует сообщение для SSE с подписанными URL для фото"""
+    ts = msg.format_time()
     
-    return list(reversed(messages))
-
-def _log_tor_ip_background():
-    try:
-        resp = fetch_via_tor("https://ifconfig.co/json")
-        if resp.ok:
-            print("[INFO] Outgoing request via Tor. Exit IP:", resp.json().get("ip"))
-        else:
-            print("[WARN] Tor fetch failed, status:", resp.status_code)
-    except Exception as e:
-        print("[ERROR] Tor request failed:", e)
+    if msg.message_type == 'photo':
+        plain = msg.get_plain()
+        if isinstance(plain, dict) and 'photo_id' in plain:
+            photo_id = plain['photo_id']
+            photo = Photo.query.filter_by(id=photo_id).first()
+            
+            if photo:
+                signed_data = generate_signed_photo_url(photo.photo_token)
+                photo_url = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+                return f"[{ts}] {msg.username}: [PHOTO:{photo_id}:{photo_url}]"
+            else:
+                return f"[{ts}] {msg.username}: [PHOTO:{photo_id}]"
+        return f"[{ts}] {msg.username}: [PHOTO]"
+    else:
+        # Текстовое сообщение
+        plain = msg.get_plain()
+        return f"[{ts}] {msg.username}: {plain}"
 
 def event_stream():
-    with app.app_context():
-        # Load last messages
-        last = Message.query.order_by(Message.created_at.desc(), Message.id.desc()).limit(MESSAGE_HISTORY_LIMIT).all()
-
-        # Collect all photo_ids from history
-        photo_ids = []
-        for m in reversed(last):
-            plain_text = m.get_plain()
-            photo_matches = re.findall(r'\[PHOTO:(\d+)\]', plain_text)
-            photo_ids.extend([int(pid) for pid in photo_matches])
-        
-        # Preload signed URLs for all photos from history
-        photo_urls = {}
-        if photo_ids:
-            photos = Photo.query.filter(Photo.id.in_(photo_ids)).all()
-            for photo in photos:
-                signed_data = generate_signed_photo_url(photo.photo_token)
-                photo_urls[photo.id] = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
-        
-        # Send initial cursor for infinite scroll (ID of oldest message)
-        if last:
-            oldest_message_id = last[-1].id  # Last in reversed list = oldest
-            initial_cursor = encrypt_cursor(oldest_message_id)
-            yield f"event: cursor\ndata: {initial_cursor}\n\n"
-        
-        # Send history with preloaded photo URLs
-        for m in reversed(last):
-            plain_text = m.get_plain()
-            
-            # Replace [PHOTO:ID] with [PHOTO:ID:URL]
-            def replace_photo(match):
-                photo_id = int(match.group(1))
-                if photo_id in photo_urls:
-                    return f"[PHOTO:{photo_id}:{photo_urls[photo_id]}]"
-                return match.group(0)
-            
-            plain_text = re.sub(r'\[PHOTO:(\d+)\]', replace_photo, plain_text)
-            
-            ts = m.format_time()
-            message_text = f"[{ts}] {m.username}: {plain_text}"
-            yield f"data: {message_text}\n\n"
+    """SSE stream - только новые сообщения в реальном времени.
+    История загружается через /history endpoint!"""
     
-    # Subscribe to new messages
+    # Подписываемся на Redis pub/sub для новых сообщений
     pubsub = r.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe("chat")
+    
+    # Слушаем только новые сообщения
     for message in pubsub.listen():
         data = message.get("data")
         if isinstance(data, bytes):
@@ -972,7 +877,6 @@ def register():
 
         valid_username, username_error = validate_username(username)
         if not valid_username:
-            # Timing attack prevention: always hash password
             try:
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
@@ -981,26 +885,21 @@ def register():
 
         valid_password, password_error = validate_password(password)
         if not valid_password:
-            # Timing attack prevention: always hash password
             try:
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
                 pass
             return password_error, 400
 
-        # Hash password BEFORE checking username existence (timing attack prevention)
         password_hash = argon2Hasher.hash(password)
         
-        # Now check if user exists
         if User.query.filter_by(username=username).first():
             return "A user with this name already EXISTS.", 400
 
-        # Create user with pre-hashed password
         db.session.add(User(username=username, password_hash=password_hash))
         db.session.commit()
         return redirect("/login")
 
-    # Generate nonce for GET request
     nonce = generate_nonce()
     request._csp_nonce = nonce
     return render_template("register.html", nonce=nonce)
@@ -1014,7 +913,6 @@ def login():
 
         valid_username, username_error = validate_username(username)
         if not valid_username:
-            # Always verify dummy hash
             try:
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
@@ -1031,7 +929,6 @@ def login():
 
         user = User.query.filter_by(username=username).first()
         if not user:
-            # User not found - verify dummy hash to maintain timing consistency
             try:
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
@@ -1040,18 +937,15 @@ def login():
 
         try:
             argon2Hasher.verify(user.password_hash, password)
-            # Generate ephemeral auth token (one session per user)
             auth_token, old_token = generate_auth_token(username)
             old_token_exists = old_token is not None
             
-            # Generate nonce for response
             nonce = generate_nonce()
             request._csp_nonce = nonce
             return render_template("index.html", auth_token=auth_token, user=username, old_session=old_token_exists, nonce=nonce)
         except VerifyMismatchError:
             return "INCORRECT username or password", 400
 
-    # Generate nonce for GET request
     nonce = generate_nonce()
     request._csp_nonce = nonce
     return render_template("login.html", nonce=nonce)
@@ -1072,7 +966,6 @@ def post():
     if not text:
         return ("", 204)
     
-    # Check message length before processing
     if len(text) > MAX_MESSAGE_LENGTH:
         return jsonify({"error": "Message too long", "max_length": MAX_MESSAGE_LENGTH}), 400
     
@@ -1093,43 +986,41 @@ def stream():
     
     return Response(event_stream(), mimetype="text/event-stream")
 
-@app.route("/messages/history", methods=["GET"])
+@app.route("/history")
 @limiter.limit("30 per minute")
-def get_message_history():
-    """Load older messages using encrypted cursor."""
+def history():
+    """Load message history with pagination."""
     token = extract_token_from_request()
     username = verify_token(token)
     
     if not username:
         return abort(401)
     
-    cursor = request.args.get("cursor", "").strip()
-    if not cursor:
-        return jsonify({"error": "Missing cursor"}), 400
+    before_id = request.args.get('before_id', type=int)
+    limit = request.args.get('limit', default=50, type=int)
     
-    # Decrypt and validate cursor
-    before_id = decrypt_cursor(cursor)
-    if before_id is None:
-        return jsonify({"error": "Invalid or expired cursor"}), 400
+    if limit > 100:
+        limit = 100
     
-    # Load messages
-    messages = get_messages_before(before_id, limit=30)
+    # Запрашиваем все типы сообщений (текст и фото)
+    query = Message.query.order_by(Message.created_at.desc())
     
-    if not messages:
-        return jsonify({
-            "messages": [],
-            "cursor": None,
-            "has_more": False
-        }), 200
+    if before_id:
+        before_msg = Message.query.filter_by(id=before_id).first()
+        if before_msg:
+            query = query.filter(Message.created_at < before_msg.created_at)
     
-    # Collect all photo IDs from messages
+    messages = query.limit(limit).all()
+    
+    # Собираем ID фото для предзагрузки
     photo_ids = []
     for msg in messages:
-        plain_text = msg.get_plain()
-        photo_matches = re.findall(r'\[PHOTO:(\d+)\]', plain_text)
-        photo_ids.extend([int(pid) for pid in photo_matches])
+        if msg.message_type == 'photo':
+            plain = msg.get_plain()
+            if isinstance(plain, dict) and 'photo_id' in plain:
+                photo_ids.append(plain['photo_id'])
     
-    # Preload signed URLs for all photos (BATCH!)
+    # Предзагружаем подписанные URL для всех фото
     photo_urls = {}
     if photo_ids:
         photos = Photo.query.filter(Photo.id.in_(photo_ids)).all()
@@ -1137,34 +1028,34 @@ def get_message_history():
             signed_data = generate_signed_photo_url(photo.photo_token)
             photo_urls[photo.id] = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
     
-    # Prepare messages with decrypted content and signed photo URLs
-    result_messages = []
-    for msg in messages:
-        plain_text = msg.get_plain()
+    # Формируем результат
+    result = []
+    for msg in reversed(messages):
+        ts = msg.format_time()
         
-        # Replace [PHOTO:ID] with [PHOTO:ID:URL] using preloaded URLs
-        def replace_photo(match):
-            photo_id = int(match.group(1))
-            if photo_id in photo_urls:
-                return f"[PHOTO:{photo_id}:{photo_urls[photo_id]}]"
-            return match.group(0)
+        if msg.message_type == 'photo':
+            plain = msg.get_plain()
+            if isinstance(plain, dict) and 'photo_id' in plain:
+                photo_id = plain['photo_id']
+                if photo_id in photo_urls:
+                    message_text = f"[{ts}] {msg.username}: [PHOTO:{photo_id}:{photo_urls[photo_id]}]"
+                else:
+                    message_text = f"[{ts}] {msg.username}: [PHOTO:{photo_id}]"
+            else:
+                message_text = f"[{ts}] {msg.username}: [PHOTO]"
+        else:
+            # Текстовое сообщение
+            plain = msg.get_plain()
+            message_text = f"[{ts}] {msg.username}: {plain}"
         
-        plain_text = re.sub(r'\[PHOTO:(\d+)\]', replace_photo, plain_text)
-        
-        result_messages.append({
+        result.append({
             "id": msg.id,
-            "username": msg.username,
-            "content": plain_text,
-            "timestamp": msg.format_time()
+            "text": message_text
         })
     
-    # Generate new cursor for next batch (oldest message ID from current batch)
-    new_cursor = encrypt_cursor(messages[0].id)
-    
     return jsonify({
-        "messages": result_messages,
-        "cursor": new_cursor,
-        "has_more": True
+        "messages": result,
+        "has_more": len(messages) == limit
     }), 200
 
 # ===============================================================
@@ -1186,15 +1077,19 @@ def upload():
     if file.filename == "":
         return "No selected file", 400
     
-    photo = save_photo(username, file)
-    if not photo:
-        return "[ERROR] invalid file or file too large \n max photo resolution is 1920x1080", 400
+    result = save_photo(username, file)
+    if not result:
+        return "[ERROR] invalid file or file too large \n max photo resolution is 2560x1440", 400
     
-    # Notify chat with photo token (not ID)
-    notification = f"[PHOTO:{photo.id}]"
-    save_message(username, notification)
+    photo, message = result
     
-    return {"photo_id": photo.id}, 200
+    # Публикуем сообщение о фото в Redis для SSE
+    message_text = format_message_for_sse(message)
+    r.publish("chat", message_text.encode("utf-8"))
+    
+    increment_message_count()
+    
+    return {"photo_id": photo.id, "message_id": message.id}, 200
 
 @app.route("/photo/sign/<int:photo_id>", methods=["GET"])
 @limiter.limit("20 per minute")
@@ -1206,12 +1101,10 @@ def sign_photo_url(photo_id: int):
     if not username:
         return abort(401)
     
-    # Get photo from database
     photo = Photo.query.filter_by(id=photo_id).first()
     if not photo:
         return abort(404)
     
-    # Generate signed URL
     signed_data = generate_signed_photo_url(photo.photo_token)
     
     return jsonify({
@@ -1222,11 +1115,9 @@ def sign_photo_url(photo_id: int):
 @limiter.limit("60 per minute")
 def get_photo(photo_token: str):
     """Download decrypted photo by signed URL."""
-    # Get signature and expiration from query params
     signature = request.args.get('sig', '')
     expiration = request.args.get('exp', '')
     
-    # Verify signed URL
     if not verify_signed_photo_url(photo_token, signature, expiration):
         return abort(403)
     
