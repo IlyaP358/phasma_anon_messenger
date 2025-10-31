@@ -285,19 +285,13 @@
 
         console.log(`[History] Loaded ${data.messages.length} messages`);
 
-        // Add messages in order (oldest first)
+        // Collect all message elements first
+        const messageElements = [];
         data.messages.forEach(msg => {
           if (!loadedMessageIds.has(msg.id)) {
             loadedMessageIds.add(msg.id);
             const msgElement = createMessageElement(msg.text);
-            
-            if (initialLoadDone) {
-              // If loading older messages, insert at TOP
-              messagesContainer.insertBefore(msgElement, messagesContainer.firstChild);
-            } else {
-              // Initial load: add to bottom
-              messagesContainer.appendChild(msgElement);
-            }
+            messageElements.push({element: msgElement, id: msg.id});
             
             // Track oldest and newest
             if (!oldestMessageId || msg.id < oldestMessageId) {
@@ -308,6 +302,19 @@
             }
           }
         });
+
+        // Add all elements at once in correct order
+        if (initialLoadDone) {
+          // Loading older messages - add at TOP in reverse order
+          for (let i = messageElements.length - 1; i >= 0; i--) {
+            messagesContainer.insertBefore(messageElements[i].element, messagesContainer.firstChild);
+          }
+        } else {
+          // Initial load - add to bottom
+          messageElements.forEach(item => {
+            messagesContainer.appendChild(item.element);
+          });
+        }
 
         // Restore scroll position when loading older messages
         if (initialLoadDone) {
