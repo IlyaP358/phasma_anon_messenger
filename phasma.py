@@ -83,9 +83,10 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
 ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MIN_FILE_SIZE = 1024 # 1 KB minimum
 
 MAX_IMAGE_WIDTH = 2560
-MAX_IMAGE_HEIGHT = 1440
+MAX_IMAGE_HEIGHT = 2560
 MAX_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT
 
 SAFE_MIME_MAPPING = {
@@ -550,6 +551,10 @@ def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str 
         if len(file_data) > MAX_FILE_SIZE:
             print(f"[WARN] File size exceeds MAX_FILE_SIZE")
             return None
+
+        if len(file_data) < MIN_FILE_SIZE:
+            print(f"[WARN] File size too small: {len(file_data)} bytes")
+            return None        
         
         if not original_filename or '.' not in original_filename:
             print(f"[WARN] Invalid filename format")
@@ -1062,7 +1067,7 @@ def history():
 # ---- Photo upload and download routes ----
 # ===============================================================
 @app.route("/upload", methods=["POST"])
-@limiter.limit("30 per hour")
+@limiter.limit("15 per minute; 300 per day")
 def upload():
     token = extract_token_from_request()
     username = verify_token(token)
@@ -1079,7 +1084,7 @@ def upload():
     
     result = save_photo(username, file)
     if not result:
-        return "[ERROR] invalid file or file too large \n max photo resolution is 2560x1440", 400
+        return "[ERROR] invalid file or file too large \n max photo resolution is 2560x2560", 400
     
     photo, message = result
     
