@@ -85,6 +85,17 @@
     #file-input {
       display: none;
     }
+    .message {
+      margin-bottom: 0.5em;
+    }
+    .message-header {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 2px;
+    }
+    .message-content {
+      color: #fff;
+    }
     .photo-msg {
       color: #0f0;
     }
@@ -159,65 +170,101 @@
 
     setInterval(checkSessionValidity, 10000);
 
+    function parseMessageData(data) {
+      // Parse format: [HH:MM:SS] username: message
+      // or [HH:MM:SS] username: [PHOTO:ID:URL]
+      const timeMatch = data.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+/);
+      if (!timeMatch) return null;
+      
+      const timeStr = timeMatch[1];
+      const afterTime = data.substring(timeMatch[0].length);
+      
+      const userMatch = afterTime.match(/^([^:]+):\s*/);
+      if (!userMatch) return null;
+      
+      const username = userMatch[1];
+      const content = afterTime.substring(userMatch[0].length);
+      
+      return {
+        time: timeStr,
+        username: username,
+        content: content
+      };
+    }
+
+    function getCurrentDate() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
     function createMessageElement(data) {
+      const parsed = parseMessageData(data);
+      if (!parsed) {
+        // Fallback for unparseable messages
+        const msg = document.createElement("div");
+        msg.className = "message";
+        msg.textContent = data;
+        return msg;
+      }
+
+      const msgWrapper = document.createElement("div");
+      msgWrapper.className = "message";
+      
+      // Create header with date and time
+      const header = document.createElement("div");
+      header.className = "message-header";
+      header.textContent = `${getCurrentDate()}, [${parsed.time}]`;
+      msgWrapper.appendChild(header);
+      
+      // Create content section
+      const contentDiv = document.createElement("div");
+      contentDiv.className = "message-content";
+      
       // Check for photo with pre-signed URL: [PHOTO:ID:URL]
-      const photoWithUrlMatch = data.match(/\[PHOTO:(\d+):([^\]]+)\]/);
+      const photoWithUrlMatch = parsed.content.match(/\[PHOTO:(\d+):([^\]]+)\]/);
       
       if (photoWithUrlMatch) {
         const photoId = photoWithUrlMatch[1];
         const photoUrl = photoWithUrlMatch[2];
         
-        // Extract timestamp and username from message
-        const messageText = data.replace(/\[PHOTO:\d+:[^\]]+\]/, '').trim();
+        contentDiv.classList.add("photo-msg");
+        contentDiv.setAttribute('data-photo-id', photoId);
         
-        // Create message div
-        const msgDiv = document.createElement("div");
-        msgDiv.classList.add("photo-msg");
-        msgDiv.setAttribute('data-photo-id', photoId);
+        // Add username
+        const usernameSpan = document.createElement("span");
+        usernameSpan.textContent = parsed.username;
+        contentDiv.appendChild(usernameSpan);
         
-        // Add timestamp/username text if exists
-        if (messageText) {
-          const textNode = document.createElement("div");
-          textNode.textContent = messageText;
-          msgDiv.appendChild(textNode);
-        }
-        
-        // Add image immediately (URL is already signed)
+        // Add image
         const img = document.createElement("img");
         img.src = photoUrl;
         img.alt = "Photo";
         img.loading = "lazy";
-        msgDiv.appendChild(img);
-        
-        return msgDiv;
+        contentDiv.appendChild(img);
         
       } else {
         // Check for old format photo marker (fallback): [PHOTO:ID]
-        const photoMatch = data.match(/\[PHOTO:(\d+)\]/);
+        const photoMatch = parsed.content.match(/\[PHOTO:(\d+)\]/);
         
         if (photoMatch) {
           const photoId = photoMatch[1];
           
-          // Extract timestamp and username from message
-          const messageText = data.replace(/\[PHOTO:\d+\]/, '').trim();
+          contentDiv.classList.add("photo-msg");
+          contentDiv.setAttribute('data-photo-id', photoId);
           
-          // Create placeholder immediately to preserve order
-          const msgDiv = document.createElement("div");
-          msgDiv.classList.add("photo-msg");
-          msgDiv.setAttribute('data-photo-id', photoId);
-          
-          // Add timestamp/username text if exists
-          if (messageText) {
-            const textNode = document.createElement("div");
-            textNode.textContent = messageText;
-            msgDiv.appendChild(textNode);
-          }
+          // Add username
+          const usernameSpan = document.createElement("span");
+          usernameSpan.textContent = parsed.username;
+          contentDiv.appendChild(usernameSpan);
           
           // Add loading indicator
           const loader = document.createElement("div");
           loader.textContent = "[Loading photo...]";
           loader.classList.add("photo-loading");
-          msgDiv.appendChild(loader);
+          contentDiv.appendChild(loader);
           
           // Request signed URL from server (fallback for old messages)
           fetch(`/photo/sign/${photoId}`, {
@@ -225,15 +272,13 @@
           })
           .then(response => response.json())
           .then(data => {
-            // Remove loading indicator
             loader.remove();
             
-            // Create and add image
             const img = document.createElement("img");
             img.src = data.url;
             img.alt = "Photo";
             img.loading = "lazy";
-            msgDiv.appendChild(img);
+            contentDiv.appendChild(img);
           })
           .catch(err => {
             console.error("Failed to load photo:", err);
@@ -241,14 +286,14 @@
             loader.style.color = "#f00";
           });
           
-          return msgDiv;
         } else {
           // Regular text message
-          const msg = document.createElement("div");
-          msg.textContent = data;
-          return msg;
+          contentDiv.textContent = `${parsed.username}: ${parsed.content}`;
         }
       }
+      
+      msgWrapper.appendChild(contentDiv);
+      return msgWrapper;
     }
 
     function loadHistory() {
