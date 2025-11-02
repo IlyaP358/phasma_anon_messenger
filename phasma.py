@@ -35,7 +35,6 @@ import hashlib
 # ===============================================================
 app = Flask(__name__)
 
-# SECRET_KEY configuration
 secret_key = os.environ.get("FLASK_SECRET")
 is_production = os.environ.get("FLASK_ENV") == "production"
 
@@ -79,19 +78,68 @@ else:
 # ---- Upload configuration ----
 # ===============================================================
 UPLOAD_FOLDER = "uploads"
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
-ALLOWED_MIMETYPES = {"image/jpeg", "image/png"}
-ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG"}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-MIN_FILE_SIZE = 1024 # 1 KB minimum
 
+# File categories and their allowed formats
+FILE_CATEGORIES = {
+    'photo': {
+        'extensions': {'jpg', 'jpeg', 'png', 'gif', 'webp'},
+        'mimetypes': {'image/jpeg', 'image/png', 'image/gif', 'image/webp'},
+        'max_size': 10 * 1024 * 1024,  # 10 MB
+        'display': 'inline'
+    },
+    'video': {
+        'extensions': {'mp4', 'mov', 'webm'},
+        'mimetypes': {'video/mp4', 'video/quicktime', 'video/webm'},
+        'max_size': 100 * 1024 * 1024,  # 100 MB
+        'display': 'download'
+    },
+    'audio': {
+        'extensions': {'mp3', 'm4a', 'ogg', 'wav'},
+        'mimetypes': {'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/x-wav'},
+        'max_size': 50 * 1024 * 1024,  # 50 MB
+        'display': 'download'
+    },
+    'document': {
+        'extensions': {'pdf', 'txt'},
+        'mimetypes': {'application/pdf', 'text/plain'},
+        'max_size': 25 * 1024 * 1024,  # 25 MB
+        'display': 'download'
+    }
+}
+
+# Build combined extension and mimetype sets
+ALLOWED_EXTENSIONS = set()
+ALLOWED_MIMETYPES = set()
+for category in FILE_CATEGORIES.values():
+    ALLOWED_EXTENSIONS.update(category['extensions'])
+    ALLOWED_MIMETYPES.update(category['mimetypes'])
+
+MIN_FILE_SIZE = 100  # 100 bytes minimum
+
+# Image-specific settings (for photos only)
 MAX_IMAGE_WIDTH = 2560
 MAX_IMAGE_HEIGHT = 2560
 MAX_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT
 
+# PIL format to MIME mapping (for images)
 SAFE_MIME_MAPPING = {
     "PNG": "image/png",
-    "JPEG": "image/jpeg"
+    "JPEG": "image/jpeg",
+    "GIF": "image/gif",
+    "WEBP": "image/webp"
+}
+
+# Extension to MIME mapping (for non-images)
+EXT_TO_MIME = {
+    'mp4': 'video/mp4',
+    'mov': 'video/quicktime',
+    'webm': 'video/webm',
+    'mp3': 'audio/mpeg',
+    'm4a': 'audio/mp4',
+    'ogg': 'audio/ogg',
+    'wav': 'audio/wav',
+    'pdf': 'application/pdf',
+    'txt': 'text/plain'
 }
 
 AUTH_TOKEN_TTL = 3600  # seconds = 1 hour
@@ -105,7 +153,7 @@ USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 MESSAGE_HISTORY_LIMIT = 50
 MAX_MESSAGE_LENGTH = 5000
 
-PHOTO_URL_TTL = 86400  # 24 hours
+FILE_URL_TTL = 86400  # 24 hours
 SIGNED_URL_SECRET = None
 
 TOR_ROTATION_INTERVAL = 300  # 5 minutes
@@ -180,7 +228,7 @@ class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
     username = db.Column(db.String(100), nullable=False, index=True)
     content = db.Column(db.Text, nullable=False)
-    message_type = db.Column(db.String(20), nullable=False, default='text', index=True)  # 'text' or 'photo'
+    message_type = db.Column(db.String(20), nullable=False, default='text', index=True)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
     __table_args__ = (
@@ -191,11 +239,9 @@ class Message(db.Model):
         try:
             decrypted = data_fernet.decrypt(self.content.encode("utf-8")).decode("utf-8")
             
-            if self.message_type == 'photo':
-                # Для фото content - это JSON с photo_id
+            if self.message_type in ('photo', 'file'):
                 return json.loads(decrypted)
             else:
-                # Для текста - просто текст
                 return decrypted
         except (InvalidToken, json.JSONDecodeError) as e:
             print(f"[ERROR] Failed to decrypt/parse message {self.id}: {e}")
@@ -206,22 +252,14 @@ class Message(db.Model):
         formated_time = utc_time.astimezone(TIMEZONE)
         return formated_time.strftime('%H:%M:%S')
 
-    def as_text(self):
-        ts = self.format_time()
-        plain = self.get_plain()
-        
-        if self.message_type == 'photo':
-            if isinstance(plain, dict):
-                return f"[{ts}] {self.username}: [PHOTO:{plain.get('photo_id')}]"
-            return f"[{ts}] {self.username}: [PHOTO]"
-        else:
-            return f"[{ts}] {self.username}: {plain}"
-
-class Photo(db.Model):
+class File(db.Model):
+    """Renamed from Photo - now supports all file types"""
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), nullable=False, index=True)
     filename = db.Column(db.String(256), unique=True, nullable=False, index=True)
-    photo_token = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    file_token = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    original_filename = db.Column(db.String(256), nullable=False)
+    file_category = db.Column(db.String(20), nullable=False, index=True)  # photo/video/audio/document
     filesize = db.Column(db.Integer, nullable=False)
     mime_type = db.Column(db.String(50), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
@@ -337,6 +375,109 @@ def validate_password(password: str) -> tuple[bool, str]:
     if len(password) > PASSWORD_MAX_LENGTH:
         return False, f"Password must not exceed {PASSWORD_MAX_LENGTH} characters"
     return True, ""
+
+# ===============================================================
+# ---- File validation helpers ----
+# ===============================================================
+def detect_file_category(ext: str) -> str or None:
+    """Detect file category by extension"""
+    ext = ext.lower()
+    for category, config in FILE_CATEGORIES.items():
+        if ext in config['extensions']:
+            return category
+    return None
+
+def validate_image_file(file_data: bytes, ext: str) -> tuple or None:
+    """Validate image files (photo category)"""
+    try:
+        img = Image.open(io.BytesIO(file_data))
+        
+        # Check resolution
+        if img.width > MAX_IMAGE_WIDTH or img.height > MAX_IMAGE_HEIGHT:
+            print(f"[WARN] Image resolution {img.width}x{img.height} exceeds maximum")
+            return None
+        
+        if img.width * img.height > MAX_PIXELS:
+            print(f"[WARN] Total pixels exceeds maximum")
+            return None
+        
+        # Verify format
+        image_format = img.format
+        if image_format not in SAFE_MIME_MAPPING:
+            print(f"[WARN] Image format '{image_format}' not allowed")
+            return None
+        
+        mime_type = SAFE_MIME_MAPPING.get(image_format)
+        print(f"[OK] Image validated: {img.width}x{img.height}, format={image_format}")
+        return (mime_type, image_format)
+    
+    except Exception as e:
+        print(f"[WARN] Image validation failed: {e}")
+        return None
+
+def validate_generic_file(file_data: bytes, ext: str, category: str) -> str or None:
+    """Validate non-image files (video/audio/document)"""
+    mime_type = EXT_TO_MIME.get(ext.lower())
+    if not mime_type:
+        print(f"[WARN] No MIME mapping for extension: {ext}")
+        return None
+    
+    print(f"[OK] File validated: category={category}, mime={mime_type}")
+    return mime_type
+
+def validate_file(file_data: bytes, original_filename: str) -> tuple or None:
+    """
+    Validate any file and return (category, mime_type, original_filename)
+    """
+    try:
+        # Size check
+        if len(file_data) < MIN_FILE_SIZE:
+            print(f"[WARN] File size too small: {len(file_data)} bytes")
+            return None
+        
+        # Extract extension
+        if not original_filename or '.' not in original_filename:
+            print(f"[WARN] Invalid filename format")
+            return None
+        
+        ext = original_filename.rsplit('.', 1)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            print(f"[WARN] File extension '{ext}' not allowed")
+            return None
+        
+        # Detect category
+        category = detect_file_category(ext)
+        if not category:
+            print(f"[WARN] Could not detect category for extension: {ext}")
+            return None
+        
+        # Check size limit for category
+        max_size = FILE_CATEGORIES[category]['max_size']
+        if len(file_data) > max_size:
+            print(f"[WARN] File size {len(file_data)} exceeds max for {category}: {max_size}")
+            return None
+        
+        # Category-specific validation
+        if category == 'photo':
+            result = validate_image_file(file_data, ext)
+            if not result:
+                return None
+            mime_type, _ = result
+        else:
+            mime_type = validate_generic_file(file_data, ext, category)
+            if not mime_type:
+                return None
+        
+        # Sanitize original filename
+        safe_filename = secure_filename(original_filename)
+        if not safe_filename:
+            safe_filename = f"file.{ext}"
+        
+        return (category, mime_type, safe_filename)
+    
+    except Exception as e:
+        print(f"[ERROR] File validation failed: {e}")
+        return None
 
 # ===============================================================
 # ---- Encryption helpers ----
@@ -522,7 +663,8 @@ def add_security_headers(response):
                     f"default-src 'self'; "
                     f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
                     f"style-src 'self' 'unsafe-inline'; "
-                    f"img-src 'self'; "
+                    f"img-src 'self' data:; "
+                    f"media-src 'self'; "
                     f"connect-src 'self';"
                 )
             else:
@@ -530,7 +672,8 @@ def add_security_headers(response):
                     "default-src 'self'; "
                     "script-src 'self' https://cdn.jsdelivr.net; "
                     "style-src 'self' 'unsafe-inline'; "
-                    "img-src 'self'; "
+                    "img-src 'self' data:; "
+                    "media-src 'self'; "
                     "connect-src 'self';"
                 )
     
@@ -544,56 +687,7 @@ def add_security_headers(response):
     return response
 
 # ===============================================================
-# ---- Photo helpers ----
-# ===============================================================
-def validate_and_get_mime_type(file_data: bytes, original_filename: str) -> str or None:
-    try:
-        if len(file_data) > MAX_FILE_SIZE:
-            print(f"[WARN] File size exceeds MAX_FILE_SIZE")
-            return None
-
-        if len(file_data) < MIN_FILE_SIZE:
-            print(f"[WARN] File size too small: {len(file_data)} bytes")
-            return None        
-        
-        if not original_filename or '.' not in original_filename:
-            print(f"[WARN] Invalid filename format")
-            return None
-        
-        ext = original_filename.rsplit('.', 1)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            print(f"[WARN] File extension '{ext}' not in ALLOWED_EXTENSIONS")
-            return None
-        
-        img = Image.open(io.BytesIO(file_data))
-        
-        if img.width > MAX_IMAGE_WIDTH or img.height > MAX_IMAGE_HEIGHT:
-            print(f"[WARN] Image resolution {img.width}x{img.height} exceeds maximum")
-            return None
-        
-        if img.width * img.height > MAX_PIXELS:
-            print(f"[WARN] Total pixels exceeds maximum")
-            return None
-        
-        image_format = img.format
-        if image_format not in ALLOWED_IMAGE_FORMATS:
-            print(f"[WARN] Image format '{image_format}' not allowed")
-            return None
-        
-        mime_type = SAFE_MIME_MAPPING.get(image_format)
-        if not mime_type:
-            print(f"[ERROR] No MIME mapping for format '{image_format}'")
-            return None
-        
-        print(f"[OK] Image validated: {img.width}x{img.height}, format={image_format}")
-        return mime_type
-    
-    except Exception as e:
-        print(f"[WARN] Image validation failed: {e}")
-        return None
-
-# ===============================================================
-# ---- Photo Signed URL helpers ----
+# ---- File Signed URL helpers ----
 # ===============================================================
 def get_or_create_signed_url_secret():
     global SIGNED_URL_SECRET
@@ -609,11 +703,11 @@ def get_or_create_signed_url_secret():
         SIGNED_URL_SECRET = secret
         return secret
 
-def generate_signed_photo_url(photo_token: str) -> dict:
+def generate_signed_file_url(file_token: str) -> dict:
     secret = get_or_create_signed_url_secret()
-    expiration = int(time.time()) + PHOTO_URL_TTL
+    expiration = int(time.time()) + FILE_URL_TTL
     
-    message = f"{photo_token}:{expiration}"
+    message = f"{file_token}:{expiration}"
     signature = hmac.new(
         secret.encode('utf-8'),
         message.encode('utf-8'),
@@ -621,21 +715,21 @@ def generate_signed_photo_url(photo_token: str) -> dict:
     ).hexdigest()
     
     return {
-        "token": photo_token,
+        "token": file_token,
         "signature": signature,
         "expires": expiration
     }
 
-def verify_signed_photo_url(photo_token: str, signature: str, expiration: str) -> bool:
+def verify_signed_file_url(file_token: str, signature: str, expiration: str) -> bool:
     try:
         secret = get_or_create_signed_url_secret()
         exp_timestamp = int(expiration)
         
         if time.time() > exp_timestamp:
-            print(f"[WARN] Signed URL expired: {photo_token}")
+            print(f"[WARN] Signed URL expired: {file_token}")
             return False
         
-        message = f"{photo_token}:{exp_timestamp}"
+        message = f"{file_token}:{exp_timestamp}"
         expected_signature = hmac.new(
             secret.encode('utf-8'),
             message.encode('utf-8'),
@@ -643,7 +737,7 @@ def verify_signed_photo_url(photo_token: str, signature: str, expiration: str) -
         ).hexdigest()
         
         if not hmac.compare_digest(signature, expected_signature):
-            print(f"[WARN] Invalid signature for photo: {photo_token}")
+            print(f"[WARN] Invalid signature for file: {file_token}")
             return False
         
         return True
@@ -651,67 +745,79 @@ def verify_signed_photo_url(photo_token: str, signature: str, expiration: str) -
         print(f"[ERROR] Signature verification failed: {e}")
         return False
 
-def save_photo(username: str, file_obj) -> tuple or None:
+def save_file(username: str, file_obj) -> tuple or None:
+    """Save any supported file type"""
     try:
         file_data = file_obj.read()
+        original_filename = file_obj.filename
         
-        mime_type = validate_and_get_mime_type(file_data, file_obj.filename)
-        if not mime_type:
+        # Validate file
+        validation_result = validate_file(file_data, original_filename)
+        if not validation_result:
             return None
         
+        category, mime_type, safe_filename = validation_result
+        
+        # Generate unique storage filename and token
         unique_filename = f"{secrets.token_urlsafe(32)}.bin"
-        photo_token = secrets.token_urlsafe(24)
+        file_token = secrets.token_urlsafe(24)
         file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
         
+        # Encrypt and save
         encrypted_data = encrypt_file(file_data)
-        
         with open(file_path, 'wb') as f:
             f.write(encrypted_data)
         
-        # Создаем запись Photo
-        photo = Photo(
+        # Create File record
+        file_record = File(
             username=username,
             filename=unique_filename,
-            photo_token=photo_token,
+            file_token=file_token,
+            original_filename=safe_filename,
+            file_category=category,
             filesize=len(file_data),
             mime_type=mime_type
         )
-        db.session.add(photo)
-        db.session.flush()  # Получаем photo.id
+        db.session.add(file_record)
+        db.session.flush()
         
-        # Создаем запись Message с типом 'photo'
-        photo_data = json.dumps({
-            "photo_id": photo.id,
-            "photo_token": photo_token
+        # Create Message record
+        message_type = 'photo' if category == 'photo' else 'file'
+        file_data_json = json.dumps({
+            "file_id": file_record.id,
+            "file_token": file_token,
+            "category": category,
+            "filename": safe_filename
         })
-        encrypted_content = encrypt_message(photo_data)
+        encrypted_content = encrypt_message(file_data_json)
         
         message = Message(
             username=username,
             content=encrypted_content,
-            message_type='photo',
-            created_at=photo.created_at  # Синхронизируем время
+            message_type=message_type,
+            created_at=file_record.created_at
         )
         db.session.add(message)
         db.session.commit()
         
-        print(f"[OK] Photo saved: {unique_filename} by {username}, Message ID: {message.id}")
-        return (photo, message)
+        print(f"[OK] File saved: {unique_filename} ({category}) by {username}, Message ID: {message.id}")
+        return (file_record, message)
         
     except Exception as e:
         db.session.rollback()
-        print(f"[ERROR] Failed to save photo: {e}")
+        print(f"[ERROR] Failed to save file: {e}")
         return None
 
-def load_photo_by_token(photo_token: str) -> tuple or None:
+def load_file_by_token(file_token: str) -> tuple or None:
+    """Load and decrypt file by token"""
     try:
-        photo = Photo.query.filter_by(photo_token=photo_token).first()
-        if not photo:
+        file_record = File.query.filter_by(file_token=file_token).first()
+        if not file_record:
             return None
         
-        file_path = os.path.join(UPLOAD_FOLDER, photo.filename)
+        file_path = os.path.join(UPLOAD_FOLDER, file_record.filename)
         if not os.path.exists(file_path):
-            print(f"[ERROR] Photo file not found: {file_path}")
+            print(f"[ERROR] File not found: {file_path}")
             return None
         
         with open(file_path, 'rb') as f:
@@ -719,12 +825,12 @@ def load_photo_by_token(photo_token: str) -> tuple or None:
         
         decrypted_data = decrypt_file(encrypted_data)
         if decrypted_data is None:
-            print(f"[ERROR] Could not decrypt photo: {photo.filename}")
+            print(f"[ERROR] Could not decrypt file: {file_record.filename}")
             return None
         
-        return (decrypted_data, photo.mime_type)
+        return (decrypted_data, file_record.mime_type, file_record.original_filename, file_record.file_category)
     except Exception as e:
-        print(f"[ERROR] Failed to load photo: {e}")
+        print(f"[ERROR] Failed to load file: {e}")
         return None
 
 # ===============================================================
@@ -800,10 +906,53 @@ def auto_rotate_tor(interval=TOR_ROTATION_INTERVAL):
 threading.Thread(target=auto_rotate_tor, daemon=True).start()
 
 # ===============================================================
+# ---- Message formatting helpers ----
+# ===============================================================
+def format_message_for_sse(msg: Message) -> str:
+    """Format message for SSE with signed URLs"""
+    ts = msg.format_time()
+    
+    if msg.message_type == 'photo':
+        plain = msg.get_plain()
+        if isinstance(plain, dict) and 'file_id' in plain:
+            file_id = plain['file_id']
+            file_record = File.query.filter_by(id=file_id).first()
+            
+            if file_record:
+                signed_data = generate_signed_file_url(file_record.file_token)
+                file_url = f"/file/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+                return f"[{ts}] {msg.username}: [PHOTO:{file_id}:{file_url}]"
+            else:
+                return f"[{ts}] {msg.username}: [PHOTO:{file_id}]"
+        return f"[{ts}] {msg.username}: [PHOTO]"
+    
+    elif msg.message_type == 'file':
+        plain = msg.get_plain()
+        if isinstance(plain, dict) and 'file_id' in plain:
+            file_id = plain['file_id']
+            category = plain.get('category', 'file')
+            filename = plain.get('filename', 'file')
+            
+            file_record = File.query.filter_by(id=file_id).first()
+            
+            if file_record:
+                signed_data = generate_signed_file_url(file_record.file_token)
+                file_url = f"/file/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+                return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_url}]"
+            else:
+                return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
+        return f"[{ts}] {msg.username}: [FILE]"
+    
+    else:
+        # Text message
+        plain = msg.get_plain()
+        return f"[{ts}] {msg.username}: {plain}"
+
+# ===============================================================
 # ---- Message helpers ----
 # ===============================================================
 def save_message(username, content):
-    """Сохраняет текстовое сообщение"""
+    """Save text message"""
     sanitized_content = sanitize_text(content)
 
     if not sanitized_content:
@@ -821,7 +970,7 @@ def save_message(username, content):
     db.session.add(msg)
     db.session.commit()
     
-    # Публикуем в Redis
+    # Publish to Redis
     ts = msg.format_time()
     message_text = f"[{ts}] {username}: {sanitized_content}"
     r.publish("chat", message_text.encode("utf-8"))
@@ -830,37 +979,11 @@ def save_message(username, content):
     
     return msg
 
-def format_message_for_sse(msg: Message) -> str:
-    """Форматирует сообщение для SSE с подписанными URL для фото"""
-    ts = msg.format_time()
-    
-    if msg.message_type == 'photo':
-        plain = msg.get_plain()
-        if isinstance(plain, dict) and 'photo_id' in plain:
-            photo_id = plain['photo_id']
-            photo = Photo.query.filter_by(id=photo_id).first()
-            
-            if photo:
-                signed_data = generate_signed_photo_url(photo.photo_token)
-                photo_url = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
-                return f"[{ts}] {msg.username}: [PHOTO:{photo_id}:{photo_url}]"
-            else:
-                return f"[{ts}] {msg.username}: [PHOTO:{photo_id}]"
-        return f"[{ts}] {msg.username}: [PHOTO]"
-    else:
-        # Текстовое сообщение
-        plain = msg.get_plain()
-        return f"[{ts}] {msg.username}: {plain}"
-
 def event_stream():
-    """SSE stream - только новые сообщения в реальном времени.
-    История загружается через /history endpoint!"""
-    
-    # Подписываемся на Redis pub/sub для новых сообщений
+    """SSE stream - only new messages in real-time"""
     pubsub = r.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe("chat")
     
-    # Слушаем только новые сообщения
     for message in pubsub.listen():
         data = message.get("data")
         if isinstance(data, bytes):
@@ -994,7 +1117,7 @@ def stream():
 @app.route("/history")
 @limiter.limit("30 per minute")
 def history():
-    """Load message history with pagination."""
+    """Load message history with pagination"""
     token = extract_token_from_request()
     username = verify_token(token)
     
@@ -1007,7 +1130,6 @@ def history():
     if limit > 100:
         limit = 100
     
-    # Запрашиваем все типы сообщений (текст и фото)
     query = Message.query.order_by(Message.created_at.desc())
     
     if before_id:
@@ -1017,39 +1139,58 @@ def history():
     
     messages = query.limit(limit).all()
     
-    # Собираем ID фото для предзагрузки
-    photo_ids = []
+    # Collect file IDs for preloading signed URLs
+    file_ids = []
     for msg in messages:
-        if msg.message_type == 'photo':
+        if msg.message_type in ('photo', 'file'):
             plain = msg.get_plain()
-            if isinstance(plain, dict) and 'photo_id' in plain:
-                photo_ids.append(plain['photo_id'])
+            if isinstance(plain, dict) and 'file_id' in plain:
+                file_ids.append(plain['file_id'])
     
-    # Предзагружаем подписанные URL для всех фото
-    photo_urls = {}
-    if photo_ids:
-        photos = Photo.query.filter(Photo.id.in_(photo_ids)).all()
-        for photo in photos:
-            signed_data = generate_signed_photo_url(photo.photo_token)
-            photo_urls[photo.id] = f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+    # Preload signed URLs for all files
+    file_urls = {}
+    if file_ids:
+        files = File.query.filter(File.id.in_(file_ids)).all()
+        for file_record in files:
+            signed_data = generate_signed_file_url(file_record.file_token)
+            file_urls[file_record.id] = {
+                'url': f"/file/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}",
+                'category': file_record.file_category,
+                'filename': file_record.original_filename
+            }
     
-    # Формируем результат
+    # Format results
     result = []
     for msg in reversed(messages):
         ts = msg.format_time()
         
         if msg.message_type == 'photo':
             plain = msg.get_plain()
-            if isinstance(plain, dict) and 'photo_id' in plain:
-                photo_id = plain['photo_id']
-                if photo_id in photo_urls:
-                    message_text = f"[{ts}] {msg.username}: [PHOTO:{photo_id}:{photo_urls[photo_id]}]"
+            if isinstance(plain, dict) and 'file_id' in plain:
+                file_id = plain['file_id']
+                if file_id in file_urls:
+                    message_text = f"[{ts}] {msg.username}: [PHOTO:{file_id}:{file_urls[file_id]['url']}]"
                 else:
-                    message_text = f"[{ts}] {msg.username}: [PHOTO:{photo_id}]"
+                    message_text = f"[{ts}] {msg.username}: [PHOTO:{file_id}]"
             else:
                 message_text = f"[{ts}] {msg.username}: [PHOTO]"
+        
+        elif msg.message_type == 'file':
+            plain = msg.get_plain()
+            if isinstance(plain, dict) and 'file_id' in plain:
+                file_id = plain['file_id']
+                category = plain.get('category', 'file')
+                filename = plain.get('filename', 'file')
+                
+                if file_id in file_urls:
+                    message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_urls[file_id]['url']}]"
+                else:
+                    message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
+            else:
+                message_text = f"[{ts}] {msg.username}: [FILE]"
+        
         else:
-            # Текстовое сообщение
+            # Text message
             plain = msg.get_plain()
             message_text = f"[{ts}] {msg.username}: {plain}"
         
@@ -1064,10 +1205,10 @@ def history():
     }), 200
 
 # ===============================================================
-# ---- Photo upload and download routes ----
+# ---- File upload and download routes ----
 # ===============================================================
 @app.route("/upload", methods=["POST"])
-@limiter.limit("15 per minute; 300 per day")
+@limiter.limit("10 per minute; 100 per day")
 def upload():
     token = extract_token_from_request()
     username = verify_token(token)
@@ -1082,63 +1223,92 @@ def upload():
     if file.filename == "":
         return "No selected file", 400
     
-    result = save_photo(username, file)
+    result = save_file(username, file)
     if not result:
-        return "[ERROR] invalid file or file too large \n max photo resolution is 2560x2560", 400
+        return jsonify({
+            "error": "Invalid file",
+            "message": "File validation failed. Check file type, size limits:\n"
+                      "Photos (jpg,png,gif,webp): 10MB, 2560x2560\n"
+                      "Videos (mp4,mov,webm): 100MB\n"
+                      "Audio (mp3,m4a,ogg,wav): 50MB\n"
+                      "Documents (pdf,txt): 25MB"
+        }), 400
     
-    photo, message = result
+    file_record, message = result
     
-    # Публикуем сообщение о фото в Redis для SSE
+    # Publish message for SSE
     message_text = format_message_for_sse(message)
     r.publish("chat", message_text.encode("utf-8"))
     
     increment_message_count()
     
-    return {"photo_id": photo.id, "message_id": message.id}, 200
+    return jsonify({
+        "file_id": file_record.id,
+        "message_id": message.id,
+        "category": file_record.file_category
+    }), 200
 
-@app.route("/photo/sign/<int:photo_id>", methods=["GET"])
+@app.route("/file/sign/<int:file_id>", methods=["GET"])
 @limiter.limit("20 per minute")
-def sign_photo_url(photo_id: int):
-    """Generate signed URL for photo access."""
+def sign_file_url(file_id: int):
+    """Generate signed URL for file access"""
     token = extract_token_from_request()
     username = verify_token(token)
     
     if not username:
         return abort(401)
     
-    photo = Photo.query.filter_by(id=photo_id).first()
-    if not photo:
+    file_record = File.query.filter_by(id=file_id).first()
+    if not file_record:
         return abort(404)
     
-    signed_data = generate_signed_photo_url(photo.photo_token)
+    signed_data = generate_signed_file_url(file_record.file_token)
     
     return jsonify({
-        "url": f"/photo/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+        "url": f"/file/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}",
+        "category": file_record.file_category,
+        "filename": file_record.original_filename
     }), 200
 
-@app.route("/photo/<photo_token>")
+@app.route("/file/<file_token>")
 @limiter.limit("60 per minute")
-def get_photo(photo_token: str):
-    """Download decrypted photo by signed URL."""
+def get_file(file_token: str):
+    """Download or display file by signed URL"""
     signature = request.args.get('sig', '')
     expiration = request.args.get('exp', '')
     
-    if not verify_signed_photo_url(photo_token, signature, expiration):
+    if not verify_signed_file_url(file_token, signature, expiration):
         return abort(403)
     
-    result = load_photo_by_token(photo_token)
+    result = load_file_by_token(file_token)
     if not result:
         return abort(404)
     
-    decrypted_data, mime_type = result
+    decrypted_data, mime_type, original_filename, category = result
+    
+    # Determine Content-Disposition based on category
+    if category == 'photo':
+        # Photos display inline
+        as_attachment = False
+        disposition_filename = None
+    else:
+        # Videos, audio, documents force download
+        as_attachment = True
+        disposition_filename = original_filename
     
     response = send_file(
         io.BytesIO(decrypted_data),
         mimetype=mime_type,
-        as_attachment=False
+        as_attachment=as_attachment,
+        download_name=disposition_filename
     )
     
-    response.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'"
+    # Security headers
+    if category == 'photo':
+        response.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'"
+    else:
+        response.headers['Content-Security-Policy'] = "default-src 'none'"
+    
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     

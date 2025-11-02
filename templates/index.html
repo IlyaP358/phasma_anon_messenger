@@ -32,11 +32,11 @@
     #load-more-container {
       text-align: center;
       padding: 0.5em;
-      background: rgba(0, 0, 0, 0.9);
-      border-bottom: 1px solid #333;
+      background: rgba(0, 0, 0, 1);
+      border-bottom: 0px solid #333;
       display: none;
       position: sticky;
-      top: 0;
+      top: -20px;
       z-index: 100;
     }
     #load-more-btn {
@@ -63,7 +63,7 @@
       border-top: 1px solid #333;
       background: #111;
     }
-    input {
+    input[type="text"] {
       width: 95%;
       padding: 0.5em;
       font: inherit;
@@ -81,6 +81,9 @@
       padding: 0.5em;
       font: inherit;
       cursor: pointer;
+    }
+    #upload-btn:hover {
+      background: #333;
     }
     #file-input {
       display: none;
@@ -104,8 +107,52 @@
       margin-top: 0.5em;
       border: 1px solid #0f0;
       cursor: pointer;
+      display: block;
     }
-    .photo-loading {
+    .file-msg {
+      color: #0ff;
+      margin-top: 0.5em;
+    }
+    .file-attachment {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      padding: 0.5em;
+      background: #1a1a1a;
+      border: 1px solid #0ff;
+      margin-top: 0.3em;
+      position: relative;
+    }
+    .file-icon {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+    }
+    .file-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .file-name {
+      color: #0ff;
+      word-break: break-all;
+      font-size: 14px;
+    }
+    .file-download-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: #0ff;
+      color: #000;
+      border: none;
+      padding: 3px 8px;
+      font: 11px monospace;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .file-download-btn:hover {
+      background: #0aa;
+    }
+    .file-loading, .photo-loading {
       color: #888;
       font-style: italic;
     }
@@ -121,9 +168,9 @@
 
   <div id="input-container">
     <b>Hi, {{ user }}!</b><br>
-    Message: <input id="in" autocomplete="off" />
-    <button id="upload-btn">+ upload photo</button>
-    <input id="file-input" type="file" accept="image/jpeg,image/png" />
+    Message: <input type="text" id="in" autocomplete="off" />
+    <button id="upload-btn">+ upload file</button>
+    <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
   </div>
 
   <script nonce="{{ nonce }}">
@@ -173,6 +220,7 @@
     function parseMessageData(data) {
       // Parse format: [HH:MM:SS] username: message
       // or [HH:MM:SS] username: [PHOTO:ID:URL]
+      // or [HH:MM:SS] username: [FILE:ID:category:filename:URL]
       const timeMatch = data.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+/);
       if (!timeMatch) return null;
       
@@ -200,10 +248,69 @@
       return `${year}-${month}-${day}`;
     }
 
+    function createPhotoElement(photoId, photoUrl, username) {
+      const contentDiv = document.createElement("div");
+      contentDiv.className = "message-content photo-msg";
+      contentDiv.setAttribute('data-photo-id', photoId);
+      
+      const usernameSpan = document.createElement("span");
+      usernameSpan.textContent = username;
+      contentDiv.appendChild(usernameSpan);
+      
+      const img = document.createElement("img");
+      img.src = photoUrl;
+      img.alt = "Photo";
+      img.loading = "lazy";
+      contentDiv.appendChild(img);
+      
+      return contentDiv;
+    }
+
+    function createFileElement(fileId, category, filename, fileUrl, username) {
+      const contentDiv = document.createElement("div");
+      contentDiv.className = "message-content file-msg";
+      contentDiv.setAttribute('data-file-id', fileId);
+      
+      const usernameSpan = document.createElement("span");
+      usernameSpan.textContent = username;
+      usernameSpan.style.display = "block";
+      contentDiv.appendChild(usernameSpan);
+      
+      const attachmentDiv = document.createElement("div");
+      attachmentDiv.className = "file-attachment";
+      
+      const icon = document.createElement("img");
+      icon.src = "/static/phasma_file.png";
+      icon.className = "file-icon";
+      icon.alt = "File";
+      attachmentDiv.appendChild(icon);
+      
+      const fileInfo = document.createElement("div");
+      fileInfo.className = "file-info";
+      
+      const fileNameSpan = document.createElement("div");
+      fileNameSpan.className = "file-name";
+      fileNameSpan.textContent = filename;
+      fileInfo.appendChild(fileNameSpan);
+      
+      attachmentDiv.appendChild(fileInfo);
+      
+      const downloadBtn = document.createElement("button");
+      downloadBtn.className = "file-download-btn";
+      downloadBtn.textContent = "⬇";
+      downloadBtn.onclick = function() {
+        window.open(fileUrl, '_blank');
+      };
+      attachmentDiv.appendChild(downloadBtn);
+      
+      contentDiv.appendChild(attachmentDiv);
+      
+      return contentDiv;
+    }
+
     function createMessageElement(data) {
       const parsed = parseMessageData(data);
       if (!parsed) {
-        // Fallback for unparseable messages
         const msg = document.createElement("div");
         msg.className = "message";
         msg.textContent = data;
@@ -213,15 +320,10 @@
       const msgWrapper = document.createElement("div");
       msgWrapper.className = "message";
       
-      // Create header with date and time
       const header = document.createElement("div");
       header.className = "message-header";
       header.textContent = `${getCurrentDate()}, [${parsed.time}]`;
       msgWrapper.appendChild(header);
-      
-      // Create content section
-      const contentDiv = document.createElement("div");
-      contentDiv.className = "message-content";
       
       // Check for photo with pre-signed URL: [PHOTO:ID:URL]
       const photoWithUrlMatch = parsed.content.match(/\[PHOTO:(\d+):([^\]]+)\]/);
@@ -229,70 +331,141 @@
       if (photoWithUrlMatch) {
         const photoId = photoWithUrlMatch[1];
         const photoUrl = photoWithUrlMatch[2];
+        const contentDiv = createPhotoElement(photoId, photoUrl, parsed.username);
+        msgWrapper.appendChild(contentDiv);
+        return msgWrapper;
+      }
+      
+      // Check for file with pre-signed URL: [FILE:ID:category:filename:URL]
+      const fileWithUrlMatch = parsed.content.match(/\[FILE:(\d+):([^:]+):([^:]+):([^\]]+)\]/);
+      
+      if (fileWithUrlMatch) {
+        const fileId = fileWithUrlMatch[1];
+        const category = fileWithUrlMatch[2];
+        const filename = fileWithUrlMatch[3];
+        const fileUrl = fileWithUrlMatch[4];
         
-        contentDiv.classList.add("photo-msg");
+        const contentDiv = createFileElement(fileId, category, filename, fileUrl, parsed.username);
+        msgWrapper.appendChild(contentDiv);
+        return msgWrapper;
+      }
+      
+      // Check for old format photo marker: [PHOTO:ID]
+      const photoMatch = parsed.content.match(/\[PHOTO:(\d+)\]/);
+      
+      if (photoMatch) {
+        const photoId = photoMatch[1];
+        const contentDiv = document.createElement("div");
+        contentDiv.className = "message-content photo-msg";
         contentDiv.setAttribute('data-photo-id', photoId);
         
-        // Add username
         const usernameSpan = document.createElement("span");
         usernameSpan.textContent = parsed.username;
         contentDiv.appendChild(usernameSpan);
         
-        // Add image
-        const img = document.createElement("img");
-        img.src = photoUrl;
-        img.alt = "Photo";
-        img.loading = "lazy";
-        contentDiv.appendChild(img);
+        const loader = document.createElement("div");
+        loader.textContent = "[Loading photo...]";
+        loader.classList.add("photo-loading");
+        contentDiv.appendChild(loader);
         
-      } else {
-        // Check for old format photo marker (fallback): [PHOTO:ID]
-        const photoMatch = parsed.content.match(/\[PHOTO:(\d+)\]/);
+        // Request signed URL from server (fallback)
+        fetch(`/file/sign/${photoId}`, {
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        })
+        .then(response => response.json())
+        .then(data => {
+          loader.remove();
+          const img = document.createElement("img");
+          img.src = data.url;
+          img.alt = "Photo";
+          img.loading = "lazy";
+          contentDiv.appendChild(img);
+        })
+        .catch(err => {
+          console.error("Failed to load photo:", err);
+          loader.textContent = "[Failed to load photo]";
+          loader.style.color = "#f00";
+        });
         
-        if (photoMatch) {
-          const photoId = photoMatch[1];
-          
-          contentDiv.classList.add("photo-msg");
-          contentDiv.setAttribute('data-photo-id', photoId);
-          
-          // Add username
-          const usernameSpan = document.createElement("span");
-          usernameSpan.textContent = parsed.username;
-          contentDiv.appendChild(usernameSpan);
-          
-          // Add loading indicator
-          const loader = document.createElement("div");
-          loader.textContent = "[Loading photo...]";
-          loader.classList.add("photo-loading");
-          contentDiv.appendChild(loader);
-          
-          // Request signed URL from server (fallback for old messages)
-          fetch(`/photo/sign/${photoId}`, {
-            headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-          })
-          .then(response => response.json())
-          .then(data => {
-            loader.remove();
-            
-            const img = document.createElement("img");
-            img.src = data.url;
-            img.alt = "Photo";
-            img.loading = "lazy";
-            contentDiv.appendChild(img);
-          })
-          .catch(err => {
-            console.error("Failed to load photo:", err);
-            loader.textContent = "[Failed to load photo]";
-            loader.style.color = "#f00";
-          });
-          
-        } else {
-          // Regular text message
-          contentDiv.textContent = `${parsed.username}: ${parsed.content}`;
-        }
+        msgWrapper.appendChild(contentDiv);
+        return msgWrapper;
       }
       
+      // Check for old format file marker: [FILE:ID:category:filename]
+      const fileMatch = parsed.content.match(/\[FILE:(\d+):([^:]+):([^\]]+)\]/);
+      
+      if (fileMatch) {
+        const fileId = fileMatch[1];
+        const category = fileMatch[2];
+        const filename = fileMatch[3];
+        
+        const contentDiv = document.createElement("div");
+        contentDiv.className = "message-content file-msg";
+        contentDiv.setAttribute('data-file-id', fileId);
+        
+        const usernameSpan = document.createElement("span");
+        usernameSpan.textContent = parsed.username;
+        usernameSpan.style.display = "block";
+        contentDiv.appendChild(usernameSpan);
+        
+        const loader = document.createElement("div");
+        loader.textContent = "[Loading file...]";
+        loader.classList.add("file-loading");
+        contentDiv.appendChild(loader);
+        
+        // Request signed URL from server (fallback)
+        fetch(`/file/sign/${fileId}`, {
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        })
+        .then(response => response.json())
+        .then(data => {
+          loader.remove();
+          
+          const attachmentDiv = document.createElement("div");
+          attachmentDiv.className = "file-attachment";
+          
+          const icon = document.createElement("img");
+          icon.src = "/static/phasma_file.png";
+          icon.className = "file-icon";
+          icon.alt = "File";
+          attachmentDiv.appendChild(icon);
+          
+          const fileInfo = document.createElement("div");
+          fileInfo.className = "file-info";
+          
+          const fileNameSpan = document.createElement("div");
+          fileNameSpan.className = "file-name";
+          fileNameSpan.textContent = data.filename;
+          fileInfo.appendChild(fileNameSpan);
+          
+          attachmentDiv.appendChild(fileInfo);
+          
+          const downloadBtn = document.createElement("button");
+          downloadBtn.className = "file-download-btn";
+          downloadBtn.textContent = "⬇";
+          downloadBtn.onclick = function() {
+            window.open(data.url, '_blank');
+          };
+          attachmentDiv.appendChild(downloadBtn);
+          
+          contentDiv.appendChild(attachmentDiv);
+        })
+        .catch(err => {
+          console.error("Failed to load file:", err);
+          loader.textContent = "[Failed to load file]";
+          loader.style.color = "#f00";
+        });
+        
+        msgWrapper.appendChild(contentDiv);
+        return msgWrapper;
+      }
+      
+      // Regular text message
+      const contentDiv = document.createElement("div");
+      contentDiv.className = "message-content";
+      contentDiv.textContent = `${parsed.username}: ${parsed.content}`;
       msgWrapper.appendChild(contentDiv);
+      
       return msgWrapper;
     }
 
@@ -305,7 +478,6 @@
       loadMoreBtn.disabled = true;
       loadMoreBtn.textContent = "Loading...";
 
-      // Save scroll position
       const scrollContainer = out;
       const oldScrollHeight = scrollContainer.scrollHeight;
       const oldScrollTop = scrollContainer.scrollTop;
@@ -330,7 +502,6 @@
 
         console.log(`[History] Loaded ${data.messages.length} messages`);
 
-        // Collect all message elements first
         const messageElements = [];
         data.messages.forEach(msg => {
           if (!loadedMessageIds.has(msg.id)) {
@@ -338,7 +509,6 @@
             const msgElement = createMessageElement(msg.text);
             messageElements.push({element: msgElement, id: msg.id});
             
-            // Track oldest and newest
             if (!oldestMessageId || msg.id < oldestMessageId) {
               oldestMessageId = msg.id;
             }
@@ -348,20 +518,16 @@
           }
         });
 
-        // Add all elements at once in correct order
         if (initialLoadDone) {
-          // Loading older messages - add at TOP in reverse order
           for (let i = messageElements.length - 1; i >= 0; i--) {
             messagesContainer.insertBefore(messageElements[i].element, messagesContainer.firstChild);
           }
         } else {
-          // Initial load - add to bottom
           messageElements.forEach(item => {
             messagesContainer.appendChild(item.element);
           });
         }
 
-        // Restore scroll position when loading older messages
         if (initialLoadDone) {
           requestAnimationFrame(() => {
             const newScrollHeight = scrollContainer.scrollHeight;
@@ -380,7 +546,6 @@
           loadMoreBtn.textContent = "↑ Load older messages";
         }
 
-        // After FIRST load: scroll to bottom and start SSE
         if (!initialLoadDone) {
           initialLoadDone = true;
           console.log("[Init] First history load complete. Scrolling to bottom...");
@@ -388,7 +553,6 @@
           requestAnimationFrame(() => {
             scrollContainer.scrollTop = scrollContainer.scrollHeight;
             
-            // Start SSE only once
             if (!sseStarted) {
               sseStarted = true;
               console.log("[Init] Starting SSE...");
@@ -408,7 +572,6 @@
       });
     }
 
-    // Show load button when scrolling near top
     out.addEventListener('scroll', () => {
       if (out.scrollTop < 100 && hasMoreHistory && !isLoadingHistory) {
         loadMoreContainer.style.display = "block";
@@ -446,11 +609,9 @@
                 
                 console.log("[SSE] New message:", data.substring(0, 50) + "...");
                 
-                // Add new message to BOTTOM
                 const msgElement = createMessageElement(data);
                 messagesContainer.appendChild(msgElement);
                 
-                // Auto-scroll to bottom if user is near bottom
                 const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
                 if (isNearBottom) {
                   requestAnimationFrame(() => {
@@ -468,7 +629,6 @@
       });
     }
 
-    // Start by loading initial history (last 50 messages)
     console.log("[Init] Loading initial history...");
     loadHistory();
 
@@ -531,17 +691,21 @@
         processData: false,
         contentType: false,
         success: function (response) {
-          console.log("Photo uploaded, ID:", response.photo_id, "Message ID:", response.message_id);
+          console.log("File uploaded:", response);
           $("#file-input").val("");
         },
-        error: function (err) {
-          alert("Upload failed: " + err.responseText);
+        error: function (xhr) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            alert("Upload failed: " + (response.message || xhr.responseText));
+          } catch(e) {
+            alert("Upload failed: " + xhr.responseText);
+          }
           $("#file-input").val("");
         }
       });
     });
 
-    // Logout on tab close
     window.addEventListener('beforeunload', function () {
       fetch('/logout', {
         method: 'POST',
