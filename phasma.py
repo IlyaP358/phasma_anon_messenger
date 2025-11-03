@@ -7,6 +7,8 @@ import re
 import secrets
 import logging
 import json
+import subprocess  # Добавлено из old_script
+import tempfile    # Добавлено из old_script
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -29,6 +31,9 @@ from PIL import Image
 import bleach
 import hmac
 import hashlib
+from mutagen import File as MutagenFile
+from mutagen.id3 import ID3NoHeaderError
+from pikepdf import Pdf
 
 # ===============================================================
 # ---- PRODUCTION vs DEVELOPMENT MODE ----
@@ -78,6 +83,7 @@ else:
 # ---- Upload configuration ----
 # ===============================================================
 UPLOAD_FOLDER = "uploads"
+TEMP_FOLDER = "temp_processing" # Добавлено из old_script
 
 # File categories and their allowed formats
 FILE_CATEGORIES = {
@@ -120,6 +126,7 @@ MIN_FILE_SIZE = 100  # 100 bytes minimum
 MAX_IMAGE_WIDTH = 2560
 MAX_IMAGE_HEIGHT = 2560
 MAX_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT
+IMAGE_QUALITY = 90  # Добавлено из old_script (JPEG quality after metadata removal)
 
 # PIL format to MIME mapping (for images)
 SAFE_MIME_MAPPING = {
@@ -160,6 +167,9 @@ TOR_ROTATION_INTERVAL = 300  # 5 minutes
 TOR_ROTATION_MESSAGE_THRESHOLD = 30
 
 TIMEZONE = ZoneInfo("Europe/Prague")
+
+# FFmpeg configuration
+FFMPEG_PATH = "ffmpeg"  # Добавлено из old_script
 
 # ===============================================================
 # ---- Database and Redis ----
@@ -351,7 +361,282 @@ def init_upload_folder():
     else:
         print(f"[OK] Upload folder exists: {UPLOAD_FOLDER}")
 
+    # Добавлено из old_script
+    if not os.path.exists(TEMP_FOLDER):
+        os.makedirs(TEMP_FOLDER)
+        print(f"[OK] Created temp folder: {TEMP_FOLDER}")
+    else:
+        print(f"[OK] Temp folder exists: {TEMP_FOLDER}")
+
 init_upload_folder()
+
+# ===============================================================
+# ---- FFmpeg availability check (Добавлено из old_script) ----
+# ===============================================================
+def check_ffmpeg():
+    try:
+        result = subprocess.run(
+            [FFMPEG_PATH, '-version'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5
+        )
+        if result.returncode == 0:
+            print("[OK] FFmpeg is available")
+            return True
+        else:
+            print("[WARN] FFmpeg not working properly")
+            return False
+    except Exception as e:
+        print(f"[WARN] FFmpeg not found: {e}")
+        print("[WARN] Video metadata removal will be disabled")
+        return False
+
+FFMPEG_AVAILABLE = check_ffmpeg()
+
+# ===============================================================
+# ---- METADATA REMOVAL FUNCTIONS (Добавлено из old_script) ----
+# ===============================================================
+
+def strip_image_metadata(file_data: bytes, image_format: str) -> bytes or None:
+    """
+    Remove ALL metadata from images (EXIF, IPTC, XMP, ICC profiles)
+    Returns clean image data
+    """
+    try:
+        img = Image.open(io.BytesIO(file_data))
+        
+        # Convert RGBA to RGB for JPEG
+        if image_format == "JPEG" and img.mode in ("RGBA", "LA", "P"):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            background.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
+            img = background
+        
+        # Create clean image without any metadata
+        output = io.BytesIO()
+        
+        # Save parameters based on format
+        save_params = {
+            "format": image_format,
+            "optimize": True
+        }
+        
+        if image_format == "JPEG":
+            save_params["quality"] = IMAGE_QUALITY
+            save_params["progressive"] = True
+        elif image_format == "PNG":
+            save_params["compress_level"] = 6
+        elif image_format == "WEBP":
+            save_params["quality"] = IMAGE_QUALITY
+            save_params["method"] = 6
+        
+        # Save without metadata
+        img.save(output, **save_params)
+        
+        clean_data = output.getvalue()
+        print(f"[OK] Image metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
+        return clean_data
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to strip image metadata: {e}")
+        return None
+
+
+def strip_video_metadata(file_data: bytes, ext: str) -> bytes or None:
+    """
+    Remove metadata from video files using FFmpeg (stream copy - FAST!)
+    """
+    if not FFMPEG_AVAILABLE:
+        print("[WARN] FFmpeg not available, skipping video metadata removal")
+        return file_data
+    
+    temp_input = None
+    temp_output = None
+    
+    try:
+        # Create temp files
+        with tempfile.NamedTemporaryFile(mode='wb', suffix=f'.{ext}', delete=False, dir=TEMP_FOLDER) as f:
+            temp_input = f.name
+            f.write(file_data)
+        
+        temp_output = tempfile.NamedTemporaryFile(mode='wb', suffix=f'.{ext}', delete=False, dir=TEMP_FOLDER).name
+        
+        # FFmpeg command: stream copy without re-encoding (FAST!)
+        cmd = [
+            FFMPEG_PATH,
+            '-i', temp_input,
+            '-map_metadata', '-1',  # Remove all metadata
+            '-map_chapters', '-1',  # Remove chapters
+            '-c', 'copy',  # Stream copy (no re-encoding!)
+            '-fflags', '+bitexact',  # Reproducible output
+            '-y',  # Overwrite output
+            temp_output
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60
+        )
+        
+        if result.returncode != 0:
+            print(f"[ERROR] FFmpeg failed: {result.stderr.decode('utf-8', errors='ignore')}")
+            return None
+        
+        # Read cleaned file
+        with open(temp_output, 'rb') as f:
+            clean_data = f.read()
+        
+        print(f"[OK] Video metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
+        return clean_data
+        
+    except subprocess.TimeoutExpired:
+        print("[ERROR] FFmpeg timeout")
+        return None
+    except Exception as e:
+        print(f"[ERROR] Failed to strip video metadata: {e}")
+        return None
+    finally:
+        # Cleanup temp files
+        if temp_input and os.path.exists(temp_input):
+            try:
+                os.remove(temp_input)
+            except:
+                pass
+        if temp_output and os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
+            except:
+                pass
+
+
+def strip_audio_metadata(file_data: bytes, ext: str) -> bytes or None:
+    """
+    Remove metadata from audio files using mutagen
+    """
+    
+    temp_file = None
+    
+    try:
+        # Create temp file
+        with tempfile.NamedTemporaryFile(mode='wb', suffix=f'.{ext}', delete=False, dir=TEMP_FOLDER) as f:
+            temp_file = f.name
+            f.write(file_data)
+        
+        # Load audio file with mutagen
+        try:
+            audio = MutagenFile(temp_file, easy=False)
+            
+            if audio is None:
+                print(f"[WARN] Mutagen couldn't process audio file, returning original")
+                return file_data
+            
+            # Delete all tags
+            if hasattr(audio, 'tags') and audio.tags:
+                audio.delete()
+                audio.save()
+            
+            # Read cleaned file
+            with open(temp_file, 'rb') as f:
+                clean_data = f.read()
+            
+            print(f"[OK] Audio metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
+            return clean_data
+            
+        except ID3NoHeaderError:
+            # File has no ID3 tags (already clean)
+            print("[OK] Audio file has no metadata")
+            return file_data
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to strip audio metadata: {e}")
+        return None
+    finally:
+        # Cleanup temp file
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+
+
+def strip_pdf_metadata(file_data: bytes) -> bytes or None:
+    """
+    Remove metadata from PDF files using pikepdf
+    """
+    temp_input = None
+    temp_output = None
+    
+    try:
+        # Create temp files
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.pdf', delete=False, dir=TEMP_FOLDER) as f:
+            temp_input = f.name
+            f.write(file_data)
+        
+        temp_output = tempfile.NamedTemporaryFile(mode='wb', suffix='.pdf', delete=False, dir=TEMP_FOLDER).name
+        
+        # Open PDF and remove metadata
+        with Pdf.open(temp_input) as pdf:
+            # Remove document info
+            with pdf.open_metadata() as meta:
+                meta.clear()
+            
+            # Save without metadata
+            pdf.save(temp_output)
+        
+        # Read cleaned file
+        with open(temp_output, 'rb') as f:
+            clean_data = f.read()
+        
+        print(f"[OK] PDF metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
+        return clean_data
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to strip PDF metadata: {e}")
+        return None
+    finally:
+        # Cleanup temp files
+        if temp_input and os.path.exists(temp_input):
+            try:
+                os.remove(temp_input)
+            except:
+                pass
+        if temp_output and os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
+            except:
+                pass
+
+
+def strip_file_metadata(file_data: bytes, category: str, ext: str, image_format: str = None) -> bytes or None:
+    """
+    Main function to strip metadata based on file category
+    """
+    print(f"[INFO] Stripping metadata for {category} file...")
+    
+    if category == 'photo':
+         return strip_image_metadata(file_data, image_format)
+    
+    elif category == 'video':
+        return strip_video_metadata(file_data, ext)
+    
+    elif category == 'audio':
+        return strip_audio_metadata(file_data, ext)
+    
+    elif category == 'document':
+        if ext.lower() == 'pdf':
+            return strip_pdf_metadata(file_data)
+        else:
+            # TXT files don't have metadata
+            print("[OK] Text file has no metadata to strip")
+            return file_data
+    
+    else:
+        print(f"[WARN] Unknown category: {category}")
+        return file_data
 
 # ===============================================================
 # ---- Validation helpers ----
@@ -427,7 +712,7 @@ def validate_generic_file(file_data: bytes, ext: str, category: str) -> str or N
 
 def validate_file(file_data: bytes, original_filename: str) -> tuple or None:
     """
-    Validate any file and return (category, mime_type, original_filename)
+    Validate any file and return (category, mime_type, original_filename, ext, image_format)
     """
     try:
         # Size check
@@ -458,11 +743,12 @@ def validate_file(file_data: bytes, original_filename: str) -> tuple or None:
             return None
         
         # Category-specific validation
+        image_format = None # Изменено
         if category == 'photo':
             result = validate_image_file(file_data, ext)
             if not result:
                 return None
-            mime_type, _ = result
+            mime_type, image_format = result # Изменено (было mime_type, _)
         else:
             mime_type = validate_generic_file(file_data, ext, category)
             if not mime_type:
@@ -473,7 +759,7 @@ def validate_file(file_data: bytes, original_filename: str) -> tuple or None:
         if not safe_filename:
             safe_filename = f"file.{ext}"
         
-        return (category, mime_type, safe_filename)
+        return (category, mime_type, safe_filename, ext, image_format) # Изменено (добавлены ext, image_format)
     
     except Exception as e:
         print(f"[ERROR] File validation failed: {e}")
@@ -756,15 +1042,25 @@ def save_file(username: str, file_obj) -> tuple or None:
         if not validation_result:
             return None
         
-        category, mime_type, safe_filename = validation_result
+        # Изменено: распаковка
+        category, mime_type, safe_filename, ext, image_format = validation_result
+        
+        # ---- METADATA STRIPPING (Логика из old_script) ----
+        print(f"[INFO] Stripping metadata for {original_filename} ({category})")
+        clean_data = strip_file_metadata(file_data, category, ext, image_format)
+        if clean_data is None:
+            print(f"[ERROR] Metadata stripping failed for {original_filename}. Aborting upload.")
+            return None
+        print(f"[OK] Metadata stripped. Size: {len(file_data)} -> {len(clean_data)}")
+        # ---------------------------------------------------
         
         # Generate unique storage filename and token
         unique_filename = f"{secrets.token_urlsafe(32)}.bin"
         file_token = secrets.token_urlsafe(24)
         file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
         
-        # Encrypt and save
-        encrypted_data = encrypt_file(file_data)
+        # Encrypt and save (Изменено: clean_data)
+        encrypted_data = encrypt_file(clean_data)
         with open(file_path, 'wb') as f:
             f.write(encrypted_data)
         
@@ -775,7 +1071,7 @@ def save_file(username: str, file_obj) -> tuple or None:
             file_token=file_token,
             original_filename=safe_filename,
             file_category=category,
-            filesize=len(file_data),
+            filesize=len(clean_data), # Изменено: len(clean_data)
             mime_type=mime_type
         )
         db.session.add(file_record)

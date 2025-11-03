@@ -15,3 +15,5 @@ python-dotenv
 flask_cors
 gunicorn
 gevent
+mutagen
+pikepdf
