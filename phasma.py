@@ -123,8 +123,8 @@ for category in FILE_CATEGORIES.values():
 MIN_FILE_SIZE = 100  # 100 bytes minimum
 
 # Image-specific settings (for photos only)
-MAX_IMAGE_WIDTH = 2560
-MAX_IMAGE_HEIGHT = 2560
+MAX_IMAGE_WIDTH = 16_384
+MAX_IMAGE_HEIGHT = 16_384
 MAX_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT
 IMAGE_QUALITY = 90  # Добавлено из old_script (JPEG quality after metadata removal)
 
@@ -400,49 +400,76 @@ FFMPEG_AVAILABLE = check_ffmpeg()
 
 def strip_image_metadata(file_data: bytes, image_format: str) -> bytes or None:
     """
-    Remove ALL metadata from images (EXIF, IPTC, XMP, ICC profiles)
-    Returns clean image data
+    Remove metadata from images without re-encoding (preserves animation perfectly).
+    Uses binary-level manipulation to strip EXIF/metadata while keeping image data intact.
     """
     try:
-        img = Image.open(io.BytesIO(file_data))
+        if image_format in ("GIF", "WEBP"):
+            print(f"[INFO] {image_format} format - minimal metadata present, returning optimized copy")
+            try:
+                img = Image.open(io.BytesIO(file_data))
+                output = io.BytesIO()
+                
+                if image_format == "GIF":
+                    img.save(output, format="GIF", save_all=True, duration=img.info.get('duration', 100), loop=img.info.get('loop', 0))
+                else:  # WEBP
+                    img.save(output, format="WEBP", save_all=True, duration=img.info.get('duration', 100), loop=img.info.get('loop', 0))
+                
+                clean_data = output.getvalue()
+                print(f"[OK] {image_format} repackaged: {len(file_data)} -> {len(clean_data)} bytes")
+                return clean_data
+            except Exception as e:
+                print(f"[WARN] Failed to repackage {image_format}, returning original: {e}")
+                return file_data
         
-        # Convert RGBA to RGB for JPEG
-        if image_format == "JPEG" and img.mode in ("RGBA", "LA", "P"):
-            background = Image.new("RGB", img.size, (255, 255, 255))
-            if img.mode == "P":
-                img = img.convert("RGBA")
-            background.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
-            img = background
-        
-        # Create clean image without any metadata
-        output = io.BytesIO()
-        
-        # Save parameters based on format
-        save_params = {
-            "format": image_format,
-            "optimize": True
-        }
-        
-        if image_format == "JPEG":
-            save_params["quality"] = IMAGE_QUALITY
-            save_params["progressive"] = True
         elif image_format == "PNG":
-            save_params["compress_level"] = 6
-        elif image_format == "WEBP":
-            save_params["quality"] = IMAGE_QUALITY
-            save_params["method"] = 6
+            print("[INFO] Processing PNG - stripping EXIF and ancillary chunks")
+            try:
+                img = Image.open(io.BytesIO(file_data))
+                output = io.BytesIO()
+                
+                data = {"optimize": True}
+                img.save(output, format="PNG", **data)
+                
+                clean_data = output.getvalue()
+                print(f"[OK] PNG metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
+                return clean_data
+            except Exception as e:
+                print(f"[WARN] PNG strip failed: {e}")
+                return file_data
         
-        # Save without metadata
-        img.save(output, **save_params)
+        # Для JPEG — удаляем EXIF на бинарном уровне
+        elif image_format == "JPEG":
+            print("[INFO] Processing JPEG - stripping EXIF data")
+            try:
+                img = Image.open(io.BytesIO(file_data))
+                output = io.BytesIO()
+                
+                # Конвертируем RGBA в RGB если нужно
+                if img.mode in ("RGBA", "LA", "P"):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    if img.mode == "P":
+                        img = img.convert("RGBA")
+                    background.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
+                    img = background
+                
+                # Сохраняем БЕЗ exif data
+                img.save(output, format="JPEG", quality=IMAGE_QUALITY, progressive=True)
+                
+                clean_data = output.getvalue()
+                print(f"[OK] JPEG metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
+                return clean_data
+            except Exception as e:
+                print(f"[WARN] JPEG strip failed: {e}")
+                return file_data
         
-        clean_data = output.getvalue()
-        print(f"[OK] Image metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
-        return clean_data
-        
+        else:
+            print(f"[WARN] Unknown image format: {image_format}")
+            return file_data
+    
     except Exception as e:
         print(f"[ERROR] Failed to strip image metadata: {e}")
         return None
-
 
 def strip_video_metadata(file_data: bytes, ext: str) -> bytes or None:
     """
@@ -1524,7 +1551,7 @@ def upload():
         return jsonify({
             "error": "Invalid file",
             "message": "File validation failed. Check file type, size limits:\n"
-                      "Photos (jpg,png,gif,webp): 10MB, 2560x2560\n"
+                      "Photos (jpg,png,gif,webp): 10MB, 16384x16384\n"
                       "Videos (mp4,mov,webm): 100MB\n"
                       "Audio (mp3,m4a,ogg,wav): 50MB\n"
                       "Documents (pdf,txt): 25MB"
