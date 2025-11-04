@@ -1,4 +1,4 @@
-from phasma import app, db, User, Message, File
+from phasma import app, db, User, Message, File, URLPreview
 from sqlalchemy import inspect
 import os
 import glob
@@ -95,6 +95,13 @@ elif option == "2":
         print("[OK] Table 'file' deleted.")
     else:
         print("[INFO] Table 'file' does not exist.")
+
+    # Delete URLs
+    if inspector.has_table(URLPreview.__tablename__):
+        URLPreview.__table__.drop(db.engine)
+        print("[OK] Table 'file_preview' deleted.")
+    else:
+        print("[INFO] Table 'file_preview' does not exist.")
     
     # Recreate tables
     db.create_all()

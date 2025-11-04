@@ -184,14 +184,13 @@ MAX_URLS_PER_MESSAGE = 10
 URL_PARSE_RATE_LIMIT = 10  # URLs per minute per user
 
 # Service detection patterns
-YOUTUBE_PATTERNS = [
-    r'(?:https?://)?(?:www\.)?(?:youtube\.com|youtu\.be)/',
-    r'(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})'
-]
+YOUTUBE_PATTERN = r'(?:https?://)?(?:www\.)?(?:youtube\.com|youtu\.be)/'
+YOUTUBE_ID_PATTERN = r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})'
+
 VIMEO_PATTERN = r'(?:https?://)?(?:www\.)?vimeo\.com/(\d+)'
 INSTAGRAM_PATTERN = r'(?:https?://)?(?:www\.)?instagram\.com/'
 TIKTOK_PATTERN = r'(?:https?://)?(?:www\.)?(?:tiktok\.com|vm\.tiktok\.com)/'
-IMAGE_PATTERN = r'https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s]*)?'
+IMAGE_PATTERN = r'https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:[\?\#]|$)'
 
 # URL regex pattern (basic)
 URL_PATTERN = re.compile(
@@ -1302,21 +1301,16 @@ threading.Thread(target=auto_rotate_tor, daemon=True).start()
 # ИЗМЕНЕНИЕ 1: Замена extract_youtube_id
 def extract_youtube_id(url: str) -> str or None:
     """Extract YouTube video ID"""
-    patterns = [
-        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
+    match = re.search(YOUTUBE_ID_PATTERN, url)
+    if match:
+        return match.group(1)
     return None
 
 def detect_service_type(url: str) -> str:
     """Detect which service the URL belongs to"""
     url_lower = url.lower()
     
-    # Используем YOUTUBE_PATTERNS[0], так как YOUTUBE_PATTERNS - список
-    if re.search(YOUTUBE_PATTERNS[0], url_lower):
+    if re.search(YOUTUBE_PATTERN, url_lower):
         return 'youtube'
     elif re.search(VIMEO_PATTERN, url_lower):
         return 'vimeo'
@@ -1378,38 +1372,57 @@ def get_oembed_preview(url: str, service_type: str) -> dict or None:
 
 # ИЗМЕНЕНИЕ 3: Замена validate_image_url
 def validate_image_url(url: str) -> bool:
-    """Validate that URL is a real image"""
+    """Validate that URL is a real image - simplified aggressive approach"""
     try:
-        session = get_tor_session()
-        response = session.head(
-            url,
-            timeout=URL_PREVIEW_REQUEST_TIMEOUT,
-            allow_redirects=True,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://www.google.com/'
-            }
-        )
-        
-        # Check content type
-        content_type = response.headers.get('content-type', '').lower()
-        if not any(img_type in content_type for img_type in ['image/jpeg', 'image/png', 'image/gif', 'image/webp']):
-            print(f"[WARN] Invalid content-type for image: {content_type}")
-            return False
-        
-        # Check size (max 10 MB)
-        content_length = response.headers.get('content-length')
-        if content_length and int(content_length) > 10 * 1024 * 1024:
-            print(f"[WARN] Image too large: {content_length} bytes")
-            return False
-        
-        print(f"[OK] Image validated: {url[:60]}")
-        return True
-    except Exception as e:
-        print(f"[WARN] Image validation failed for {url}: {e}")
-        # Если HEAD не работает, но URL выглядит как картинка - допускаем
+        # First: check by extension (most reliable for direct image links)
         if re.search(r'\.(jpg|jpeg|png|gif|webp)(?:\?|$)', url.lower()):
-            print(f"[OK] Image URL looks valid by pattern: {url[:60]}")
+            return True
+        
+        # Second: check known CDN patterns that always serve images
+        cdn_patterns = [
+            r'i\.natgeofe\.com',
+            r'cdn\.pixabay\.com',
+            r'images\.unsplash\.com',
+            r'i\.imgur\.com',
+            r'media\.giphy\.com',
+            r'substackcdn\.com',
+        ]
+        
+        for pattern in cdn_patterns:
+            if re.search(pattern, url.lower()):
+                return True
+        
+        # Third: try HEAD request as last resort (with better headers)
+        try:
+            session = get_tor_session()
+            response = session.head(
+                url,
+                timeout=3,  # Shorter timeout
+                allow_redirects=True,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Referer': 'https://www.google.com/',
+                    'DNT': '1'
+                }
+            )
+            
+            content_type = response.headers.get('content-type', '').lower()
+            if any(img_type in content_type for img_type in ['image/jpeg', 'image/png', 'image/gif', 'image/webp']):
+                return True
+                
+        except Exception:
+            # If HEAD fails but URL looks like image, accept it anyway
+            if re.search(r'(jpg|jpeg|png|gif|webp|image)', url.lower()):
+                return True
+            pass
+        
+        return False
+        
+    except Exception as e:
+        # Aggressive fallback: if URL contains image-related keywords, accept it
+        if re.search(r'(\.jpg|\.jpeg|\.png|\.gif|\.webp|/image/|/img/|/photo/)', url.lower()):
             return True
         return False
 
@@ -1446,13 +1459,12 @@ def fetch_url_preview(url: str) -> dict or None:
         # ИЗМЕНЕНИЕ 2: Добавление отладки для YouTube
         if service_type == 'youtube':
             video_id = extract_youtube_id(url)
-            print(f"[DEBUG] YouTube URL: {url}, extracted ID: {video_id}")
             if video_id:
                 preview_data['title'] = 'YouTube Video'
                 preview_data['thumbnail_url'] = get_youtube_thumbnail(video_id)
-                print(f"[DEBUG] YouTube thumbnail: {preview_data['thumbnail_url']}")
             else:
-                print(f"[DEBUG] Failed to extract YouTube ID from: {url}")
+                # Fallback: if detection fails, at least mark it as YouTube
+                preview_data['title'] = 'YouTube Video'        
         
         elif service_type in ('vimeo', 'instagram', 'tiktok'):
             oembed_data = get_oembed_preview(url, service_type)
