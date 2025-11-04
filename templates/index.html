@@ -98,6 +98,63 @@
     }
     .message-content {
       color: #fff;
+      white-space: normal;
+      word-wrap: break-word;
+    }
+    .message-text {
+      color: #fff;
+      margin-bottom: 0.5em;
+    }
+    .url-previews {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
+      margin-top: 0.5em;
+    }
+    /* ИЗМЕНЕНИЕ 4: Обновление CSS для .url-preview-card (убран cursor: pointer) */
+    .url-preview-card {
+      border: 1px solid #0ff;
+      border-left: 3px solid #0ff;
+      padding: 0.7em;
+      background: #0a1a1a;
+      transition: all 0.2s;
+    }
+    .url-preview-card:hover {
+      background: #0d2a2a;
+      border-left-color: #0ff;
+    }
+    .url-preview-service {
+      font-size: 12px;
+      color: #0ff;
+      text-transform: uppercase;
+      font-weight: bold;
+      margin-bottom: 0.3em;
+    }
+    .url-preview-url {
+      font-size: 12px;
+      color: #0ff;
+      margin-bottom: 0.3em;
+      word-break: break-all;
+      text-decoration: none;
+      display: block;
+    }
+    .url-preview-title {
+      font-size: 14px;
+      color: #aaa;
+      margin-bottom: 0.3em;
+      font-weight: bold;
+    }
+    .url-preview-description {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 0.5em;
+    }
+    .url-preview-thumbnail {
+      max-width: 100%;
+      max-height: 200px;
+      display: block;
+      border: 1px solid #0ff;
+      margin-bottom: 0.3em;
     }
     .photo-msg {
       color: #0f0;
@@ -218,9 +275,7 @@
     setInterval(checkSessionValidity, 10000);
 
     function parseMessageData(data) {
-      // Parse format: [HH:MM:SS] username: message
-      // or [HH:MM:SS] username: [PHOTO:ID:URL]
-      // or [HH:MM:SS] username: [FILE:ID:category:filename:URL]
+      // Parse format: [HH:MM:SS] username: message|URLS:{...}
       const timeMatch = data.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+/);
       if (!timeMatch) return null;
       
@@ -231,12 +286,26 @@
       if (!userMatch) return null;
       
       const username = userMatch[1];
-      const content = afterTime.substring(userMatch[0].length);
+      const rest = afterTime.substring(userMatch[0].length);
+      
+      // Split content and URLs
+      const urlsSplit = rest.split('|URLS:');
+      const content = urlsSplit[0];
+      let urls = {};
+      
+      if (urlsSplit.length > 1) {
+        try {
+          urls = JSON.parse(urlsSplit[1]);
+        } catch (e) {
+          urls = {};
+        }
+      }
       
       return {
         time: timeStr,
         username: username,
-        content: content
+        content: content,
+        urls: urls
       };
     }
 
@@ -246,6 +315,66 @@
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const day = String(now.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
+    }
+
+    // ИЗМЕНЕНИЕ 4: Обновление createURLPreviewCard
+    function createURLPreviewCard(url, preview) {
+      const card = document.createElement("div");
+      card.className = "url-preview-card";
+      // card.onclick убран отсюда
+      
+      // Service type
+      const serviceDiv = document.createElement("div");
+      serviceDiv.className = "url-preview-service";
+      serviceDiv.textContent = preview.service_type || 'LINK';
+      card.appendChild(serviceDiv);
+      
+      // URL (shortened) - теперь div с onclick
+      const urlDiv = document.createElement("div");
+      urlDiv.className = "url-preview-url";
+      urlDiv.onclick = (e) => {
+        e.stopPropagation(); // Предотвращаем всплытие
+        window.open(url, '_blank');
+      };
+      urlDiv.style.cursor = 'pointer';
+      urlDiv.textContent = url.substring(0, 60) + (url.length > 60 ? '...' : '');
+      card.appendChild(urlDiv);
+      
+      // Title
+      if (preview.title) {
+        const titleDiv = document.createElement("div");
+        titleDiv.className = "url-preview-title";
+        titleDiv.textContent = preview.title;
+        card.appendChild(titleDiv);
+      }
+      
+      // Description
+      if (preview.description) {
+        const descDiv = document.createElement("div");
+        descDiv.className = "url-preview-description";
+        descDiv.textContent = preview.description.substring(0, 100) + (preview.description.length > 100 ? '...' : '');
+        card.appendChild(descDiv);
+      }
+      
+      // Thumbnail - добавлен onclick с stopPropagation
+      if (preview.thumbnail_url) {
+        const img = document.createElement("img");
+        img.className = "url-preview-thumbnail";
+        img.src = preview.thumbnail_url;
+        img.alt = "Preview";
+        img.loading = "lazy";
+        img.onerror = () => img.style.display = 'none';
+        img.onclick = (e) => {
+          e.stopPropagation(); // Предотвращаем всплытие
+          window.open(url, '_blank');
+        };
+        card.appendChild(img);
+      }
+      
+      // Click handler for whole card (срабатывает на пустом месте)
+      card.onclick = () => window.open(url, '_blank');
+      
+      return card;
     }
 
     function createPhotoElement(photoId, photoUrl, username) {
@@ -368,7 +497,6 @@
         loader.classList.add("photo-loading");
         contentDiv.appendChild(loader);
         
-        // Request signed URL from server (fallback)
         fetch(`/file/sign/${photoId}`, {
           headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
         })
@@ -413,7 +541,6 @@
         loader.classList.add("file-loading");
         contentDiv.appendChild(loader);
         
-        // Request signed URL from server (fallback)
         fetch(`/file/sign/${fileId}`, {
           headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
         })
@@ -460,11 +587,29 @@
         return msgWrapper;
       }
       
-      // Regular text message
-      const contentDiv = document.createElement("div");
-      contentDiv.className = "message-content";
-      contentDiv.textContent = `${parsed.username}: ${parsed.content}`;
-      msgWrapper.appendChild(contentDiv);
+      // Regular text message (possibly with URLs)
+      const mainContent = document.createElement("div");
+      mainContent.className = "message-content";
+      
+      const textDiv = document.createElement("div");
+      textDiv.className = "message-text";
+      textDiv.textContent = `${parsed.username}: ${parsed.content}`;
+      mainContent.appendChild(textDiv);
+      
+      // Render URL preview cards
+      if (parsed.urls && Object.keys(parsed.urls).length > 0) {
+        const previewsContainer = document.createElement("div");
+        previewsContainer.className = "url-previews";
+        
+        for (const [url, preview] of Object.entries(parsed.urls)) {
+          const card = createURLPreviewCard(url, preview);
+          previewsContainer.appendChild(card);
+        }
+        
+        mainContent.appendChild(previewsContainer);
+      }
+      
+      msgWrapper.appendChild(mainContent);
       
       return msgWrapper;
     }

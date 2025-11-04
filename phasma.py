@@ -172,6 +172,35 @@ TIMEZONE = ZoneInfo("Europe/Prague")
 FFMPEG_PATH = "ffmpeg"  # Добавлено из old_script
 
 # ===============================================================
+# ---- ADD THIS CONFIGURATION after FFmpeg section ----
+# ===============================================================
+
+# URL Preview configuration
+URL_PREVIEW_CACHE_TTL = 7 * 24 * 3600  # 7 days
+URL_PREVIEW_REQUEST_TIMEOUT = 5  # seconds
+URL_PREVIEW_MAX_TITLE_LENGTH = 256
+URL_PREVIEW_MAX_DESCRIPTION_LENGTH = 500
+MAX_URLS_PER_MESSAGE = 10
+URL_PARSE_RATE_LIMIT = 10  # URLs per minute per user
+
+# Service detection patterns
+YOUTUBE_PATTERNS = [
+    r'(?:https?://)?(?:www\.)?(?:youtube\.com|youtu\.be)/',
+    r'(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})'
+]
+VIMEO_PATTERN = r'(?:https?://)?(?:www\.)?vimeo\.com/(\d+)'
+INSTAGRAM_PATTERN = r'(?:https?://)?(?:www\.)?instagram\.com/'
+TIKTOK_PATTERN = r'(?:https?://)?(?:www\.)?(?:tiktok\.com|vm\.tiktok\.com)/'
+IMAGE_PATTERN = r'https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s]*)?'
+
+# URL regex pattern (basic)
+URL_PATTERN = re.compile(
+    r'https?://[^\s\[\]<>"\'\)\}]+',
+    re.IGNORECASE
+)
+
+
+# ===============================================================
 # ---- Database and Redis ----
 # ===============================================================
 db = SQLAlchemy(app)
@@ -249,11 +278,23 @@ class Message(db.Model):
         try:
             decrypted = data_fernet.decrypt(self.content.encode("utf-8")).decode("utf-8")
             
-            if self.message_type in ('photo', 'file'):
+            if self.message_type in ('photo', 'file', 'text'): # Изменено: 'text' добавлен
                 return json.loads(decrypted)
             else:
+                # Старая логика для сообщений, которые могли быть не-JSON (до URL превью)
                 return decrypted
-        except (InvalidToken, json.JSONDecodeError) as e:
+        except json.JSONDecodeError:
+            # Обработка старых текстовых сообщений, которые были не-JSON
+            if self.message_type == 'text':
+                try:
+                    # Попытка повторной расшифровки (на случай, если `decrypted` было неверным)
+                    decrypted_again = data_fernet.decrypt(self.content.encode("utf-8")).decode("utf-8")
+                    return {'text': decrypted_again, 'urls': {}}
+                except (InvalidToken, Exception):
+                    return "[UNDECRYPTABLE MESSAGE]"
+            else:
+                return "[UNDECRYPTABLE MESSAGE]"
+        except (InvalidToken, Exception) as e:
             print(f"[ERROR] Failed to decrypt/parse message {self.id}: {e}")
             return "[UNDECRYPTABLE MESSAGE]"
 
@@ -290,6 +331,32 @@ class Secret(db.Model):
         utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
         formated_time = utc_time.astimezone(TIMEZONE)
         return formated_time.strftime('%d.%m.%Y %H:%M:%S')
+
+# ===============================================================
+# ---- ADD THIS NEW MODEL after the Secret class ----
+# ===============================================================
+
+class URLPreview(db.Model):
+    """Cache for URL previews (links in messages)"""
+    id = db.Column(db.Integer, primary_key=True)
+    url = db.Column(db.String(512), unique=True, nullable=False, index=True)
+    service_type = db.Column(db.String(50), nullable=False)  # youtube, vimeo, instagram, tiktok, image, unknown
+    title = db.Column(db.String(256), nullable=True)
+    thumbnail_url = db.Column(db.String(512), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    cached_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    ttl = db.Column(db.DateTime, nullable=True)  # When cache expires
+
+    def is_expired(self):
+        if self.ttl is None:
+            return False
+        return datetime.datetime.utcnow() > self.ttl
+
+    def format_time(self):
+        utc_time = self.cached_at.replace(tzinfo=ZoneInfo("UTC"))
+        formated_time = utc_time.astimezone(TIMEZONE)
+        return formated_time.strftime('%d.%m.%Y %H:%M:%S')
+
 
 # ===============================================================
 # ---- Master key management ----
@@ -1229,6 +1296,228 @@ def auto_rotate_tor(interval=TOR_ROTATION_INTERVAL):
 threading.Thread(target=auto_rotate_tor, daemon=True).start()
 
 # ===============================================================
+# ---- ADD THESE HELPER FUNCTIONS after the Tor helpers section ----
+# ===============================================================
+
+# ИЗМЕНЕНИЕ 1: Замена extract_youtube_id
+def extract_youtube_id(url: str) -> str or None:
+    """Extract YouTube video ID"""
+    patterns = [
+        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+def detect_service_type(url: str) -> str:
+    """Detect which service the URL belongs to"""
+    url_lower = url.lower()
+    
+    # Используем YOUTUBE_PATTERNS[0], так как YOUTUBE_PATTERNS - список
+    if re.search(YOUTUBE_PATTERNS[0], url_lower):
+        return 'youtube'
+    elif re.search(VIMEO_PATTERN, url_lower):
+        return 'vimeo'
+    elif re.search(INSTAGRAM_PATTERN, url_lower):
+        return 'instagram'
+    elif re.search(TIKTOK_PATTERN, url_lower):
+        return 'tiktok'
+    elif re.search(IMAGE_PATTERN, url_lower):
+        return 'image'
+    
+    return 'unknown'
+
+def get_youtube_thumbnail(video_id: str) -> str or None:
+    """Generate YouTube thumbnail URL"""
+    try:
+        # Try to use highest quality available
+        # maxresdefault might not exist, so we have a fallback chain
+        return f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+    except Exception as e:
+        print(f"[WARN] Failed to generate YouTube thumbnail: {e}")
+        return None
+
+def get_oembed_preview(url: str, service_type: str) -> dict or None:
+    """Fetch preview data via OEmbed API"""
+    try:
+        oembed_endpoints = {
+            'vimeo': 'https://vimeo.com/api/oembed.json',
+            'instagram': 'https://www.instagram.com/oembed',
+            'tiktok': 'https://www.tiktok.com/oembed'
+        }
+        
+        if service_type not in oembed_endpoints:
+            return None
+        
+        endpoint = oembed_endpoints[service_type]
+        
+        session = get_tor_session()
+        response = session.get(
+            endpoint,
+            params={'url': url},
+            timeout=URL_PREVIEW_REQUEST_TIMEOUT,
+            headers={
+                'User-Agent': 'Mozilla/5.0',
+                'Referer': 'https://example.com'
+            }
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'title': data.get('title', '')[:URL_PREVIEW_MAX_TITLE_LENGTH],
+                'thumbnail_url': data.get('thumbnail_url'),
+                'description': (data.get('description', '') or '')[:URL_PREVIEW_MAX_DESCRIPTION_LENGTH]
+            }
+    except Exception as e:
+        print(f"[WARN] OEmbed failed for {service_type}: {e}")
+    
+    return None
+
+# ИЗМЕНЕНИЕ 3: Замена validate_image_url
+def validate_image_url(url: str) -> bool:
+    """Validate that URL is a real image"""
+    try:
+        session = get_tor_session()
+        response = session.head(
+            url,
+            timeout=URL_PREVIEW_REQUEST_TIMEOUT,
+            allow_redirects=True,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://www.google.com/'
+            }
+        )
+        
+        # Check content type
+        content_type = response.headers.get('content-type', '').lower()
+        if not any(img_type in content_type for img_type in ['image/jpeg', 'image/png', 'image/gif', 'image/webp']):
+            print(f"[WARN] Invalid content-type for image: {content_type}")
+            return False
+        
+        # Check size (max 10 MB)
+        content_length = response.headers.get('content-length')
+        if content_length and int(content_length) > 10 * 1024 * 1024:
+            print(f"[WARN] Image too large: {content_length} bytes")
+            return False
+        
+        print(f"[OK] Image validated: {url[:60]}")
+        return True
+    except Exception as e:
+        print(f"[WARN] Image validation failed for {url}: {e}")
+        # Если HEAD не работает, но URL выглядит как картинка - допускаем
+        if re.search(r'\.(jpg|jpeg|png|gif|webp)(?:\?|$)', url.lower()):
+            print(f"[OK] Image URL looks valid by pattern: {url[:60]}")
+            return True
+        return False
+
+def fetch_url_preview(url: str) -> dict or None:
+    """Main function to fetch URL preview data"""
+    try:
+        # Normalize URL
+        if not url.startswith('http'):
+            url = 'https://' + url
+        
+        # Check cache first
+        cached = URLPreview.query.filter_by(url=url).first()
+        if cached and not cached.is_expired():
+            print(f"[OK] Using cached preview for {url}")
+            return {
+                'service_type': cached.service_type,
+                'title': cached.title,
+                'thumbnail_url': cached.thumbnail_url,
+                'description': cached.description
+            }
+        
+        # Detect service
+        service_type = detect_service_type(url)
+        print(f"[INFO] Fetching preview for {service_type}: {url[:80]}")
+        
+        preview_data = {
+            'service_type': service_type,
+            'title': None,
+            'thumbnail_url': None,
+            'description': None
+        }
+        
+        # Get service-specific preview
+        # ИЗМЕНЕНИЕ 2: Добавление отладки для YouTube
+        if service_type == 'youtube':
+            video_id = extract_youtube_id(url)
+            print(f"[DEBUG] YouTube URL: {url}, extracted ID: {video_id}")
+            if video_id:
+                preview_data['title'] = 'YouTube Video'
+                preview_data['thumbnail_url'] = get_youtube_thumbnail(video_id)
+                print(f"[DEBUG] YouTube thumbnail: {preview_data['thumbnail_url']}")
+            else:
+                print(f"[DEBUG] Failed to extract YouTube ID from: {url}")
+        
+        elif service_type in ('vimeo', 'instagram', 'tiktok'):
+            oembed_data = get_oembed_preview(url, service_type)
+            if oembed_data:
+                preview_data.update(oembed_data)
+        
+        elif service_type == 'image':
+            if validate_image_url(url):
+                preview_data['title'] = 'Image'
+                preview_data['thumbnail_url'] = url
+        
+        # Save to cache
+        ttl = datetime.datetime.utcnow() + datetime.timedelta(seconds=URL_PREVIEW_CACHE_TTL)
+        
+        existing = URLPreview.query.filter_by(url=url).first()
+        if existing:
+            existing.service_type = preview_data['service_type']
+            existing.title = preview_data['title']
+            existing.thumbnail_url = preview_data['thumbnail_url']
+            existing.description = preview_data['description']
+            existing.cached_at = datetime.datetime.utcnow()
+            existing.ttl = ttl
+        else:
+            preview_obj = URLPreview(
+                url=url,
+                service_type=preview_data['service_type'],
+                title=preview_data['title'],
+                thumbnail_url=preview_data['thumbnail_url'],
+                description=preview_data['description'],
+                ttl=ttl
+            )
+            db.session.add(preview_obj)
+        
+        db.session.commit()
+        
+        print(f"[OK] Preview cached for {service_type}")
+        return preview_data
+    
+    except Exception as e:
+        db.session.rollback() # Откат в случае ошибки DB
+        print(f"[ERROR] Failed to fetch URL preview: {e}")
+        return None
+
+def extract_urls_from_text(text: str) -> list:
+    """Extract all URLs from message text"""
+    urls = URL_PATTERN.findall(text)
+    
+    # Deduplicate and limit
+    unique_urls = list(set(urls))[:MAX_URLS_PER_MESSAGE]
+    
+    return unique_urls
+
+def get_previews_for_urls(urls: list) -> dict:
+    """Get preview data for all URLs in a list"""
+    previews = {}
+    
+    for url in urls:
+        preview = fetch_url_preview(url)
+        if preview:
+            previews[url] = preview
+    
+    return previews
+
+
+# ===============================================================
 # ---- Message formatting helpers ----
 # ===============================================================
 def format_message_for_sse(msg: Message) -> str:
@@ -1267,15 +1556,31 @@ def format_message_for_sse(msg: Message) -> str:
         return f"[{ts}] {msg.username}: [FILE]"
     
     else:
-        # Text message
-        plain = msg.get_plain()
-        return f"[{ts}] {msg.username}: {plain}"
+        # Text message (новая логика)
+        plain_data = msg.get_plain()
+        if isinstance(plain_data, dict):
+            # Новая структура (JSON)
+            sanitized_content = plain_data.get('text', '')
+            url_previews = plain_data.get('urls', {})
+            return f"[{ts}] {msg.username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
+        elif isinstance(plain_data, str):
+            # Старые текстовые сообщения (до URL превью)
+            return f"[{ts}] {msg.username}: {plain_data}|URLS:{{}}"
+        else:
+            return f"[{ts}] {msg.username}: [INVALID MESSAGE]"
 
 # ===============================================================
 # ---- Message helpers ----
 # ===============================================================
+
+# ===============================================================
+# ---- MODIFY save_message function ----
+# ...
+# WITH THIS:
+# ===============================================================
+
 def save_message(username, content):
-    """Save text message"""
+    """Save text message with URL preview extraction"""
     sanitized_content = sanitize_text(content)
 
     if not sanitized_content:
@@ -1284,7 +1589,22 @@ def save_message(username, content):
     if len(sanitized_content) > MAX_MESSAGE_LENGTH:
         return None
 
-    ciphertext = encrypt_message(sanitized_content)
+    # Extract URLs from message
+    urls = extract_urls_from_text(sanitized_content)
+    url_previews = {}
+    
+    if urls:
+        url_previews = get_previews_for_urls(urls)
+    
+    # Store message data with previews
+    message_data = {
+        'text': sanitized_content,
+        'urls': url_previews
+    }
+    
+    plaintext = json.dumps(message_data)
+    ciphertext = encrypt_message(plaintext)
+    
     msg = Message(
         username=username, 
         content=ciphertext,
@@ -1295,7 +1615,7 @@ def save_message(username, content):
     
     # Publish to Redis
     ts = msg.format_time()
-    message_text = f"[{ts}] {username}: {sanitized_content}"
+    message_text = f"[{ts}] {username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
     r.publish("chat", message_text.encode("utf-8"))
     
     increment_message_count()
@@ -1514,9 +1834,18 @@ def history():
         
         else:
             # Text message
-            plain = msg.get_plain()
-            message_text = f"[{ts}] {msg.username}: {plain}"
-        
+            plain_data = msg.get_plain()
+            if isinstance(plain_data, dict):
+                # Новая структура (JSON)
+                sanitized_content = plain_data.get('text', '')
+                url_previews = plain_data.get('urls', {})
+                message_text = f"[{ts}] {msg.username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
+            elif isinstance(plain_data, str):
+                # Старые текстовые сообщения (до URL превью)
+                message_text = f"[{ts}] {msg.username}: {plain_data}|URLS:{{}}"
+            else:
+                message_text = f"[{ts}] {msg.username}: [INVALID MESSAGE]"
+
         result.append({
             "id": msg.id,
             "text": message_text
