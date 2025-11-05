@@ -296,7 +296,15 @@
       if (urlsSplit.length > 1) {
         try {
           urls = JSON.parse(urlsSplit[1]);
+          // ===============================================================
+          // ---- ДОБАВЛЕН ДЕБАГ ----
+          // ===============================================================
+          console.log("[DEBUG] Parsed URLs:", urls);
         } catch (e) {
+          // ===============================================================
+          // ---- ДОБАВЛЕН ДЕБАГ ----
+          // ===============================================================
+          console.error("[DEBUG] Failed to parse URLs:", e);
           urls = {};
         }
       }
@@ -438,6 +446,11 @@
     }
 
     function createMessageElement(data) {
+      // ===============================================================
+      // ---- ДОБАВЛЕН ДЕБАГ ----
+      // ===============================================================
+      console.log("[DEBUG] Creating message element:", data.substring(0, 100));
+
       const parsed = parseMessageData(data);
       if (!parsed) {
         const msg = document.createElement("div");
@@ -445,6 +458,12 @@
         msg.textContent = data;
         return msg;
       }
+      
+      // ===============================================================
+      // ---- ДОБАВЛЕН ДЕБАГ ----
+      // ===============================================================
+      console.log("[DEBUG] Parsed message:", parsed);
+      console.log("[DEBUG] URLs found:", parsed.urls);
 
       const msgWrapper = document.createElement("div");
       msgWrapper.className = "message";

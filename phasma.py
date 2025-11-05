@@ -183,14 +183,21 @@ URL_PREVIEW_MAX_DESCRIPTION_LENGTH = 500
 MAX_URLS_PER_MESSAGE = 10
 URL_PARSE_RATE_LIMIT = 10  # URLs per minute per user
 
-# Service detection patterns
+# ===============================================================
+# ---- ИЗМЕНЕННЫЕ ПАТТЕРНЫ ----
+# ===============================================================
+# Service detection patterns (УЛУЧШЕННЫЕ)
 YOUTUBE_PATTERN = r'(?:https?://)?(?:www\.)?(?:youtube\.com|youtu\.be)/'
-YOUTUBE_ID_PATTERN = r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})'
+YOUTUBE_ID_PATTERN = r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/|youtube\.com/live/)([a-zA-Z0-9_-]{11})'
 
 VIMEO_PATTERN = r'(?:https?://)?(?:www\.)?vimeo\.com/(\d+)'
 INSTAGRAM_PATTERN = r'(?:https?://)?(?:www\.)?instagram\.com/'
 TIKTOK_PATTERN = r'(?:https?://)?(?:www\.)?(?:tiktok\.com|vm\.tiktok\.com)/'
-IMAGE_PATTERN = r'https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:[\?\#]|$)'
+
+# УЛУЧШЕННЫЙ паттерн для изображений (теперь ловит CDN ссылки)
+IMAGE_PATTERN = r'(?:https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:[\?\#]|$)|https?://[^\s]*(?:/images?/|/img/|/photo/|/thumb|gstatic\.com/|imgur\.com/|cloudinary\.com/)[^\s]*)'
+# ===============================================================
+
 
 # URL regex pattern (basic)
 URL_PATTERN = re.compile(
@@ -1298,37 +1305,88 @@ threading.Thread(target=auto_rotate_tor, daemon=True).start()
 # ---- ADD THESE HELPER FUNCTIONS after the Tor helpers section ----
 # ===============================================================
 
-# ИЗМЕНЕНИЕ 1: Замена extract_youtube_id
 def extract_youtube_id(url: str) -> str or None:
-    """Extract YouTube video ID"""
-    match = re.search(YOUTUBE_ID_PATTERN, url)
-    if match:
-        return match.group(1)
+    """Extract YouTube video ID with better pattern matching"""
+    patterns = [
+        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
+        r'youtube\.com/shorts/([a-zA-Z0-9_-]{11})',
+        r'youtube\.com/live/([a-zA-Z0-9_-]{11})'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
     return None
 
+# ===============================================================
+# ---- ИЗМЕНЕННАЯ ФУНКЦИЯ ----
+# ===============================================================
 def detect_service_type(url: str) -> str:
-    """Detect which service the URL belongs to"""
+    """Detect which service the URL belongs to - IMPROVED"""
     url_lower = url.lower()
     
+    # YouTube check (highest priority after exact match)
     if re.search(YOUTUBE_PATTERN, url_lower):
         return 'youtube'
-    elif re.search(VIMEO_PATTERN, url_lower):
+    
+    # Vimeo
+    if re.search(VIMEO_PATTERN, url_lower):
         return 'vimeo'
-    elif re.search(INSTAGRAM_PATTERN, url_lower):
+    
+    # Instagram
+    if re.search(INSTAGRAM_PATTERN, url_lower):
         return 'instagram'
-    elif re.search(TIKTOK_PATTERN, url_lower):
+    
+    # TikTok
+    if re.search(TIKTOK_PATTERN, url_lower):
         return 'tiktok'
-    elif re.search(IMAGE_PATTERN, url_lower):
+    
+    # Image detection - УЛУЧШЕНО
+    # Проверяем расширения
+    if re.search(r'\.(jpg|jpeg|png|gif|webp|bmp)(?:\?|#|$)', url_lower):
         return 'image'
     
+    # Проверяем паттерны CDN/хостингов изображений
+    image_indicators = [
+        r'/images?/',
+        r'/img/',
+        r'/photo/',
+        r'/picture/',
+        r'/thumb',
+        r'gstatic\.com/',
+        r'imgur\.com/',
+        r'cloudinary\.com/',
+        r'unsplash\.com/',
+        r'pexels\.com/',
+        r'pixabay\.com/',
+        r'imagecdn',
+        r'cdn.*image',
+        r'fbcdn\.net',
+        r'twimg\.com',
+    ]
+    
+    for indicator in image_indicators:
+        if re.search(indicator, url_lower):
+            return 'image'
+    
     return 'unknown'
+# ===============================================================
 
 def get_youtube_thumbnail(video_id: str) -> str or None:
-    """Generate YouTube thumbnail URL"""
+    """Generate YouTube thumbnail URL with fallback chain"""
     try:
-        # Try to use highest quality available
-        # maxresdefault might not exist, so we have a fallback chain
-        return f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+        # Try quality chain: maxresdefault -> hqdefault -> mqdefault -> default
+        # We'll return maxresdefault and let browser/client handle fallback
+        thumbnails = [
+            f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
+            f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+            f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg",
+            f"https://img.youtube.com/vi/{video_id}/default.jpg"
+        ]
+        
+        # Return highest quality, browser will fallback via onerror
+        return thumbnails[0]
     except Exception as e:
         print(f"[WARN] Failed to generate YouTube thumbnail: {e}")
         return None
@@ -1372,13 +1430,19 @@ def get_oembed_preview(url: str, service_type: str) -> dict or None:
 
 # ИЗМЕНЕНИЕ 3: Замена validate_image_url
 def validate_image_url(url: str) -> bool:
-    """Validate that URL is a real image - simplified aggressive approach"""
+    """
+    Validate that URL is a real image - AGGRESSIVE approach
+    Prioritizes showing images over strict validation
+    """
     try:
-        # First: check by extension (most reliable for direct image links)
-        if re.search(r'\.(jpg|jpeg|png|gif|webp)(?:\?|$)', url.lower()):
+        url_lower = url.lower()
+        
+        # First: Direct image extensions (most reliable)
+        if re.search(r'\.(jpg|jpeg|png|gif|webp|bmp|svg)(?:\?|#|$)', url_lower):
+            print(f"[OK] Image validated by extension: {url[:80]}")
             return True
         
-        # Second: check known CDN patterns that always serve images
+        # Second: Known CDN patterns that ALWAYS serve images
         cdn_patterns = [
             r'i\.natgeofe\.com',
             r'cdn\.pixabay\.com',
@@ -1386,48 +1450,90 @@ def validate_image_url(url: str) -> bool:
             r'i\.imgur\.com',
             r'media\.giphy\.com',
             r'substackcdn\.com',
+            r'images\.pexels\.com',
+            r'static\.wikia\.nocookie\.net',
+            r'upload\.wikimedia\.org',
+            r'.*\.cloudfront\.net.*\.(jpg|jpeg|png|gif|webp)',
+            r'.*\.akamaihd\.net.*\.(jpg|jpeg|png|gif|webp)',
+            r'pbs\.twimg\.com/media',
+            r'scontent.*\.fbcdn\.net',
+            r'.*\.googleusercontent\.com',
         ]
         
         for pattern in cdn_patterns:
-            if re.search(pattern, url.lower()):
+            if re.search(pattern, url_lower):
+                print(f"[OK] Image validated by CDN pattern: {url[:80]}")
                 return True
         
-        # Third: try HEAD request as last resort (with better headers)
+        # Third: URL path/query contains image keywords
+        if re.search(r'(/image/|/img/|/photo/|/picture/|/thumbnail/|image_url=|img_url=)', url_lower):
+            print(f"[OK] Image validated by path keyword: {url[:80]}")
+            return True
+        
+        # Fourth: Try HEAD request with AGGRESSIVE headers (last resort)
         try:
             session = get_tor_session()
             response = session.head(
                 url,
-                timeout=3,  # Shorter timeout
+                timeout=3,
                 allow_redirects=True,
                 headers={
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
                     'Referer': 'https://www.google.com/',
-                    'DNT': '1'
+                    'DNT': '1',
+                    'Sec-Fetch-Dest': 'image',
+                    'Sec-Fetch-Mode': 'no-cors',
+                    'Sec-Fetch-Site': 'cross-site'
                 }
             )
             
             content_type = response.headers.get('content-type', '').lower()
-            if any(img_type in content_type for img_type in ['image/jpeg', 'image/png', 'image/gif', 'image/webp']):
+            
+            # Check content-type
+            if any(img_type in content_type for img_type in ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/']):
+                print(f"[OK] Image validated by HEAD content-type: {url[:80]}")
+                return True
+            
+            # Some servers return 200 even for HEAD on images
+            if response.status_code == 200:
+                print(f"[OK] Image validated by HEAD 200: {url[:80]}")
                 return True
                 
-        except Exception:
-            # If HEAD fails but URL looks like image, accept it anyway
-            if re.search(r'(jpg|jpeg|png|gif|webp|image)', url.lower()):
+        except Exception as e:
+            print(f"[INFO] HEAD request failed for {url[:80]}: {e}")
+            # If HEAD fails but URL looks like image, ACCEPT IT
+            if re.search(r'(image|img|photo|picture|thumb)', url_lower):
+                print(f"[OK] Image validated by fallback keyword match: {url[:80]}")
                 return True
-            pass
         
+        # Final fallback: if URL has common image hosting domains
+        image_hosts = [
+            'imgur', 'flickr', 'photobucket', 'tinypic', 'imageshack',
+            'postimg', 'imgbb', 'imgbox', 'gyazo', 'prnt.sc'
+        ]
+        
+        if any(host in url_lower for host in image_hosts):
+            print(f"[OK] Image validated by image host: {url[:80]}")
+            return True
+        
+        print(f"[WARN] Could not validate image: {url[:80]}")
         return False
         
     except Exception as e:
-        # Aggressive fallback: if URL contains image-related keywords, accept it
-        if re.search(r'(\.jpg|\.jpeg|\.png|\.gif|\.webp|/image/|/img/|/photo/)', url.lower()):
+        print(f"[ERROR] Image validation failed: {e}")
+        # AGGRESSIVE: If in doubt, accept it
+        if re.search(r'(\.jpg|\.jpeg|\.png|\.gif|\.webp|image|img|photo)', url.lower()):
+            print(f"[OK] Image validated by exception fallback: {url[:80]}")
             return True
         return False
 
+# ===============================================================
+# ---- ИЗМЕНЕННАЯ ФУНКЦИЯ ----
+# ===============================================================
 def fetch_url_preview(url: str) -> dict or None:
-    """Main function to fetch URL preview data"""
+    """Main function to fetch URL preview data - IMPROVED v2"""
     try:
         # Normalize URL
         if not url.startswith('http'):
@@ -1436,7 +1542,7 @@ def fetch_url_preview(url: str) -> dict or None:
         # Check cache first
         cached = URLPreview.query.filter_by(url=url).first()
         if cached and not cached.is_expired():
-            print(f"[OK] Using cached preview for {url}")
+            print(f"[OK] Using cached preview for {url[:80]}")
             return {
                 'service_type': cached.service_type,
                 'title': cached.title,
@@ -1456,25 +1562,44 @@ def fetch_url_preview(url: str) -> dict or None:
         }
         
         # Get service-specific preview
-        # ИЗМЕНЕНИЕ 2: Добавление отладки для YouTube
         if service_type == 'youtube':
             video_id = extract_youtube_id(url)
             if video_id:
                 preview_data['title'] = 'YouTube Video'
                 preview_data['thumbnail_url'] = get_youtube_thumbnail(video_id)
+                print(f"[OK] YouTube thumbnail: {preview_data['thumbnail_url']}")
             else:
-                # Fallback: if detection fails, at least mark it as YouTube
-                preview_data['title'] = 'YouTube Video'        
+                preview_data['title'] = 'YouTube Video'
+                print(f"[WARN] Could not extract YouTube ID from {url[:80]}")
         
         elif service_type in ('vimeo', 'instagram', 'tiktok'):
             oembed_data = get_oembed_preview(url, service_type)
             if oembed_data:
                 preview_data.update(oembed_data)
+                print(f"[OK] OEmbed preview loaded for {service_type}")
+            else:
+                print(f"[WARN] OEmbed failed for {service_type}: {url[:80]}")
         
         elif service_type == 'image':
+            print(f"[INFO] Validating image URL: {url[:80]}")
             if validate_image_url(url):
                 preview_data['title'] = 'Image'
                 preview_data['thumbnail_url'] = url
+                print(f"[OK] Image preview set: {url[:80]}")
+            else:
+                # Even if validation fails, still try to show it
+                print(f"[WARN] Image validation failed, but setting thumbnail anyway: {url[:80]}")
+                preview_data['title'] = 'Image'
+                preview_data['thumbnail_url'] = url
+        
+        elif service_type == 'unknown':
+            # НОВОЕ: Попытка обработать unknown как возможное изображение
+            print(f"[INFO] Unknown URL type, checking if it's an image: {url[:80]}")
+            if validate_image_url(url):
+                preview_data['service_type'] = 'image'
+                preview_data['title'] = 'Image'
+                preview_data['thumbnail_url'] = url
+                print(f"[OK] Unknown URL detected as image: {url[:80]}")
         
         # Save to cache
         ttl = datetime.datetime.utcnow() + datetime.timedelta(seconds=URL_PREVIEW_CACHE_TTL)
@@ -1500,13 +1625,17 @@ def fetch_url_preview(url: str) -> dict or None:
         
         db.session.commit()
         
-        print(f"[OK] Preview cached for {service_type}")
+        print(f"[OK] Preview cached for {preview_data['service_type']}: thumbnail={preview_data['thumbnail_url'] is not None}")
         return preview_data
     
     except Exception as e:
-        db.session.rollback() # Откат в случае ошибки DB
-        print(f"[ERROR] Failed to fetch URL preview: {e}")
+        db.session.rollback()
+        print(f"[ERROR] Failed to fetch URL preview for {url[:80]}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
+# ===============================================================
+
 
 def extract_urls_from_text(text: str) -> list:
     """Extract all URLs from message text"""
