@@ -1049,7 +1049,7 @@ def add_security_headers(response):
                     f"default-src 'self'; "
                     f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
                     f"style-src 'self' 'unsafe-inline'; "
-                    f"img-src 'self' data:; "
+                    f"img-src 'self' data: https:; "
                     f"media-src 'self'; "
                     f"connect-src 'self';"
                 )
