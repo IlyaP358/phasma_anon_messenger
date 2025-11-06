@@ -265,9 +265,23 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     def format_time(self):
-        utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
-        formated_time = utc_time.astimezone(TIMEZONE)
-        return formated_time.strftime('%d.%m.%Y %H:%M:%S')
+        # Убедиться что created_at в UTC и вернуть корректный Unix timestamp
+        if self.created_at.tzinfo is None:
+            # Если naive datetime, предполагаем UTC
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        
+        return int(utc_time.timestamp())
+
+    def format_time_iso(self):
+        # Возвращаем ISO 8601 строку в UTC
+        if self.created_at.tzinfo is None:
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        
+        return utc_time.isoformat() + 'Z'
 
 class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
@@ -280,20 +294,36 @@ class Message(db.Model):
         db.Index('ix_message_username_created', 'username', 'created_at'),
     )
 
+    def format_time(self):
+        # Убедиться что created_at в UTC и вернуть корректный Unix timestamp
+        if self.created_at.tzinfo is None:
+            # Если naive datetime, предполагаем UTC
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        
+        return int(utc_time.timestamp())
+
+    def format_time_iso(self):
+        # Возвращаем ISO 8601 строку в UTC
+        if self.created_at.tzinfo is None:
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        
+        return utc_time.isoformat() + 'Z'
+
     def get_plain(self):
         try:
             decrypted = data_fernet.decrypt(self.content.encode("utf-8")).decode("utf-8")
             
-            if self.message_type in ('photo', 'file', 'text'): # Изменено: 'text' добавлен
+            if self.message_type in ('photo', 'file', 'text'):
                 return json.loads(decrypted)
             else:
-                # Старая логика для сообщений, которые могли быть не-JSON (до URL превью)
                 return decrypted
         except json.JSONDecodeError:
-            # Обработка старых текстовых сообщений, которые были не-JSON
             if self.message_type == 'text':
                 try:
-                    # Попытка повторной расшифровки (на случай, если `decrypted` было неверным)
                     decrypted_again = data_fernet.decrypt(self.content.encode("utf-8")).decode("utf-8")
                     return {'text': decrypted_again, 'urls': {}}
                 except (InvalidToken, Exception):
@@ -303,11 +333,6 @@ class Message(db.Model):
         except (InvalidToken, Exception) as e:
             print(f"[ERROR] Failed to decrypt/parse message {self.id}: {e}")
             return "[UNDECRYPTABLE MESSAGE]"
-
-    def format_time(self):
-        utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
-        formated_time = utc_time.astimezone(TIMEZONE)
-        return formated_time.strftime('%H:%M:%S')
 
 class File(db.Model):
     """Renamed from Photo - now supports all file types"""
@@ -322,9 +347,22 @@ class File(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
     def format_time(self):
-        utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
-        formated_time = utc_time.astimezone(TIMEZONE)
-        return formated_time.strftime('%d.%m.%Y %H:%M:%S')
+        # Убедиться что created_at в UTC и вернуть корректный Unix timestamp
+        if self.created_at.tzinfo is None:
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        
+        return int(utc_time.timestamp())
+
+    def format_time_iso(self):
+        # Возвращаем ISO 8601 строку в UTC
+        if self.created_at.tzinfo is None:
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        
+        return utc_time.isoformat() + 'Z'
 
 class Secret(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -334,9 +372,22 @@ class Secret(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     def format_time(self):
-        utc_time = self.created_at.replace(tzinfo=ZoneInfo("UTC"))
-        formated_time = utc_time.astimezone(TIMEZONE)
-        return formated_time.strftime('%d.%m.%Y %H:%M:%S')
+        # Убедиться что created_at в UTC и вернуть корректный Unix timestamp
+        if self.created_at.tzinfo is None:
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        
+        return int(utc_time.timestamp())
+
+    def format_time_iso(self):
+        # Возвращаем ISO 8601 строку в UTC
+        if self.created_at.tzinfo is None:
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        
+        return utc_time.isoformat() + 'Z'
 
 # ===============================================================
 # ---- ADD THIS NEW MODEL after the Secret class ----
@@ -359,9 +410,22 @@ class URLPreview(db.Model):
         return datetime.datetime.utcnow() > self.ttl
 
     def format_time(self):
-        utc_time = self.cached_at.replace(tzinfo=ZoneInfo("UTC"))
-        formated_time = utc_time.astimezone(TIMEZONE)
-        return formated_time.strftime('%d.%m.%Y %H:%M:%S')
+        # Убедиться что cached_at в UTC и вернуть корректный Unix timestamp
+        if self.cached_at.tzinfo is None:
+            utc_time = self.cached_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.cached_at.astimezone(datetime.timezone.utc)
+        
+        return int(utc_time.timestamp())
+
+    def format_time_iso(self):
+        # Возвращаем ISO 8601 строку в UTC
+        if self.cached_at.tzinfo is None:
+            utc_time = self.cached_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.cached_at.astimezone(datetime.timezone.utc)
+        
+        return utc_time.isoformat() + 'Z'
 
 
 # ===============================================================
@@ -1662,8 +1726,8 @@ def get_previews_for_urls(urls: list) -> dict:
 # ---- Message formatting helpers ----
 # ===============================================================
 def format_message_for_sse(msg: Message) -> str:
-    """Format message for SSE with signed URLs"""
-    ts = msg.format_time()
+    """Format message for SSE with signed URLs and UTC timestamp"""
+    ts = msg.format_time()  # Unix timestamp
     
     if msg.message_type == 'photo':
         plain = msg.get_plain()
@@ -1697,15 +1761,13 @@ def format_message_for_sse(msg: Message) -> str:
         return f"[{ts}] {msg.username}: [FILE]"
     
     else:
-        # Text message (новая логика)
+        # Text message
         plain_data = msg.get_plain()
         if isinstance(plain_data, dict):
-            # Новая структура (JSON)
             sanitized_content = plain_data.get('text', '')
             url_previews = plain_data.get('urls', {})
             return f"[{ts}] {msg.username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
         elif isinstance(plain_data, str):
-            # Старые текстовые сообщения (до URL превью)
             return f"[{ts}] {msg.username}: {plain_data}|URLS:{{}}"
         else:
             return f"[{ts}] {msg.username}: [INVALID MESSAGE]"
@@ -1754,7 +1816,7 @@ def save_message(username, content):
     db.session.add(msg)
     db.session.commit()
     
-    # Publish to Redis
+    # Publish to Redis - ИСПОЛЬЗУЕМ format_time() который теперь возвращает timestamp
     ts = msg.format_time()
     message_text = f"[{ts}] {username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
     r.publish("chat", message_text.encode("utf-8"))
@@ -1946,7 +2008,7 @@ def history():
     # Format results
     result = []
     for msg in reversed(messages):
-        ts = msg.format_time()
+        ts = msg.format_time() # Используем timestamp
         
         if msg.message_type == 'photo':
             plain = msg.get_plain()

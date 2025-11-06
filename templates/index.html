@@ -245,6 +245,68 @@
       // ignore
     }
 
+    function formatLocalTime(timestamp) {
+      // timestamp это Unix timestamp (секунды)
+      // Конвертируем в миллисекунды для JavaScript
+      try {
+        // Убедимся что timestamp это число
+        const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
+        
+        // Проверяем что это разумный timestamp (не в будущем более чем на день)
+        const now = Math.floor(Date.now() / 1000);
+        if (ts > now + 86400) {
+          console.warn("[WARN] Suspicious timestamp:", ts, "current:", now);
+        }
+        
+        // Конвертируем в миллисекунды
+        const date = new Date(ts * 1000);
+        
+        // Проверяем что дата валидна
+        if (isNaN(date.getTime())) {
+          console.error("[ERROR] Invalid date from timestamp:", timestamp);
+          return "??:??:??";
+        }
+        
+        // Форматируем в HH:MM:SS локального времени браузера
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        
+        return `${hours}:${minutes}:${seconds}`;
+      } catch (e) {
+        console.error("[ERROR] formatLocalTime failed:", e, timestamp);
+        return "??:??:??";
+      }
+    }
+
+    function formatLocalDate() {
+      // Возвращает текущую дату в формате YYYY-MM-DD локального времени браузера
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function formatDateFromTimestamp(timestamp) {
+      // Возвращает дату (YYYY-MM-DD) для заданного timestamp
+      try {
+        const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
+        const date = new Date(ts * 1000);
+        
+        if (isNaN(date.getTime())) {
+          return formatLocalDate();
+        }
+        
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      } catch (e) {
+        return formatLocalDate();
+      }
+    }
+
     // Message management
     let loadedMessageIds = new Set();
     let oldestMessageId = null;
@@ -275,15 +337,27 @@
     setInterval(checkSessionValidity, 10000);
 
     function parseMessageData(data) {
-      // Parse format: [HH:MM:SS] username: message|URLS:{...}
-      const timeMatch = data.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+/);
-      if (!timeMatch) return null;
+      // Parse format: [TIMESTAMP] username: message|URLS:{...}
+      // где TIMESTAMP это Unix timestamp (число)
       
-      const timeStr = timeMatch[1];
+      console.log("[DEBUG] parseMessageData input:", data.substring(0, 80));
+      
+      const timeMatch = data.match(/^\[(\d+)\]\s+/);
+      if (!timeMatch) {
+        console.warn("[WARN] Could not match timestamp in:", data.substring(0, 80));
+        return null;
+      }
+      
+      const timestamp = parseInt(timeMatch[1], 10);
+      console.log("[DEBUG] Extracted timestamp:", timestamp, "Type:", typeof timestamp);
+      
       const afterTime = data.substring(timeMatch[0].length);
       
       const userMatch = afterTime.match(/^([^:]+):\s*/);
-      if (!userMatch) return null;
+      if (!userMatch) {
+        console.warn("[WARN] Could not match username in:", afterTime.substring(0, 80));
+        return null;
+      }
       
       const username = userMatch[1];
       const rest = afterTime.substring(userMatch[0].length);
@@ -296,33 +370,19 @@
       if (urlsSplit.length > 1) {
         try {
           urls = JSON.parse(urlsSplit[1]);
-          // ===============================================================
-          // ---- ДОБАВЛЕН ДЕБАГ ----
-          // ===============================================================
           console.log("[DEBUG] Parsed URLs:", urls);
         } catch (e) {
-          // ===============================================================
-          // ---- ДОБАВЛЕН ДЕБАГ ----
-          // ===============================================================
-          console.error("[DEBUG] Failed to parse URLs:", e);
+          console.warn("[DEBUG] Failed to parse URLs (это норм для текста без ссылок):", urlsSplit[1].substring(0, 50));
           urls = {};
         }
       }
       
       return {
-        time: timeStr,
+        timestamp: timestamp,
         username: username,
         content: content,
         urls: urls
       };
-    }
-
-    function getCurrentDate() {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
     }
 
     // ИЗМЕНЕНИЕ 4: Обновление createURLPreviewCard
@@ -446,31 +506,31 @@
     }
 
     function createMessageElement(data) {
-      // ===============================================================
-      // ---- ДОБАВЛЕН ДЕБАГ ----
-      // ===============================================================
       console.log("[DEBUG] Creating message element:", data.substring(0, 100));
 
       const parsed = parseMessageData(data);
       if (!parsed) {
+        console.error("[ERROR] Failed to parse message:", data.substring(0, 100));
         const msg = document.createElement("div");
         msg.className = "message";
-        msg.textContent = data;
+        msg.textContent = "[PARSE ERROR] " + data;
         return msg;
       }
       
-      // ===============================================================
-      // ---- ДОБАВЛЕН ДЕБАГ ----
-      // ===============================================================
       console.log("[DEBUG] Parsed message:", parsed);
-      console.log("[DEBUG] URLs found:", parsed.urls);
 
       const msgWrapper = document.createElement("div");
       msgWrapper.className = "message";
       
+      // ---- КЛЮЧЕВАЯ ПРАВКА: Используем правильные функции конвертации ----
+      const localTime = formatLocalTime(parsed.timestamp);
+      const localDate = formatDateFromTimestamp(parsed.timestamp);
+      
+      console.log("[DEBUG] Displaying time:", localDate, "[" + localTime + "]");
+      
       const header = document.createElement("div");
       header.className = "message-header";
-      header.textContent = `${getCurrentDate()}, [${parsed.time}]`;
+      header.textContent = `${localDate}, [${localTime}]`;
       msgWrapper.appendChild(header);
       
       // Check for photo with pre-signed URL: [PHOTO:ID:URL]
