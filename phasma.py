@@ -10,7 +10,7 @@ import json
 import subprocess  # Добавлено из old_script
 import tempfile    # Добавлено из old_script
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify
+from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify, make_response
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -283,34 +283,34 @@ class User(db.Model):
         
         return utc_time.isoformat() + 'Z'
 
+# ===============================================================
+# ---- ШАГ 1.2: ЗАМЕНА КЛАССА MESSAGE ----
+# ===============================================================
 class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=True, index=True)  # ДОБАВЛЕНО
     username = db.Column(db.String(100), nullable=False, index=True)
     content = db.Column(db.Text, nullable=False)
     message_type = db.Column(db.String(20), nullable=False, default='text', index=True)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
 
     __table_args__ = (
+        db.Index('ix_message_group_created', 'group_id', 'created_at'),  # ДОБАВЛЕНО
         db.Index('ix_message_username_created', 'username', 'created_at'),
     )
 
     def format_time(self):
-        # Убедиться что created_at в UTC и вернуть корректный Unix timestamp
         if self.created_at.tzinfo is None:
-            # Если naive datetime, предполагаем UTC
             utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
         else:
             utc_time = self.created_at.astimezone(datetime.timezone.utc)
-        
         return int(utc_time.timestamp())
 
     def format_time_iso(self):
-        # Возвращаем ISO 8601 строку в UTC
         if self.created_at.tzinfo is None:
             utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
         else:
             utc_time = self.created_at.astimezone(datetime.timezone.utc)
-        
         return utc_time.isoformat() + 'Z'
 
     def get_plain(self):
@@ -333,6 +333,10 @@ class Message(db.Model):
         except (InvalidToken, Exception) as e:
             print(f"[ERROR] Failed to decrypt/parse message {self.id}: {e}")
             return "[UNDECRYPTABLE MESSAGE]"
+# ===============================================================
+# ---- КОНЕЦ ЗАМЕНЫ MESSAGE ----
+# ===============================================================
+
 
 class File(db.Model):
     """Renamed from Photo - now supports all file types"""
@@ -426,6 +430,61 @@ class URLPreview(db.Model):
             utc_time = self.cached_at.astimezone(datetime.timezone.utc)
         
         return utc_time.isoformat() + 'Z'
+
+
+# ===============================================================
+# ---- ШАГ 1.1: ДОБАВЛЕНИЕ МОДЕЛЕЙ ГРУПП ----
+# ===============================================================
+
+class Group(db.Model):
+    """Модель группы (чата)"""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)  # Название группы
+    group_code = db.Column(db.String(8), unique=True, nullable=False, index=True)  # Уникальный 8-значный код
+    creator = db.Column(db.String(100), nullable=False, index=True)  # Username создателя
+    password_hash = db.Column(db.String(256), nullable=False)  # Хеш пароля входа
+    root_password_hash = db.Column(db.String(256), nullable=False)  # Хеш рут-пароля
+    max_members = db.Column(db.Integer, default=100)  # Максимум участников
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    
+    def format_time(self):
+        if self.created_at.tzinfo is None:
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        return int(utc_time.timestamp())
+
+    def format_time_iso(self):
+        if self.created_at.tzinfo is None:
+            utc_time = self.created_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.created_at.astimezone(datetime.timezone.utc)
+        return utc_time.isoformat() + 'Z'
+
+
+class GroupMember(db.Model):
+    """Модель членства пользователя в группе"""
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=False, index=True)
+    username = db.Column(db.String(100), nullable=False, index=True)
+    role = db.Column(db.String(20), default='member', nullable=False)  # creator, member
+    joined_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    
+    __table_args__ = (
+        db.UniqueConstraint('group_id', 'username', name='unique_group_member'),
+        db.Index('ix_groupmember_group_username', 'group_id', 'username'),
+    )
+    
+    def format_time(self):
+        if self.joined_at.tzinfo is None:
+            utc_time = self.joined_at.replace(tzinfo=datetime.timezone.utc)
+        else:
+            utc_time = self.joined_at.astimezone(datetime.timezone.utc)
+        return int(utc_time.timestamp())
+
+# ===============================================================
+# ---- КОНЕЦ ДОБАВЛЕНИЯ МОДЕЛЕЙ ГРУПП ----
+# ===============================================================
 
 
 # ===============================================================
@@ -971,18 +1030,29 @@ def sanitize_text(text: str) -> str:
 # ---- Authentication token helpers ----
 # ===============================================================
 def get_client_ip_subnet() -> str:
-    ip = get_remote_address()
-    if not ip:
-        return "0.0.0"
-    if '.' in ip:
-        octets = ip.split('.')
-        return '.'.join(octets[:3])
-    if ':' in ip:
-        segments = ip.split(':')
-        return ':'.join(segments[:3])
-    return "0.0.0"
+    """Get client IP subnet - более гибкий подход"""
+    try:
+        # Проверяем X-Forwarded-For (для proxy/nginx)
+        if request.headers.get('X-Forwarded-For'):
+            ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+        else:
+            ip = get_remote_address()
+        
+        if not ip or ip == '127.0.0.1':
+            return "local"  # Локальный доступ - всегда разрешен
+        
+        if '.' in ip:
+            octets = ip.split('.')
+            return '.'.join(octets[:3])
+        if ':' in ip:
+            segments = ip.split(':')
+            return ':'.join(segments[:3])
+        return "unknown"
+    except:
+        return "unknown"
 
 def generate_auth_token(username: str) -> tuple:
+    """Генерирует токен аутентификации"""
     old_token_bytes = r.get(f"user_session:{username}")
     old_token = old_token_bytes.decode("utf-8") if old_token_bytes else None
     
@@ -1003,36 +1073,310 @@ def generate_auth_token(username: str) -> tuple:
     print(f"[OK] Auth token generated for {username} from subnet {ip_subnet}")
     return token, old_token
 
-def verify_token(token: str) -> str or None:
+def verify_token(token: str, strict_ip_check: bool = False) -> str or None:
+    """Проверяет токен аутентификации
+    
+    strict_ip_check: если False, пропускаем проверку IP для локальных подключений
+    """
     if not token:
         return None
     
     token_data_bytes = r.get(f"auth_token:{token}")
     if not token_data_bytes:
+        print(f"[WARN] Token not found in Redis: {token[:20]}...")
         return None
     
     token_data = token_data_bytes.decode("utf-8")
     
     if '|' not in token_data:
+        # Старый формат без IP
         return token_data
     
     username, stored_subnet = token_data.split('|', 1)
     current_subnet = get_client_ip_subnet()
     
-    if stored_subnet != current_subnet:
-        print(f"[SECURITY] IP subnet mismatch for {username}: stored={stored_subnet}, current={current_subnet}")
-        revoke_token(token)
-        return None
+    # ОСЛАБЛЯЕМ проверку IP
+    if strict_ip_check:
+        if stored_subnet != current_subnet and current_subnet != "local" and stored_subnet != "local":
+            print(f"[SECURITY] IP subnet mismatch for {username}: stored={stored_subnet}, current={current_subnet}")
+            revoke_token(token)
+            return None
+    else:
+        # Для локального доступа игнорируем проверку
+        if current_subnet != "local" and stored_subnet != "local" and stored_subnet != current_subnet:
+            print(f"[WARN] IP subnet changed for {username}: stored={stored_subnet}, current={current_subnet}")
+            # НЕ отзываем токен, просто логируем
     
     return username
 
 def revoke_token(token: str):
-    username_bytes = r.get(f"auth_token:{token}")
-    if username_bytes:
-        username = username_bytes.decode("utf-8")
-        r.delete(f"user_session:{username}")
+    """Отзывает токен"""
+    try:
+        token_data_bytes = r.get(f"auth_token:{token}")
+        if token_data_bytes:
+            token_data = token_data_bytes.decode("utf-8")
+            if '|' in token_data:
+                username = token_data.split('|')[0]
+            else:
+                username = token_data
+            r.delete(f"user_session:{username}")
+    except:
+        pass
     r.delete(f"auth_token:{token}")
     print(f"[OK] Auth token revoked")
+
+# ===============================================================
+# ---- ШАГ 2: ДОБАВЛЕНИЕ HELPER ФУНКЦИЙ ДЛЯ ГРУПП ----
+# ===============================================================
+def generate_group_code() -> str:
+    """Генерирует уникальный 8-значный код группы (буквы + цифры)"""
+    import random
+    import string
+    
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        # Проверяешь что такого кода ещё нет
+        if not Group.query.filter_by(group_code=code).first():
+            return code
+
+def verify_group_session(token: str) -> dict or None:
+    """
+    Проверяет группу сессию и возвращает {username, group_id, ip_subnet} или None
+    """
+    if not token:
+        return None
+    
+    session_data_bytes = r.get(f"group_session:{token}")
+    if not session_data_bytes:
+        return None
+    
+    try:
+        session_data = json.loads(session_data_bytes.decode("utf-8"))
+    except:
+        return None
+    
+    # Проверяешь IP subnet
+    current_subnet = get_client_ip_subnet()
+    if session_data.get('ip_subnet') != current_subnet:
+        print(f"[SECURITY] IP subnet mismatch for {session_data.get('username')}")
+        revoke_group_session(token)
+        return None
+    
+    return session_data
+
+def generate_group_session_token(username: str, group_id: int) -> str:
+    """Генерирует и сохраняет сессию группы"""
+    old_session_bytes = r.get(f"user_group_session:{username}:{group_id}")
+    old_token = old_session_bytes.decode("utf-8") if old_session_bytes else None
+    
+    token = str(uuid.uuid4())
+    ip_subnet = get_client_ip_subnet()
+    
+    session_data = {
+        'username': username,
+        'group_id': group_id,
+        'ip_subnet': ip_subnet,
+        'created_at': int(time.time())
+    }
+    
+    pipe = r.pipeline()
+    pipe.multi()
+    
+    if old_token:
+        pipe.delete(f"group_session:{old_token}")
+    
+    pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(session_data).encode("utf-8"))
+    pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
+    pipe.execute()
+    
+    print(f"[OK] Group session generated for {username} in group {group_id}")
+    return token
+
+def revoke_group_session(token: str):
+    """Отзывает сессию группы"""
+    session_data_bytes = r.get(f"group_session:{token}")
+    if session_data_bytes:
+        try:
+            session_data = json.loads(session_data_bytes.decode("utf-8"))
+            username = session_data.get('username')
+            group_id = session_data.get('group_id')
+            if username and group_id:
+                r.delete(f"user_group_session:{username}:{group_id}")
+        except:
+            pass
+    r.delete(f"group_session:{token}")
+    print(f"[OK] Group session revoked")
+
+def is_user_in_group(username: str, group_id: int) -> bool:
+    """Проверяет состоит ли пользователь в группе"""
+    member = GroupMember.query.filter_by(
+        group_id=group_id, 
+        username=username
+    ).first()
+    return member is not None
+
+def get_group_members_count(group_id: int) -> int:
+    """Возвращает количество участников в группе"""
+    return GroupMember.query.filter_by(group_id=group_id).count()
+
+def add_user_to_group(group_id: int, username: str, role: str = 'member') -> bool:
+    """Добавляет пользователя в группу"""
+    try:
+        # Проверяешь что группа существует
+        group = Group.query.filter_by(id=group_id).first()
+        if not group:
+            return False
+        
+        # Проверяешь максимум участников
+        current_count = get_group_members_count(group_id)
+        if current_count >= group.max_members:
+            print(f"[WARN] Group {group_id} is full ({group.max_members} members)")
+            return False
+        
+        # Проверяешь не уже ли в группе
+        if is_user_in_group(username, group_id):
+            return True
+        
+        # Добавляешь
+        member = GroupMember(
+            group_id=group_id,
+            username=username,
+            role=role
+        )
+        db.session.add(member)
+        db.session.commit()
+        
+        # Добавляешь в Redis список
+        r.sadd(f"group_members:{group_id}", username)
+        r.sadd(f"group_members:online:{group_id}", username)
+        
+        print(f"[OK] User {username} added to group {group_id}")
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to add user to group: {e}")
+        return False
+
+def remove_user_from_group(group_id: int, username: str) -> bool:
+    """Удаляет пользователя из группы"""
+    try:
+        member = GroupMember.query.filter_by(
+            group_id=group_id,
+            username=username
+        ).first()
+        
+        if member:
+            db.session.delete(member)
+            db.session.commit()
+        
+        # Удаляешь из Redis
+        r.srem(f"group_members:{group_id}", username)
+        r.srem(f"group_members:online:{group_id}", username)
+        
+        # Отзываешь сессию
+        session_token_bytes = r.get(f"user_group_session:{username}:{group_id}")
+        if session_token_bytes:
+            revoke_group_session(session_token_bytes.decode("utf-8"))
+        
+        print(f"[OK] User {username} removed from group {group_id}")
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to remove user from group: {e}")
+        return False
+
+def get_user_groups(username: str) -> list:
+    """Возвращает список всех групп пользователя с информацией"""
+    try:
+        members = GroupMember.query.filter_by(username=username).all()
+        
+        groups_info = []
+        for member in members:
+            group = Group.query.filter_by(id=member.group_id).first()
+            if group:
+                groups_info.append({
+                    'id': group.id,
+                    'name': group.name,
+                    'code': group.group_code,
+                    'creator': group.creator,
+                    'role': member.role,
+                    'joined_at': member.format_time()
+                })
+        
+        return groups_info
+    except Exception as e:
+        print(f"[ERROR] Failed to get user groups: {e}")
+        return []
+
+def get_group_info(group_id: int, include_members: bool = False) -> dict or None:
+    """Возвращает информацию о группе"""
+    try:
+        group = Group.query.filter_by(id=group_id).first()
+        if not group:
+            return None
+        
+        info = {
+            'id': group.id,
+            'name': group.name,
+            'code': group.group_code,
+            'creator': group.creator,
+            'created_at': group.format_time(),
+            'max_members': group.max_members,
+            'member_count': get_group_members_count(group_id)
+        }
+        
+        if include_members:
+            members = GroupMember.query.filter_by(group_id=group_id).all()
+            info['members'] = [
+                {'username': m.username, 'role': m.role, 'joined_at': m.format_time()}
+                for m in members
+            ]
+        
+        return info
+    except Exception as e:
+        print(f"[ERROR] Failed to get group info: {e}")
+        return None
+
+def delete_group(group_id: int) -> bool:
+    """Удаляет группу и ВСЕ её сообщения и участников"""
+    try:
+        group = Group.query.filter_by(id=group_id).first()
+        if not group:
+            return False
+        
+        # Удаляешь всех участников
+        members = GroupMember.query.filter_by(group_id=group_id).all()
+        for member in members:
+            # Отзываешь их сессии
+            session_token_bytes = r.get(f"user_group_session:{member.username}:{group_id}")
+            if session_token_bytes:
+                revoke_group_session(session_token_bytes.decode("utf-8"))
+            # Удаляешь из БД
+            db.session.delete(member)
+        
+        # Удаляешь все сообщения группы
+        messages = Message.query.filter_by(group_id=group_id).all()
+        for message in messages:
+            db.session.delete(message)
+        
+        # Удаляешь саму группу
+        db.session.delete(group)
+        db.session.commit()
+        
+        # Удаляешь из Redis
+        r.delete(f"group_members:{group_id}")
+        r.delete(f"group_members:online:{group_id}")
+        r.delete(f"chat:group:{group_id}")
+        
+        print(f"[OK] Group {group_id} deleted completely")
+        return True
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to delete group: {e}")
+        return False
+# ===============================================================
+# ---- КОНЕЦ ДОБАВЛЕНИЯ HELPER ФУНКЦИЙ ----
+# ===============================================================
 
 def extract_token_from_request() -> str or None:
     auth_header = request.headers.get("Authorization", "")
@@ -1107,7 +1451,7 @@ def add_security_headers(response):
     nonce = getattr(request, '_csp_nonce', None)
     
     if 'Content-Security-Policy' not in response.headers:
-        if response.mimetype == 'text/html' or request.path in ['/', '/login', '/register']:
+        if response.mimetype == 'text/html' or request.path in ['/', '/login', '/register', '/groups']:
             if nonce:
                 response.headers['Content-Security-Policy'] = (
                     f"default-src 'self'; "
@@ -1256,6 +1600,7 @@ def save_file(username: str, file_obj) -> tuple or None:
             content=encrypted_content,
             message_type=message_type,
             created_at=file_record.created_at
+            # group_id будет добавлен в route /upload_to_group
         )
         db.session.add(message)
         db.session.commit()
@@ -1777,67 +2122,12 @@ def format_message_for_sse(msg: Message) -> str:
 # ===============================================================
 
 # ===============================================================
-# ---- MODIFY save_message function ----
-# ...
-# WITH THIS:
+# ---- ШАГ 4: УДАЛЕНИЕ СТАРЫХ HELPERS (save_message, event_stream) ----
+#
+# (Старые функции save_message и event_stream удалены отсюда)
+#
 # ===============================================================
 
-def save_message(username, content):
-    """Save text message with URL preview extraction"""
-    sanitized_content = sanitize_text(content)
-
-    if not sanitized_content:
-        return None
-    
-    if len(sanitized_content) > MAX_MESSAGE_LENGTH:
-        return None
-
-    # Extract URLs from message
-    urls = extract_urls_from_text(sanitized_content)
-    url_previews = {}
-    
-    if urls:
-        url_previews = get_previews_for_urls(urls)
-    
-    # Store message data with previews
-    message_data = {
-        'text': sanitized_content,
-        'urls': url_previews
-    }
-    
-    plaintext = json.dumps(message_data)
-    ciphertext = encrypt_message(plaintext)
-    
-    msg = Message(
-        username=username, 
-        content=ciphertext,
-        message_type='text'
-    )
-    db.session.add(msg)
-    db.session.commit()
-    
-    # Publish to Redis - ИСПОЛЬЗУЕМ format_time() который теперь возвращает timestamp
-    ts = msg.format_time()
-    message_text = f"[{ts}] {username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
-    r.publish("chat", message_text.encode("utf-8"))
-    
-    increment_message_count()
-    
-    return msg
-
-def event_stream():
-    """SSE stream - only new messages in real-time"""
-    pubsub = r.pubsub(ignore_subscribe_messages=True)
-    pubsub.subscribe("chat")
-    
-    for message in pubsub.listen():
-        data = message.get("data")
-        if isinstance(data, bytes):
-            try:
-                data = data.decode("utf-8")
-            except Exception:
-                data = str(data)
-        yield f"data: {data}\n\n"
 
 # ===============================================================
 # ---- Auth Routes ----
@@ -1855,7 +2145,8 @@ def register():
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
                 pass
-            return username_error, 400
+            nonce = generate_nonce()
+            return render_template("register.html", nonce=nonce, error=username_error), 400
 
         valid_password, password_error = validate_password(password)
         if not valid_password:
@@ -1863,19 +2154,20 @@ def register():
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
                 pass
-            return password_error, 400
+            nonce = generate_nonce()
+            return render_template("register.html", nonce=nonce, error=password_error), 400
+
+        if User.query.filter_by(username=username).first():
+            nonce = generate_nonce()
+            return render_template("register.html", nonce=nonce, error="A user with this name already EXISTS."), 400
 
         password_hash = argon2Hasher.hash(password)
-        
-        if User.query.filter_by(username=username).first():
-            return "A user with this name already EXISTS.", 400
-
         db.session.add(User(username=username, password_hash=password_hash))
         db.session.commit()
+        
         return redirect("/login")
 
     nonce = generate_nonce()
-    request._csp_nonce = nonce
     return render_template("register.html", nonce=nonce)
 
 @app.route("/login", methods=["GET", "POST"])
@@ -1912,11 +2204,14 @@ def login():
         try:
             argon2Hasher.verify(user.password_hash, password)
             auth_token, old_token = generate_auth_token(username)
-            old_token_exists = old_token is not None
             
-            nonce = generate_nonce()
-            request._csp_nonce = nonce
-            return render_template("index.html", auth_token=auth_token, user=username, old_session=old_token_exists, nonce=nonce)
+            # Возвращаем JSON вместо HTML
+            return jsonify({
+                "success": True,
+                "auth_token": auth_token,
+                "username": username
+            }), 200
+            
         except VerifyMismatchError:
             return "INCORRECT username or password", 400
 
@@ -1925,17 +2220,443 @@ def login():
     return render_template("login.html", nonce=nonce)
 
 # ===============================================================
-# ---- Chat message routes ----
+# ---- Group Management Routes ----
 # ===============================================================
-@app.route("/post", methods=["POST"])
+
+@app.route("/groups", methods=["GET"])
 @limiter.limit("30 per minute")
-def post():
+def list_groups():
+    """Показывает список групп пользователя"""
+    token = extract_token_from_request()
+    username = verify_token(token, strict_ip_check=False)  # ❗ Ослабляем проверку IP
+    
+    if not username:
+        print(f"[WARN] User not authenticated. Token: {token[:20] if token else 'None'}...")
+        
+        # Проверяем, может быть это Fetch без Bearer?
+        if request.method == 'GET' and not token:
+            print("[INFO] No token in request. Redirecting to login.")
+        
+        return redirect("/login")
+    
+    print(f"[OK] User {username} accessing /groups")
+    
+    nonce = generate_nonce()
+    request._csp_nonce = nonce
+    
+    try:
+        user_groups = get_user_groups(username)
+        print(f"[OK] Found {len(user_groups)} groups for {username}")
+    except Exception as e:
+        print(f"[ERROR] Failed to get user groups: {e}")
+        user_groups = []
+    
+    return render_template(
+        "groups.html", 
+        user=username, 
+        groups=user_groups, 
+        nonce=nonce,
+        auth_token=None
+    )
+
+@app.route("/api/groups/list", methods=["GET"])
+@limiter.limit("20 per minute")
+def api_list_groups():
+    """API endpoint для получения списка групп пользователя"""
     token = extract_token_from_request()
     username = verify_token(token)
     
     if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    groups = get_user_groups(username)
+    
+    return jsonify({"groups": groups}), 200
+
+@app.route("/api/groups/create", methods=["POST"])
+@limiter.limit("5 per hour")
+def api_create_group():
+    """Создание новой группы"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    group_name = data.get("name", "").strip()
+    password = data.get("password", "").strip()
+    root_password = data.get("root_password", "").strip()
+    max_members = data.get("max_members", 100)
+    
+    # Валидация
+    if not group_name or len(group_name) < 3 or len(group_name) > 50:
+        return jsonify({"error": "Group name must be 3-50 characters"}), 400
+    
+    if not password or len(password) < 8 or len(password) > 128:
+        return jsonify({"error": "Password must be 8-128 characters"}), 400
+    
+    if not root_password or len(root_password) < 8 or len(root_password) > 128:
+        return jsonify({"error": "Root password must be 8-128 characters"}), 400
+    
+    if password == root_password:
+        return jsonify({"error": "Passwords cannot be the same"}), 400
+    
+    if not isinstance(max_members, int) or max_members < 2 or max_members > 1000:
+        return jsonify({"error": "Max members must be 2-1000"}), 400
+    
+    try:
+        # Генерируешь уникальный код
+        group_code = generate_group_code()
+        
+        # Хешируешь пароли
+        password_hash = argon2Hasher.hash(password)
+        root_password_hash = argon2Hasher.hash(root_password)
+        
+        # Создаешь группу
+        group = Group(
+            name=group_name,
+            group_code=group_code,
+            creator=username,
+            password_hash=password_hash,
+            root_password_hash=root_password_hash,
+            max_members=max_members
+        )
+        db.session.add(group)
+        db.session.flush()  # Чтобы получить ID
+        
+        # Добавляешь создателя как CREATOR
+        member = GroupMember(
+            group_id=group.id,
+            username=username,
+            role='creator'
+        )
+        db.session.add(member)
+        db.session.commit()
+        
+        # Инициализируешь в Redis
+        r.sadd(f"group_members:{group.id}", username)
+        r.sadd(f"group_members:online:{group.id}", username)
+        
+        print(f"[OK] Group created: {group.name}#{group.group_code} by {username}")
+        
+        return jsonify({
+            "success": True,
+            "group_id": group.id,
+            "group_code": group.group_code,
+            "message": f"Group '{group_name}#{group_code}' created successfully"
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to create group: {e}")
+        return jsonify({"error": "Failed to create group"}), 500
+
+@app.route("/api/groups/join", methods=["POST"])
+@limiter.limit("10 per hour; 60 per day")
+def api_join_group():
+    """Присоединение к существующей группе"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    group_code = data.get("group_code", "").strip().upper()
+    password = data.get("password", "").strip()
+    
+    if not group_code or len(group_code) != 8:
+        return jsonify({"error": "Invalid group code"}), 400
+    
+    if not password:
+        return jsonify({"error": "Password required"}), 400
+    
+    # Rate limiting для защиты от брутфорса
+    ip = get_remote_address()
+    rate_key = f"group_join_attempt:{group_code}:{ip}"
+    attempts = r.get(rate_key)
+    
+    if attempts and int(attempts) >= 5:
+        return jsonify({"error": "Too many attempts. Try again later."}), 429
+    
+    try:
+        # Ищешь группу
+        group = Group.query.filter_by(group_code=group_code).first()
+        
+        if not group:
+            r.incr(rate_key)
+            r.expire(rate_key, 900)  # 15 минут
+            return jsonify({"error": "Invalid group code or password"}), 401
+        
+        # Проверяешь пароль
+        try:
+            argon2Hasher.verify(group.password_hash, password)
+        except VerifyMismatchError:
+            r.incr(rate_key)
+            r.expire(rate_key, 900)
+            return jsonify({"error": "Invalid group code or password"}), 401
+        
+        # Проверяешь максимум участников
+        if get_group_members_count(group.id) >= group.max_members:
+            return jsonify({"error": "Group is full"}), 403
+        
+        # Добавляешь в группу
+        success = add_user_to_group(group.id, username, 'member')
+        if not success:
+            return jsonify({"error": "Failed to join group"}), 500
+        
+        # Генерируешь сессию
+        session_token = generate_group_session_token(username, group.id)
+        
+        # Очищаешь counter после успеха
+        r.delete(rate_key)
+        
+        print(f"[OK] User {username} joined group {group.group_code}")
+        
+        return jsonify({
+            "success": True,
+            "group_id": group.id,
+            "session_token": session_token,
+            "message": f"Successfully joined '{group.name}#{group.group_code}'"
+        }), 200
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to join group: {e}")
+        return jsonify({"error": "Failed to join group"}), 500
+
+@app.route("/api/groups/<int:group_id>/info", methods=["GET"])
+@limiter.limit("30 per minute")
+def api_group_info(group_id: int):
+    """Получает информацию о группе и список участников"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    # Проверяешь что юзер в группе
+    if not is_user_in_group(username, group_id):
+        return jsonify({"error": "Not a member of this group"}), 403
+    
+    group_info = get_group_info(group_id, include_members=True)
+    
+    if not group_info:
+        return jsonify({"error": "Group not found"}), 404
+    
+    # Добавляешь информацию об онлайн статусе
+    online_members = r.smembers(f"group_members:online:{group_id}")
+    online_members = [m.decode("utf-8") if isinstance(m, bytes) else m for m in online_members]
+    
+    group_info['online_members'] = online_members
+    
+    return jsonify(group_info), 200
+
+@app.route("/api/groups/<int:group_id>/leave", methods=["POST"])
+@limiter.limit("30 per minute")
+def api_leave_group(group_id: int):
+    """Выход из группы"""
+    token = extract_token_from_request()
+    session = verify_group_session(token)
+    
+    if not session:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    username = session['username']
+    
+    # Проверяешь что это правильная группа
+    if session['group_id'] != group_id:
+        return jsonify({"error": "Invalid group"}), 403
+    
+    # Удаляешь из группы
+    remove_user_from_group(group_id, username)
+    
+    print(f"[OK] User {username} left group {group_id}")
+    
+    return jsonify({"success": True, "message": "Left the group"}), 200
+
+@app.route("/api/groups/<int:group_id>/delete", methods=["POST"])
+@limiter.limit("5 per hour")
+def api_delete_group(group_id: int):
+    """Удаление группы (только для создателя с рут-паролем)"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    root_password = data.get("root_password", "").strip()
+    
+    if not root_password:
+        return jsonify({"error": "Root password required"}), 400
+    
+    try:
+        group = Group.query.filter_by(id=group_id).first()
+        
+        if not group:
+            return jsonify({"error": "Group not found"}), 404
+        
+        # Проверяешь что это создатель
+        if group.creator != username:
+            print(f"[SECURITY] Unauthorized delete attempt by {username} on group {group_id} (creator: {group.creator})")
+            return jsonify({"error": "Only creator can delete group"}), 403
+        
+        # Проверяешь рут-пароль
+        try:
+            argon2Hasher.verify(group.root_password_hash, root_password)
+        except VerifyMismatchError:
+            print(f"[SECURITY] Invalid root password attempt on group {group_id} by {username}")
+            return jsonify({"error": "Invalid root password"}), 401
+        
+        # Удаляешь группу
+        delete_group(group_id)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Group '{group.name}#{group.group_code}' deleted successfully"
+        }), 200
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to delete group: {e}")
+        return jsonify({"error": "Failed to delete group"}), 500
+
+# ===============================================================
+# ---- КОНЕЦ ШАГА 3 ----
+# ===============================================================
+
+# ===============================================================
+# ---- ШАГ 7: ДОБАВЛЕНИЕ ROUTE ДЛЯ ОТОБРАЖЕНИЯ ЧАТА ----
+# ===============================================================
+@app.route("/group/<int:group_id>/chat")
+@limiter.limit("100 per minute")
+def group_chat(group_id: int):
+    token = extract_token_from_request()
+    username = verify_token(token, strict_ip_check=False)  # ❗ Ослабляем проверку IP
+    
+    if not username:
+        print(f"[WARN] Unauthenticated access to /group/{group_id}/chat")
+        return redirect("/login")
+    
+    # Проверяем что пользователь в группе
+    if not is_user_in_group(username, group_id):
+        print(f"[SECURITY] User {username} tried to access group {group_id} without membership")
+        return redirect("/groups")
+    
+    print(f"[OK] User {username} entering group {group_id} chat")
+    
+    # Генерируем или получаем сессию группы
+    session_token = generate_group_session_token(username, group_id)
+    
+    nonce = generate_nonce()
+    request._csp_nonce = nonce
+    
+    return render_template("group_chat.html", 
+                         auth_token=session_token, 
+                         user=username, 
+                         group_id=group_id,
+                         nonce=nonce)
+# ===============================================================
+# ---- КОНЕЦ ШАГА 7 ----
+# ===============================================================
+
+
+# ===============================================================
+# ---- ШАГ 4: ЗАМЕНА CHAT ROUTES И UPLOAD ROUTE ----
+#
+# (Старые routes /post, /stream, /history И /upload УДАЛЕНЫ)
+# (Вместо них добавлен код из modified_chat_routes.py)
+#
+# ===============================================================
+
+# ===============================================================
+# ---- Chat message routes (для групп) ----
+# ===============================================================
+
+def save_message_to_group(username: str, group_id: int, content: str):
+    """Save text message to group with URL preview extraction"""
+    sanitized_content = sanitize_text(content)
+
+    if not sanitized_content:
+        return None
+    
+    if len(sanitized_content) > MAX_MESSAGE_LENGTH:
+        return None
+
+    # Extract URLs from message
+    urls = extract_urls_from_text(sanitized_content)
+    url_previews = {}
+    
+    if urls:
+        url_previews = get_previews_for_urls(urls)
+    
+    # Store message data with previews
+    message_data = {
+        'text': sanitized_content,
+        'urls': url_previews
+    }
+    
+    plaintext = json.dumps(message_data)
+    ciphertext = encrypt_message(plaintext)
+    
+    msg = Message(
+        group_id=group_id,  # ДОБАВЛЕНО
+        username=username, 
+        content=ciphertext,
+        message_type='text'
+    )
+    db.session.add(msg)
+    db.session.commit()
+    
+    # Publish to Redis для этой группы
+    ts = msg.format_time()
+    message_text = f"[{ts}] {username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
+    r.publish(f"chat:group:{group_id}", message_text.encode("utf-8"))
+    
+    increment_message_count()
+    
+    return msg
+
+def event_stream_group(group_id: int):
+    """SSE stream - для определенной группы"""
+    pubsub = r.pubsub(ignore_subscribe_messages=True)
+    pubsub.subscribe(f"chat:group:{group_id}")
+    
+    for message in pubsub.listen():
+        data = message.get("data")
+        if isinstance(data, bytes):
+            try:
+                data = data.decode("utf-8")
+            except Exception:
+                data = str(data)
+        yield f"data: {data}\n\n"
+
+@app.route("/group/<int:group_id>/post", methods=["POST"])
+@limiter.limit("30 per minute")
+def post_to_group(group_id: int):
+    token = extract_token_from_request()
+    session = verify_group_session(token)
+    
+    if not session:
         return abort(401)
     
+    # Проверяешь что это правильная группа и юзер в ней
+    if session['group_id'] != group_id:
+        return abort(403)
+    
+    if not is_user_in_group(session['username'], group_id):
+        return abort(403)
+    
+    username = session['username']
     text = request.form.get("message", "").strip()
     if not text:
         return ("", 204)
@@ -1943,32 +2664,44 @@ def post():
     if len(text) > MAX_MESSAGE_LENGTH:
         return jsonify({"error": "Message too long", "max_length": MAX_MESSAGE_LENGTH}), 400
     
-    msg = save_message(username, text)
+    msg = save_message_to_group(username, group_id, text)
     if not msg:
         return ("", 204)
 
     return ("", 204)
 
-@app.route("/stream")
+@app.route("/group/<int:group_id>/stream")
 @limiter.limit("100 per minute")
-def stream():
+def stream_group(group_id: int):
     token = extract_token_from_request()
-    username = verify_token(token)
+    session = verify_group_session(token)
     
-    if not username:
+    if not session:
         return abort(401)
     
-    return Response(event_stream(), mimetype="text/event-stream")
+    if session['group_id'] != group_id:
+        return abort(403)
+    
+    if not is_user_in_group(session['username'], group_id):
+        return abort(403)
+    
+    return Response(event_stream_group(group_id), mimetype="text/event-stream")
 
-@app.route("/history")
+@app.route("/group/<int:group_id>/history")
 @limiter.limit("30 per minute")
-def history():
-    """Load message history with pagination"""
+def history_group(group_id: int):
+    """Load message history for group with pagination"""
     token = extract_token_from_request()
-    username = verify_token(token)
+    session = verify_group_session(token)
     
-    if not username:
+    if not session:
         return abort(401)
+    
+    if session['group_id'] != group_id:
+        return abort(403)
+    
+    if not is_user_in_group(session['username'], group_id):
+        return abort(403)
     
     before_id = request.args.get('before_id', type=int)
     limit = request.args.get('limit', default=50, type=int)
@@ -1976,7 +2709,8 @@ def history():
     if limit > 100:
         limit = 100
     
-    query = Message.query.order_by(Message.created_at.desc())
+    # Фильтруешь по group_id
+    query = Message.query.filter_by(group_id=group_id).order_by(Message.created_at.desc())
     
     if before_id:
         before_msg = Message.query.filter_by(id=before_id).first()
@@ -2008,7 +2742,7 @@ def history():
     # Format results
     result = []
     for msg in reversed(messages):
-        ts = msg.format_time() # Используем timestamp
+        ts = msg.format_time()
         
         if msg.message_type == 'photo':
             plain = msg.get_plain()
@@ -2039,12 +2773,10 @@ def history():
             # Text message
             plain_data = msg.get_plain()
             if isinstance(plain_data, dict):
-                # Новая структура (JSON)
                 sanitized_content = plain_data.get('text', '')
                 url_previews = plain_data.get('urls', {})
                 message_text = f"[{ts}] {msg.username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
             elif isinstance(plain_data, str):
-                # Старые текстовые сообщения (до URL превью)
                 message_text = f"[{ts}] {msg.username}: {plain_data}|URLS:{{}}"
             else:
                 message_text = f"[{ts}] {msg.username}: [INVALID MESSAGE]"
@@ -2061,15 +2793,24 @@ def history():
 
 # ===============================================================
 # ---- File upload and download routes ----
+# (Старый /upload удален, добавлен /group/<id>/upload)
 # ===============================================================
-@app.route("/upload", methods=["POST"])
+@app.route("/group/<int:group_id>/upload", methods=["POST"])
 @limiter.limit("10 per minute; 100 per day")
-def upload():
+def upload_to_group(group_id: int):
     token = extract_token_from_request()
-    username = verify_token(token)
+    session = verify_group_session(token)
     
-    if not username:
+    if not session:
         return abort(401)
+    
+    if session['group_id'] != group_id:
+        return abort(403)
+    
+    username = session['username']
+    
+    if not is_user_in_group(username, group_id):
+        return abort(403)
     
     if "file" not in request.files:
         return "No file part", 400
@@ -2091,9 +2832,13 @@ def upload():
     
     file_record, message = result
     
+    # Обновляешь group_id в сообщении
+    message.group_id = group_id
+    db.session.commit()
+    
     # Publish message for SSE
     message_text = format_message_for_sse(message)
-    r.publish("chat", message_text.encode("utf-8"))
+    r.publish(f"chat:group:{group_id}", message_text.encode("utf-8"))
     
     increment_message_count()
     
@@ -2103,19 +2848,48 @@ def upload():
         "category": file_record.file_category
     }), 200
 
+# ===============================================================
+# ---- КОНЕЦ ШАГА 4 ----
+# ===============================================================
+
+
 @app.route("/file/sign/<int:file_id>", methods=["GET"])
 @limiter.limit("20 per minute")
 def sign_file_url(file_id: int):
     """Generate signed URL for file access"""
     token = extract_token_from_request()
+    # Используем verify_token, т.к. этот эндпоинт может быть вызван
+    # со страницы /groups, а не только из чата
     username = verify_token(token)
     
     if not username:
-        return abort(401)
+        # Пытаемся проверить сессию группы, если обычная не удалась
+        session = verify_group_session(token)
+        if not session:
+            return abort(401)
+        username = session['username']
     
     file_record = File.query.filter_by(id=file_id).first()
     if not file_record:
         return abort(404)
+    
+    # ВАЖНО: Проверяем, что юзер состоит в группе,
+    # которой принадлежит сообщение с этим файлом
+    msg = Message.query.filter(
+        (Message.content.like(f'%\"file_id\": {file_id}%')) | 
+        (Message.content.like(f'%\"file_id\":{file_id}%'))
+    ).first()
+    
+    if msg and msg.group_id:
+        if not is_user_in_group(username, msg.group_id):
+            print(f"[SECURITY] User {username} tried to sign file {file_id} from group {msg.group_id} without membership")
+            return abort(403)
+    elif msg is None:
+        # Файл есть, сообщения нет? (маловероятно)
+        # Проверяем, что юзер - владелец файла
+        if file_record.username != username:
+             print(f"[SECURITY] User {username} tried to sign file {file_id} (owner: {file_record.username})")
+             return abort(403)
     
     signed_data = generate_signed_file_url(file_record.file_token)
     
@@ -2174,17 +2948,24 @@ def logout():
     token = extract_token_from_request()
     if token:
         revoke_token(token)
+        revoke_group_session(token) # Также отзываем сессию группы
     return "", 204
 
 @app.route("/verify-session", methods=["GET"])
 @limiter.limit("10 per minute")
 def verify_session():
     token = extract_token_from_request()
-    username = verify_token(token)
     
-    if not username:
-        return jsonify({"valid": False}), 401
-    return jsonify({"valid": True}), 200
+    # Проверяем оба типа сессий
+    username = verify_token(token)
+    if username:
+        return jsonify({"valid": True, "type": "user"}), 200
+    
+    session = verify_group_session(token)
+    if session:
+        return jsonify({"valid": True, "type": "group", "group_id": session.get('group_id')}), 200
+    
+    return jsonify({"valid": False}), 401
 
 @app.route("/")
 def root():

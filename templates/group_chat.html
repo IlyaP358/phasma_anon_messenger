@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="UTF-8">
+  <title>phasma - group chat</title>
+  <link rel="icon" type="image/png" href="/static/icon.png">
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <style>
+    body {
+      max-width: 500px;
+      margin: auto;
+      padding: 0;
+      background: black;
+      color: #fff;
+      font: 16px/1.6 menlo, monospace;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    #out {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 1em;
+      white-space: pre-wrap;
+      position: relative;
+    }
+    #messages-container {
+      display: flex;
+      flex-direction: column;
+    }
+    #load-more-container {
+      text-align: center;
+      padding: 0.5em;
+      background: rgba(0, 0, 0, 1);
+      border-bottom: 0px solid #333;
+      display: none;
+      position: sticky;
+      top: -20px;
+      z-index: 100;
+    }
+    #load-more-btn {
+      background: #222;
+      color: #0f0;
+      border: 1px solid #0f0;
+      padding: 0.5em 1em;
+      font: inherit;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #load-more-btn:hover {
+      background: #0f0;
+      color: #000;
+    }
+    #load-more-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      color: #888;
+      border-color: #888;
+    }
+    #input-container {
+      padding: 1em;
+      border-top: 1px solid #333;
+      background: #111;
+    }
+    input[type="text"] {
+      width: 95%;
+      padding: 0.5em;
+      font: inherit;
+      background: #222;
+      color: #fff;
+      border: none;
+      outline: none;
+    }
+    #upload-btn {
+      width: 48%;
+      margin-top: 0.5em;
+      background: #222;
+      color: #fff;
+      border: none;
+      padding: 0.5em;
+      font: inherit;
+      cursor: pointer;
+    }
+    #upload-btn:hover {
+      background: #333;
+    }
+    #leave-btn {
+      width: 48%;
+      margin-top: 0.5em;
+      background: #500;
+      color: #fff;
+      border: 1px solid #a00;
+      padding: 0.5em;
+      font: inherit;
+      cursor: pointer;
+    }
+    #leave-btn:hover {
+      background: #a00;
+    }
+    #file-input {
+      display: none;
+    }
+    .message {
+      margin-bottom: 0.5em;
+    }
+    .message-header {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 2px;
+    }
+    .message-content {
+      color: #fff;
+      white-space: normal;
+      word-wrap: break-word;
+    }
+    .message-text {
+      color: #fff;
+      margin-bottom: 0.5em;
+    }
+    .url-previews {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
+      margin-top: 0.5em;
+    }
+    .url-preview-card {
+      border: 1px solid #0ff;
+      border-left: 3px solid #0ff;
+      padding: 0.7em;
+      background: #0a1a1a;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .url-preview-card:hover {
+      background: #0d2a2a;
+      border-left-color: #0ff;
+    }
+    .url-preview-service {
+      font-size: 12px;
+      color: #0ff;
+      text-transform: uppercase;
+      font-weight: bold;
+      margin-bottom: 0.3em;
+    }
+    .url-preview-url {
+      font-size: 12px;
+      color: #0ff;
+      margin-bottom: 0.3em;
+      word-break: break-all;
+      text-decoration: none;
+      display: block;
+    }
+    .url-preview-title {
+      font-size: 14px;
+      color: #aaa;
+      margin-bottom: 0.3em;
+      font-weight: bold;
+    }
+    .url-preview-description {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 0.5em;
+    }
+    .url-preview-thumbnail {
+      max-width: 100%;
+      max-height: 200px;
+      display: block;
+      border: 1px solid #0ff;
+      margin-bottom: 0.3em;
+    }
+    .photo-msg {
+      color: #0f0;
+    }
+    .photo-msg img {
+      max-width: 300px;
+      margin-top: 0.5em;
+      border: 1px solid #0f0;
+      cursor: pointer;
+      display: block;
+    }
+    .file-msg {
+      color: #0ff;
+      margin-top: 0.5em;
+    }
+    .file-attachment {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      padding: 0.5em;
+      background: #1a1a1a;
+      border: 1px solid #0ff;
+      margin-top: 0.3em;
+      position: relative;
+    }
+    .file-icon {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+    }
+    .file-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .file-name {
+      color: #0ff;
+      word-break: break-all;
+      font-size: 14px;
+    }
+    .file-download-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: #0ff;
+      color: #000;
+      border: none;
+      padding: 3px 8px;
+      font: 11px monospace;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .file-download-btn:hover {
+      background: #0aa;
+    }
+    .file-loading, .photo-loading {
+      color: #888;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div id="out">
+    <div id="load-more-container">
+      <button id="load-more-btn">↑ Load older messages</button>
+    </div>
+    <div id="messages-container"></div>
+  </div>
+
+  <div id="input-container">
+    <b>Hi, <span id="username-display"></span>!</b><br>
+    Message: <input type="text" id="in" autocomplete="off" />
+    <button id="upload-btn">+ upload file</button>
+    <button id="leave-btn">← Leave Group</button>
+    
+    <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
+  </div>
+
+  <script nonce="{{ nonce }}">
+    // ===== INITIALIZATION =====
+    const USER = {{ user|tojson }};
+    const GROUP_ID = {{ group_id|tojson }};
+    
+    console.log('[INIT] group_chat.html loaded');
+    console.log('[INIT] USER:', USER);
+    console.log('[INIT] GROUP_ID:', GROUP_ID);
+    
+    document.getElementById('username-display').textContent = USER;
+    
+    // ❗ ИСПРАВЛЕНО: Берем токен в правильном порядке
+    let AUTH_TOKEN = localStorage.getItem(`group_token_${GROUP_ID}`);
+    
+    if (!AUTH_TOKEN) {
+      AUTH_TOKEN = localStorage.getItem('current_group_token');
+    }
+    
+    if (!AUTH_TOKEN) {
+      AUTH_TOKEN = localStorage.getItem('auth_token');
+    }
+    
+    console.log('[INIT] AUTH_TOKEN:', AUTH_TOKEN ? AUTH_TOKEN.substring(0, 20) + '...' : 'NONE');
+    
+    if (!AUTH_TOKEN) {
+      console.error('[ERROR] No auth token found in localStorage');
+      alert('Session expired. Please login again.');
+      window.location.href = '/login';
+    }
+
+    try {
+      history.replaceState(null, '', `/group/${GROUP_ID}/chat`);
+    } catch (e) {
+      // ignore
+    }
+
+    function formatLocalTime(timestamp) {
+      try {
+        const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
+        const now = Math.floor(Date.now() / 1000);
+        if (ts > now + 86400) {
+          console.warn("[WARN] Suspicious timestamp:", ts, "current:", now);
+        }
+        const date = new Date(ts * 1000);
+        if (isNaN(date.getTime())) {
+          console.error("[ERROR] Invalid date from timestamp:", timestamp);
+          return "??:??:??";
+        }
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
+      } catch (e) {
+        console.error("[ERROR] formatLocalTime failed:", e, timestamp);
+        return "??:??:??";
+      }
+    }
+
+    function formatLocalDate() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function formatDateFromTimestamp(timestamp) {
+      try {
+        const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
+        const date = new Date(ts * 1000);
+        if (isNaN(date.getTime())) {
+          return formatLocalDate();
+        }
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      } catch (e) {
+        return formatLocalDate();
+      }
+    }
+
+    // Message management
+    let loadedMessageIds = new Set();
+    let oldestMessageId = null;
+    let newestMessageId = null;
+    let isLoadingHistory = false;
+    let hasMoreHistory = true;
+    let initialLoadDone = false;
+    let sseStarted = false;
+
+    const out = document.getElementById("out");
+    const messagesContainer = document.getElementById("messages-container");
+    const loadMoreBtn = document.getElementById("load-more-btn");
+    const loadMoreContainer = document.getElementById("load-more-container");
+
+    function checkSessionValidity() {
+      console.log('[SESSION] Checking session validity...');
+      fetch("/verify-session", {
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+      }).then(response => {
+        if (response.status === 401) {
+          console.error('[ERROR] Session is invalid (401)');
+          alert("Your session has expired or is invalid.");
+          window.location.href = "/login";
+          return;
+        }
+        return response.json();
+      }).then(data => {
+        if (!data) return;
+        
+        console.log('[SESSION] Session check result:', data);
+        
+        if (data.valid && data.type === 'group' && data.group_id !== GROUP_ID) {
+            console.warn("Session is valid, but for the wrong group. Redirecting.");
+            window.location.href = "/groups";
+        } else if (!data.valid) {
+            console.error('[ERROR] Session is no longer valid');
+            alert("Your session is no longer valid.");
+            window.location.href = "/login";
+        }
+      }).catch(err => {
+        console.error("Session check failed:", err);
+      });
+    }
+
+    setInterval(checkSessionValidity, 10000);
+
+    function parseMessageData(data) {
+      const timeMatch = data.match(/^\[(\d+)\]\s+/);
+      if (!timeMatch) {
+        console.warn("[WARN] Could not match timestamp in:", data.substring(0, 80));
+        return null;
+      }
+      const timestamp = parseInt(timeMatch[1], 10);
+      const afterTime = data.substring(timeMatch[0].length);
+      
+      const userMatch = afterTime.match(/^([^:]+):\s*/);
+      if (!userMatch) {
+        console.warn("[WARN] Could not match username in:", afterTime.substring(0, 80));
+        return null;
+      }
+      
+      const username = userMatch[1];
+      const rest = afterTime.substring(userMatch[0].length);
+      
+      const urlsSplit = rest.split('|URLS:');
+      const content = urlsSplit[0];
+      let urls = {};
+      
+      if (urlsSplit.length > 1) {
+        try {
+          urls = JSON.parse(urlsSplit[1]);
+        } catch (e) {
+          urls = {};
+        }
+      }
+      
+      return {
+        timestamp: timestamp,
+        username: username,
+        content: content,
+        urls: urls
+      };
+    }
+
+    function createURLPreviewCard(url, preview) {
+      const card = document.createElement("div");
+      card.className = "url-preview-card";
+      
+      const serviceDiv = document.createElement("div");
+      serviceDiv.className = "url-preview-service";
+      serviceDiv.textContent = preview.service_type || 'LINK';
+      card.appendChild(serviceDiv);
+      
+      const urlDiv = document.createElement("div");
+      urlDiv.className = "url-preview-url";
+      urlDiv.style.cursor = 'pointer';
+      urlDiv.textContent = url.substring(0, 60) + (url.length > 60 ? '...' : '');
+      card.appendChild(urlDiv);
+      
+      if (preview.title) {
+        const titleDiv = document.createElement("div");
+        titleDiv.className = "url-preview-title";
+        titleDiv.textContent = preview.title;
+        card.appendChild(titleDiv);
+      }
+      
+      if (preview.description) {
+        const descDiv = document.createElement("div");
+        descDiv.className = "url-preview-description";
+        descDiv.textContent = preview.description.substring(0, 100) + (preview.description.length > 100 ? '...' : '');
+        card.appendChild(descDiv);
+      }
+      
+      if (preview.thumbnail_url) {
+        const img = document.createElement("img");
+        img.className = "url-preview-thumbnail";
+        img.src = preview.thumbnail_url;
+        img.alt = "Preview";
+        img.loading = "lazy";
+        img.onerror = () => img.style.display = 'none';
+        img.onclick = (e) => {
+          e.stopPropagation(); 
+          window.open(url, '_blank');
+        };
+        card.appendChild(img);
+      }
+      
+      card.onclick = () => window.open(url, '_blank');
+      
+      return card;
+    }
+
+    function createPhotoElement(photoId, photoUrl, username) {
+      const contentDiv = document.createElement("div");
+      contentDiv.className = "message-content photo-msg";
+      contentDiv.setAttribute('data-photo-id', photoId);
+      
+      const usernameSpan = document.createElement("span");
+      usernameSpan.textContent = username;
+      contentDiv.appendChild(usernameSpan);
+      
+      const img = document.createElement("img");
+      img.src = photoUrl;
+      img.alt = "Photo";
+      img.loading = "lazy";
+      contentDiv.appendChild(img);
+      
+      return contentDiv;
+    }
+
+    function createFileElement(fileId, category, filename, fileUrl, username) {
+      const contentDiv = document.createElement("div");
+      contentDiv.className = "message-content file-msg";
+      contentDiv.setAttribute('data-file-id', fileId);
+      
+      const usernameSpan = document.createElement("span");
+      usernameSpan.textContent = username;
+      usernameSpan.style.display = "block";
+      contentDiv.appendChild(usernameSpan);
+      
+      const attachmentDiv = document.createElement("div");
+      attachmentDiv.className = "file-attachment";
+      
+      const icon = document.createElement("img");
+      icon.src = "/static/phasma_file.png";
+      icon.className = "file-icon";
+      icon.alt = "File";
+      attachmentDiv.appendChild(icon);
+      
+      const fileInfo = document.createElement("div");
+      fileInfo.className = "file-info";
+      
+      const fileNameSpan = document.createElement("div");
+      fileNameSpan.className = "file-name";
+      fileNameSpan.textContent = filename;
+      fileInfo.appendChild(fileNameSpan);
+      
+      attachmentDiv.appendChild(fileInfo);
+      
+      const downloadBtn = document.createElement("button");
+      downloadBtn.className = "file-download-btn";
+      downloadBtn.textContent = "â¬‡";
+      downloadBtn.onclick = function() {
+        window.open(fileUrl, '_blank');
+      };
+      attachmentDiv.appendChild(downloadBtn);
+      
+      contentDiv.appendChild(attachmentDiv);
+      
+      return contentDiv;
+    }
+
+    function createMessageElement(data) {
+      const parsed = parseMessageData(data);
+      if (!parsed) {
+        console.error("[ERROR] Failed to parse message:", data.substring(0, 100));
+        const msg = document.createElement("div");
+        msg.className = "message";
+        msg.textContent = "[PARSE ERROR] " + data;
+        return msg;
+      }
+      
+      const msgWrapper = document.createElement("div");
+      msgWrapper.className = "message";
+      
+      const localTime = formatLocalTime(parsed.timestamp);
+      const localDate = formatDateFromTimestamp(parsed.timestamp);
+      
+      const header = document.createElement("div");
+      header.className = "message-header";
+      header.textContent = `${localDate}, [${localTime}]`;
+      msgWrapper.appendChild(header);
+      
+      // [PHOTO:ID:URL]
+      const photoWithUrlMatch = parsed.content.match(/\[PHOTO:(\d+):([^\]]+)\]/);
+      if (photoWithUrlMatch) {
+        const photoId = photoWithUrlMatch[1];
+        const photoUrl = photoWithUrlMatch[2];
+        const contentDiv = createPhotoElement(photoId, photoUrl, parsed.username);
+        msgWrapper.appendChild(contentDiv);
+        return msgWrapper;
+      }
+      
+      // [FILE:ID:category:filename:URL]
+      const fileWithUrlMatch = parsed.content.match(/\[FILE:(\d+):([^:]+):([^:]+):([^\]]+)\]/);
+      if (fileWithUrlMatch) {
+        const fileId = fileWithUrlMatch[1];
+        const category = fileWithUrlMatch[2];
+        const filename = fileWithUrlMatch[3];
+        const fileUrl = fileWithUrlMatch[4];
+        const contentDiv = createFileElement(fileId, category, filename, fileUrl, parsed.username);
+        msgWrapper.appendChild(contentDiv);
+        return msgWrapper;
+      }
+      
+      // [PHOTO:ID]
+      const photoMatch = parsed.content.match(/\[PHOTO:(\d+)\]/);
+      if (photoMatch) {
+        const photoId = photoMatch[1];
+        const contentDiv = document.createElement("div");
+        contentDiv.className = "message-content photo-msg";
+        contentDiv.setAttribute('data-photo-id', photoId);
+        
+        const usernameSpan = document.createElement("span");
+        usernameSpan.textContent = parsed.username;
+        contentDiv.appendChild(usernameSpan);
+        
+        const loader = document.createElement("div");
+        loader.textContent = "[Loading photo...]";
+        loader.classList.add("photo-loading");
+        contentDiv.appendChild(loader);
+        
+        fetch(`/file/sign/${photoId}`, {
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        })
+        .then(response => response.json())
+        .then(data => {
+          loader.remove();
+          const img = document.createElement("img");
+          img.src = data.url;
+          img.alt = "Photo";
+          img.loading = "lazy";
+          contentDiv.appendChild(img);
+        })
+        .catch(err => {
+          console.error("Failed to load photo:", err);
+          loader.textContent = "[Failed to load photo]";
+          loader.style.color = "#f00";
+        });
+        
+        msgWrapper.appendChild(contentDiv);
+        return msgWrapper;
+      }
+      
+      // [FILE:ID:category:filename]
+      const fileMatch = parsed.content.match(/\[FILE:(\d+):([^:]+):([^\]]+)\]/);
+      if (fileMatch) {
+        const fileId = fileMatch[1];
+        const category = fileMatch[2];
+        const filename = fileMatch[3];
+        
+        const contentDiv = document.createElement("div");
+        contentDiv.className = "message-content file-msg";
+        contentDiv.setAttribute('data-file-id', fileId);
+        
+        const usernameSpan = document.createElement("span");
+        usernameSpan.textContent = parsed.username;
+        usernameSpan.style.display = "block";
+        contentDiv.appendChild(usernameSpan);
+        
+        const loader = document.createElement("div");
+        loader.textContent = "[Loading file...]";
+        loader.classList.add("file-loading");
+        contentDiv.appendChild(loader);
+        
+        fetch(`/file/sign/${fileId}`, {
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        })
+        .then(response => response.json())
+        .then(data => {
+          loader.remove();
+          
+          const attachmentDiv = document.createElement("div");
+          attachmentDiv.className = "file-attachment";
+          
+          const icon = document.createElement("img");
+          icon.src = "/static/phasma_file.png";
+          icon.className = "file-icon";
+          icon.alt = "File";
+          attachmentDiv.appendChild(icon);
+          
+          const fileInfo = document.createElement("div");
+          fileInfo.className = "file-info";
+          
+          const fileNameSpan = document.createElement("div");
+          fileNameSpan.className = "file-name";
+          fileNameSpan.textContent = data.filename;
+          fileInfo.appendChild(fileNameSpan);
+          
+          attachmentDiv.appendChild(fileInfo);
+          
+          const downloadBtn = document.createElement("button");
+          downloadBtn.className = "file-download-btn";
+          downloadBtn.textContent = "â¬‡";
+          downloadBtn.onclick = function() {
+            window.open(data.url, '_blank');
+          };
+          attachmentDiv.appendChild(downloadBtn);
+          
+          contentDiv.appendChild(attachmentDiv);
+        })
+        .catch(err => {
+          console.error("Failed to load file:", err);
+          loader.textContent = "[Failed to load file]";
+          loader.style.color = "#f00";
+        });
+        
+        msgWrapper.appendChild(contentDiv);
+        return msgWrapper;
+      }
+      
+      // Text message
+      const mainContent = document.createElement("div");
+      mainContent.className = "message-content";
+      
+      const textDiv = document.createElement("div");
+      textDiv.className = "message-text";
+      textDiv.textContent = `${parsed.username}: ${parsed.content}`;
+      mainContent.appendChild(textDiv);
+      
+      if (parsed.urls && Object.keys(parsed.urls).length > 0) {
+        const previewsContainer = document.createElement("div");
+        previewsContainer.className = "url-previews";
+        
+        for (const [url, preview] of Object.entries(parsed.urls)) {
+          const card = createURLPreviewCard(url, preview);
+          previewsContainer.appendChild(card);
+        }
+        
+        mainContent.appendChild(previewsContainer);
+      }
+      
+      msgWrapper.appendChild(mainContent);
+      
+      return msgWrapper;
+    }
+
+    function loadHistory() {
+      if (isLoadingHistory || !hasMoreHistory) {
+        return;
+      }
+
+      isLoadingHistory = true;
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = "Loading...";
+
+      const scrollContainer = out;
+      const oldScrollHeight = scrollContainer.scrollHeight;
+      const oldScrollTop = scrollContainer.scrollTop;
+
+      const url = oldestMessageId 
+        ? `/group/${GROUP_ID}/history?before_id=${oldestMessageId}&limit=50`
+        : `/group/${GROUP_ID}/history?limit=50`;
+
+      fetch(url, {
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.messages.length === 0) {
+          hasMoreHistory = false;
+          loadMoreBtn.textContent = "No more messages";
+          setTimeout(() => {
+            loadMoreContainer.style.display = "none";
+          }, 2000);
+          return;
+        }
+
+        console.log(`[History] Loaded ${data.messages.length} messages`);
+
+        const messageElements = [];
+        data.messages.forEach(msg => {
+          if (!loadedMessageIds.has(msg.id)) {
+            loadedMessageIds.add(msg.id);
+            const msgElement = createMessageElement(msg.text);
+            messageElements.push({element: msgElement, id: msg.id});
+            
+            if (!oldestMessageId || msg.id < oldestMessageId) {
+              oldestMessageId = msg.id;
+            }
+            if (!newestMessageId || msg.id > newestMessageId) {
+              newestMessageId = msg.id;
+            }
+          }
+        });
+
+        if (initialLoadDone) {
+          for (let i = messageElements.length - 1; i >= 0; i--) {
+            messagesContainer.insertBefore(messageElements[i].element, messagesContainer.firstChild);
+          }
+        } else {
+          messageElements.forEach(item => {
+            messagesContainer.appendChild(item.element);
+          });
+        }
+
+        if (initialLoadDone) {
+          requestAnimationFrame(() => {
+            const newScrollHeight = scrollContainer.scrollHeight;
+            scrollContainer.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
+          });
+        }
+
+        hasMoreHistory = data.has_more;
+        
+        if (!hasMoreHistory) {
+          loadMoreBtn.textContent = "No more messages";
+          setTimeout(() => {
+            loadMoreContainer.style.display = "none";
+          }, 2000);
+        } else {
+          loadMoreBtn.textContent = "â†‘ Load older messages";
+        }
+
+        if (!initialLoadDone) {
+          initialLoadDone = true;
+          console.log("[Init] First history load complete. Scrolling to bottom...");
+          
+          requestAnimationFrame(() => {
+            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+            
+            if (!sseStarted) {
+              sseStarted = true;
+              console.log("[Init] Starting SSE...");
+              startSSE();
+            }
+          });
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load history:", err);
+        loadMoreBtn.textContent = "âš  Error - try again";
+        hasMoreHistory = true;
+      })
+      .finally(() => {
+        isLoadingHistory = false;
+        loadMoreBtn.disabled = false;
+      });
+    }
+
+    out.addEventListener('scroll', () => {
+      if (out.scrollTop < 100 && hasMoreHistory && !isLoadingHistory) {
+        loadMoreContainer.style.display = "block";
+      } else if (out.scrollTop > 200) {
+        loadMoreContainer.style.display = "none";
+      }
+    });
+
+    loadMoreBtn.addEventListener('click', loadHistory);
+
+    function startSSE() {
+      console.log("[SSE] Connecting to event stream...");
+      
+      fetch(`/group/${GROUP_ID}/stream`, {
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+      }).then(response => {
+        console.log("[SSE] Connected successfully");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        function read() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              console.log("[SSE] Stream closed");
+              return;
+            }
+            
+            const text = decoder.decode(value, { stream: true });
+            const lines = text.split('\n');
+            
+            lines.forEach(line => {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (!data) return;
+                
+                console.log("[SSE] New message:", data.substring(0, 50) + "...");
+                
+                const msgElement = createMessageElement(data);
+                messagesContainer.appendChild(msgElement);
+                
+                const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
+                if (isNearBottom) {
+                  requestAnimationFrame(() => {
+                    out.scrollTop = out.scrollHeight;
+                  });
+                }
+              }
+            });
+            read();
+          });
+        }
+        read();
+      }).catch(err => {
+        console.error("[SSE] Failed to connect:", err);
+      });
+    }
+
+    console.log("[Init] Loading initial history...");
+    loadHistory();
+
+    // ===== Message sending =====
+    document.getElementById("in").addEventListener('keyup', function (e) {
+      if (e.keyCode === 13) {
+        const text = this.value;
+        if (!text.trim()) return;
+        
+        $.ajax({
+          url: `/group/${GROUP_ID}/post`,
+          type: "POST",
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+          data: { message: text },
+          success: function() {
+            // Message sent successfully
+          },
+          error: function(xhr) {
+            if (xhr.status === 429) {
+              try {
+                const response = JSON.parse(xhr.responseText);
+                alert(response.message || "You are sending requests too quickly. Please try again later.");
+              } catch(e) {
+                alert("You are sending requests too quickly. Please try again later.");
+              }
+            } else if (xhr.status === 401) {
+              alert("Session expired. Please login again.");
+              window.location.href = "/login";
+            } else if (xhr.status === 400) {
+              try {
+                const response = JSON.parse(xhr.responseText);
+                if (response.error === "Message too long") {
+                  alert(`Message too long! Maximum length is ${response.max_length} characters.`);
+                }
+              } catch(e) {
+                alert("Invalid request.");
+              }
+            }
+          }
+        });
+        this.value = "";
+      }
+    });
+
+    // ===== File upload =====
+    document.getElementById("upload-btn").addEventListener('click', function () {
+      document.getElementById("file-input").click();
+    });
+
+    document.getElementById("file-input").addEventListener('change', function () {
+      const file = this.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      $.ajax({
+        url: `/group/${GROUP_ID}/upload`,
+        type: "POST",
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function (response) {
+          console.log("File uploaded:", response);
+          document.getElementById("file-input").value = "";
+        },
+        error: function (xhr) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            alert("Upload failed: " + (response.message || xhr.responseText));
+          } catch(e) {
+            alert("Upload failed: " + xhr.responseText);
+          }
+          document.getElementById("file-input").value = "";
+        }
+      });
+    });
+
+    // ===== Leave group =====
+    document.getElementById("leave-btn").addEventListener('click', function() {
+      if (confirm("Are you sure you want to leave this group?")) {
+        fetch(`/api/groups/${GROUP_ID}/leave`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        }).then(response => {
+          if (response.ok) {
+            alert("You have left the group.");
+            window.location.href = "/groups";
+          } else {
+            alert("Failed to leave group.");
+          }
+        }).catch(err => {
+          console.error("Leave group error:", err);
+          alert("An error occurred.");
+        });
+      }
+    });
+
+    window.addEventListener('beforeunload', function () {
+      fetch('/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        keepalive: true
+      });
+    });
+  </script>
+</body>
+</html>

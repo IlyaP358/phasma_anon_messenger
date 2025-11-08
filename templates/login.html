@@ -1,13 +1,13 @@
-<!doctype html>            
-<title>Login</title>       
+<!doctype html>
+<title>Login</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   body {
-    max-width: 500px;      
-    margin-top: 90px;      
-    margin-left: 700px;    
-    padding: 1em;          
-    background: black;     
+    max-width: 500px;
+    margin-top: 90px;
+    margin-left: 700px;
+    padding: 1em;
+    background: black;
     color: #fff;
     font: 16px/1.6 menlo, monospace;
   }
@@ -21,16 +21,90 @@
     height: auto;
     z-index: -1;
   }
+  
+  .error {
+    color: #f00;
+    background: rgba(255, 0, 0, 0.1);
+    border: 1px solid #f00;
+    padding: 0.8em;
+    margin: 1em 0;
+    border-radius: 2px;
+  }
 </style>
 <body>
   <div>
     <img src="/static/phisma_title.png" alt="kartinka ERROR" class="logo">
   </div>
-  <h2>Enter the chat</h2>  
-  <form action="" method="post">  
-    <p>Username: <input name="user" required /></p>
-    <p>Password: <input type="password" name="password" required /></p>
+  <h2>Enter the chat</h2>
+  
+  <div id="error-msg"></div>
+  
+  <form id="login-form" method="POST" action="/login">
+    <p>Username: <input name="user" id="username" required autocomplete="username" /></p>
+    <p>Password: <input type="password" name="password" id="password" required autocomplete="current-password" /></p>
     <p><input type="submit" value="Log in" /></p>
   </form>
   <p>Don't have an account? <a href="/register">Register</a></p>
+
+  <script nonce="{{ nonce }}">
+    // Очищаем старые токены при загрузке страницы логина
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('username');
+    
+    document.getElementById('login-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const errorDiv = document.getElementById('error-msg');
+      
+      errorDiv.innerHTML = '';
+      
+      const formData = new URLSearchParams();
+      formData.append('user', username);
+      formData.append('password', password);
+      
+      fetch('/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString()
+      })
+      .then(response => {
+        if (!response.ok) {
+          return response.text().then(text => {
+            throw new Error(text);
+          });
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (data.success && data.auth_token) {
+          const token = data.auth_token;
+          const user = data.username;
+          
+          // Сохраняем в localStorage
+          localStorage.setItem('auth_token', token);
+          localStorage.setItem('username', user);
+          
+          console.log('[OK] Login successful. Token saved.');
+          
+          // Очищаем форму
+          document.getElementById('username').value = '';
+          document.getElementById('password').value = '';
+          
+          // Редирект на /groups
+          window.location.href = '/groups';
+        } else {
+          throw new Error('Invalid response from server');
+        }
+      })
+      .catch(error => {
+        console.error('[ERROR] Login failed:', error);
+        errorDiv.innerHTML = '<div class="error">' + error.message + '</div>';
+      });
+    });
+  </script>
 </body>
+</html>

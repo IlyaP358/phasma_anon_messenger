@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="UTF-8">
+  <title>Groups - phasma</title>
+  <link rel="icon" type="image/png" href="/static/icon.png">
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <style>
+    body {
+      max-width: 600px;
+      margin: auto;
+      padding: 2em;
+      background: black;
+      color: #fff;
+      font: 14px/1.6 menlo, monospace;
+      min-height: 100vh;
+    }
+
+    h1 {
+      color: #0f0;
+      font-size: 24px;
+      margin-bottom: 1em;
+      border-bottom: 1px solid #0f0;
+      padding-bottom: 0.5em;
+    }
+
+    .section {
+      margin-bottom: 2em;
+      background: #111;
+      border: 1px solid #333;
+      padding: 1.5em;
+      border-radius: 4px;
+    }
+
+    .section h2 {
+      color: #0ff;
+      font-size: 16px;
+      margin-top: 0;
+      margin-bottom: 1em;
+      border-bottom: 1px solid #0ff;
+      padding-bottom: 0.5em;
+    }
+
+    .group-item {
+      background: #0a1a0a;
+      border-left: 3px solid #0f0;
+      padding: 1em;
+      margin-bottom: 0.8em;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .group-item:hover {
+      background: #0d2a0d;
+      border-left-color: #0f0;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+    }
+
+    .group-name {
+      color: #0f0;
+      font-weight: bold;
+      font-size: 15px;
+      margin-bottom: 0.3em;
+    }
+
+    .group-code {
+      color: #888;
+      font-size: 12px;
+      margin-bottom: 0.3em;
+    }
+
+    .group-info {
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 0.5em;
+    }
+
+    .group-buttons {
+      display: flex;
+      gap: 0.5em;
+      margin-top: 0.7em;
+    }
+
+    .btn {
+      padding: 0.4em 0.8em;
+      font-size: 12px;
+      border: 1px solid #0f0;
+      background: transparent;
+      color: #0f0;
+      cursor: pointer;
+      transition: all 0.2s;
+      font: inherit;
+    }
+
+    .btn:hover {
+      background: #0f0;
+      color: #000;
+    }
+
+    .btn-danger {
+      border-color: #f00;
+      color: #f00;
+    }
+
+    .btn-danger:hover {
+      background: #f00;
+      color: #fff;
+    }
+
+    .form-group {
+      margin-bottom: 1em;
+    }
+
+    label {
+      display: block;
+      color: #0ff;
+      font-size: 12px;
+      margin-bottom: 0.3em;
+      font-weight: bold;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="number"] {
+      width: 100%;
+      padding: 0.7em;
+      background: #222;
+      border: 1px solid #333;
+      color: #fff;
+      font-size: 14px;
+      font: inherit;
+      box-sizing: border-box;
+      margin-bottom: 0.5em;
+    }
+
+    input[type="text"]:focus,
+    input[type="password"]:focus,
+    input[type="number"]:focus {
+      outline: none;
+      border-color: #0ff;
+      box-shadow: 0 0 5px rgba(0, 255, 255, 0.3);
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 0.8em;
+      margin-top: 1.5em;
+    }
+
+    .btn-primary {
+      flex: 1;
+      background: #0f0;
+      color: #000;
+      border-color: #0f0;
+      font-weight: bold;
+    }
+
+    .btn-primary:hover {
+      background: #0d0;
+    }
+
+    .btn-secondary {
+      flex: 1;
+      background: transparent;
+      color: #0ff;
+      border-color: #0ff;
+    }
+
+    .btn-secondary:hover {
+      background: #0ff;
+      color: #000;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+    }
+
+    .modal.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-content {
+      background: #111;
+      border: 2px solid #0ff;
+      padding: 2em;
+      max-width: 400px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      border-radius: 4px;
+    }
+
+    .modal-header {
+      color: #0ff;
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 1.5em;
+      border-bottom: 1px solid #0ff;
+      padding-bottom: 0.8em;
+    }
+
+    .modal-close {
+      float: right;
+      color: #0ff;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+      line-height: 1;
+      border: none;
+      background: none;
+      padding: 0;
+    }
+
+    .modal-close:hover {
+      color: #f00;
+    }
+
+    .error {
+      color: #f00;
+      background: rgba(255, 0, 0, 0.1);
+      border: 1px solid #f00;
+      padding: 0.8em;
+      margin-bottom: 1em;
+      border-radius: 2px;
+      font-size: 13px;
+    }
+
+    .success {
+      color: #0f0;
+      background: rgba(0, 255, 0, 0.1);
+      border: 1px solid #0f0;
+      padding: 0.8em;
+      margin-bottom: 1em;
+      border-radius: 2px;
+      font-size: 13px;
+    }
+
+    .loading {
+      color: #888;
+      font-style: italic;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #666;
+      padding: 2em;
+      font-style: italic;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 0.8em;
+      margin-bottom: 1.5em;
+    }
+
+    .header-actions button {
+      flex: 1;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 1em;
+      }
+
+      .section {
+        padding: 1em;
+      }
+
+      .form-group {
+        margin-bottom: 0.8em;
+      }
+
+      .group-item {
+        padding: 0.8em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>💬 phasma groups</h1>
+
+  <div class="header-actions">
+    <button class="btn btn-primary" id="btn-create">+ Create Group</button>
+    <button class="btn btn-secondary" id="btn-join">Join Group</button>
+    <button class="btn btn-secondary" id="btn-logout">Logout</button>
+  </div>
+
+  <div class="section">
+    <h2>Your Groups</h2>
+    <div id="groups-list"></div>
+  </div>
+
+  <!-- Create Group Modal -->
+  <div id="create-modal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" id="close-create">&times;</button>
+      <div class="modal-header">Create New Group</div>
+      
+      <div id="create-error"></div>
+      
+      <div class="form-group">
+        <label>Group Name</label>
+        <input type="text" id="create-name" placeholder="e.g., Secret Chat" maxlength="50" />
+        <div style="color: #666; font-size: 11px;">3-50 characters</div>
+      </div>
+
+      <div class="form-group">
+        <label>Password (to join)</label>
+        <input type="password" id="create-password" placeholder="Enter password" maxlength="128" />
+        <div style="color: #666; font-size: 11px;">8-128 characters</div>
+      </div>
+
+      <div class="form-group">
+        <label>Root Password (for deletion)</label>
+        <input type="password" id="create-root-password" placeholder="Enter root password" maxlength="128" />
+        <div style="color: #666; font-size: 11px;">8-128 characters, must be different from password</div>
+      </div>
+
+      <div class="form-group">
+        <label>Max Members</label>
+        <input type="number" id="create-max-members" value="100" min="2" max="1000" />
+        <div style="color: #666; font-size: 11px;">2-1000 members</div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" id="btn-submit-create">Create</button>
+        <button class="btn btn-secondary" id="btn-cancel-create">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Join Group Modal -->
+  <div id="join-modal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" id="close-join">&times;</button>
+      <div class="modal-header">Join Group</div>
+      
+      <div id="join-error"></div>
+
+      <div class="form-group">
+        <label>Group Code</label>
+        <input type="text" id="join-code" placeholder="e.g., ABC123XY" maxlength="8" style="text-transform: uppercase;" />
+        <div style="color: #666; font-size: 11px;">8 character code (e.g., Secret#ABC123XY)</div>
+      </div>
+
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="join-password" placeholder="Enter group password" />
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" id="btn-submit-join">Join</button>
+        <button class="btn btn-secondary" id="btn-cancel-join">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script nonce="{{ nonce }}">
+    const USER = {{ user|tojson }};
+    
+    // КЛЮЧЕВОЙ МОМЕНТ: токен передается из Python шаблона
+    let AUTH_TOKEN = null;
+    
+    {% if auth_token %}
+      // После логина: берем токен из переменной шаблона
+      AUTH_TOKEN = {{ auth_token|tojson }};
+      localStorage.setItem('auth_token', AUTH_TOKEN);
+      localStorage.setItem('username', USER);
+      console.log('[OK] Token saved from login: ' + AUTH_TOKEN.substring(0, 20) + '...');
+    {% else %}
+      // На странице /groups без логина: берем из localStorage
+      AUTH_TOKEN = localStorage.getItem('auth_token');
+      console.log('[OK] Token from localStorage');
+    {% endif %}
+    
+    if (!AUTH_TOKEN) {
+      console.error('[ERROR] No auth token found');
+      window.location.href = '/login';
+    }
+
+    // ===== Modal Controls =====
+    const createModal = document.getElementById('create-modal');
+    const joinModal = document.getElementById('join-modal');
+
+    document.getElementById('btn-create').addEventListener('click', () => {
+      createModal.classList.add('active');
+      document.getElementById('create-error').innerHTML = '';
+      document.getElementById('create-name').value = '';
+      document.getElementById('create-password').value = '';
+      document.getElementById('create-root-password').value = '';
+      document.getElementById('create-max-members').value = '100';
+    });
+
+    document.getElementById('close-create').addEventListener('click', () => {
+      createModal.classList.remove('active');
+    });
+
+    document.getElementById('btn-cancel-create').addEventListener('click', () => {
+      createModal.classList.remove('active');
+    });
+
+    document.getElementById('btn-join').addEventListener('click', () => {
+      joinModal.classList.add('active');
+      document.getElementById('join-error').innerHTML = '';
+      document.getElementById('join-code').value = '';
+      document.getElementById('join-password').value = '';
+    });
+
+    document.getElementById('close-join').addEventListener('click', () => {
+      joinModal.classList.remove('active');
+    });
+
+    document.getElementById('btn-cancel-join').addEventListener('click', () => {
+      joinModal.classList.remove('active');
+    });
+
+    // Close modals on outside click
+    createModal.addEventListener('click', (e) => {
+      if (e.target === createModal) createModal.classList.remove('active');
+    });
+
+    joinModal.addEventListener('click', (e) => {
+      if (e.target === joinModal) joinModal.classList.remove('active');
+    });
+
+    // ===== Create Group =====
+    document.getElementById('btn-submit-create').addEventListener('click', createGroup);
+
+    function createGroup() {
+      const name = document.getElementById('create-name').value.trim();
+      const password = document.getElementById('create-password').value;
+      const rootPassword = document.getElementById('create-root-password').value;
+      const maxMembers = parseInt(document.getElementById('create-max-members').value);
+
+      const errorDiv = document.getElementById('create-error');
+      errorDiv.innerHTML = '';
+
+      // Validation
+      if (!name || name.length < 3 || name.length > 50) {
+        errorDiv.innerHTML = '<div class="error">Group name must be 3-50 characters</div>';
+        return;
+      }
+
+      if (!password || password.length < 8 || password.length > 128) {
+        errorDiv.innerHTML = '<div class="error">Password must be 8-128 characters</div>';
+        return;
+      }
+
+      if (!rootPassword || rootPassword.length < 8 || rootPassword.length > 128) {
+        errorDiv.innerHTML = '<div class="error">Root password must be 8-128 characters</div>';
+        return;
+      }
+
+      if (password === rootPassword) {
+        errorDiv.innerHTML = '<div class="error">Passwords cannot be the same</div>';
+        return;
+      }
+
+      if (isNaN(maxMembers) || maxMembers < 2 || maxMembers > 1000) {
+        errorDiv.innerHTML = '<div class="error">Max members must be 2-1000</div>';
+        return;
+      }
+
+      errorDiv.innerHTML = '<div class="loading">Creating group...</div>';
+
+      $.ajax({
+        url: '/api/groups/create',
+        type: 'POST',
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        contentType: 'application/json',
+        data: JSON.stringify({
+          name: name,
+          password: password,
+          root_password: rootPassword,
+          max_members: maxMembers
+        }),
+        success: function(response) {
+          errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
+          setTimeout(() => {
+            createModal.classList.remove('active');
+            loadGroups();
+          }, 1000);
+        },
+        error: function(xhr) {
+          if (xhr.status === 401) {
+            alert('Session expired. Please login again.');
+            localStorage.removeItem('auth_token');
+            window.location.href = '/login';
+            return;
+          }
+          try {
+            const response = JSON.parse(xhr.responseText);
+            errorDiv.innerHTML = '<div class="error">✗ ' + response.error + '</div>';
+          } catch (e) {
+            errorDiv.innerHTML = '<div class="error">✗ Failed to create group</div>';
+          }
+        }
+      });
+    }
+
+    // ===== Join Group =====
+    document.getElementById('btn-submit-join').addEventListener('click', joinGroup);
+
+    function joinGroup() {
+      const code = document.getElementById('join-code').value.trim().toUpperCase();
+      const password = document.getElementById('join-password').value;
+
+      const errorDiv = document.getElementById('join-error');
+      errorDiv.innerHTML = '';
+
+      if (!code || code.length !== 8) {
+        errorDiv.innerHTML = '<div class="error">Invalid group code format (must be 8 characters)</div>';
+        return;
+      }
+
+      if (!password) {
+        errorDiv.innerHTML = '<div class="error">Password required</div>';
+        return;
+      }
+
+      errorDiv.innerHTML = '<div class="loading">Joining group...</div>';
+
+      $.ajax({
+        url: '/api/groups/join',
+        type: 'POST',
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        contentType: 'application/json',
+        data: JSON.stringify({
+          group_code: code,
+          password: password
+        }),
+        success: function(response) {
+          errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
+          
+          if (response.session_token) {
+            localStorage.setItem(`group_token_${response.group_id}`, response.session_token);
+          }
+          
+          setTimeout(() => {
+            joinModal.classList.remove('active');
+            loadGroups();
+          }, 1000);
+        },
+        error: function(xhr) {
+          if (xhr.status === 401) {
+            alert('Session expired. Please login again.');
+            localStorage.removeItem('auth_token');
+            window.location.href = '/login';
+            return;
+          }
+          try {
+            const response = JSON.parse(xhr.responseText);
+            errorDiv.innerHTML = '<div class="error">✗ ' + response.error + '</div>';
+          } catch (e) {
+            errorDiv.innerHTML = '<div class="error">✗ Failed to join group</div>';
+          }
+        }
+      });
+    }
+
+    // ===== Load & Render Groups =====
+    function loadGroups() {
+      $.ajax({
+        url: '/api/groups/list',
+        type: 'GET',
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        success: function(response) {
+          renderGroups(response.groups);
+        },
+        error: function(xhr) {
+          if (xhr.status === 401) {
+            alert('Session expired. Please login again.');
+            localStorage.removeItem('auth_token');
+            window.location.href = '/login';
+          }
+        }
+      });
+    }
+
+    function renderGroups(groups) {
+      const list = document.getElementById('groups-list');
+      
+      if (!groups || groups.length === 0) {
+        list.innerHTML = '<div class="empty-state">No groups yet. Create or join one!</div>';
+        return;
+      }
+
+      let html = '';
+      groups.forEach(group => {
+        const isCreator = group.role === 'creator';
+        
+        html += `
+          <div class="group-item">
+            <div class="group-name">${escapeHtml(group.name)}</div>
+            <div class="group-code">#${group.code}</div>
+            <div class="group-info">
+              👤 ${isCreator ? '(Creator)' : '(Member)'} 
+              · Joined: ${new Date(group.joined_at * 1000).toLocaleDateString()}
+            </div>
+            <div class="group-buttons">
+              <button class="btn btn-enter" data-group-id="${group.id}">Enter</button>
+              ${isCreator ? `<button class="btn btn-danger btn-delete" data-group-id="${group.id}">Delete</button>` : ''}
+            </div>
+          </div>
+        `;
+      });
+
+      list.innerHTML = html;
+
+      // Add event listeners
+      document.querySelectorAll('.btn-enter').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const groupId = btn.getAttribute('data-group-id');
+          enterGroup(groupId);
+        });
+      });
+
+      document.querySelectorAll('.btn-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const groupId = btn.getAttribute('data-group-id');
+          deleteGroup(groupId);
+        });
+      });
+    }
+
+    function enterGroup(groupId) {
+      const groupToken = localStorage.getItem(`group_token_${groupId}`) || AUTH_TOKEN;
+      localStorage.setItem('current_group_token', groupToken);
+      localStorage.setItem('current_group_id', groupId);
+      window.location.href = `/group/${groupId}/chat`;
+    }
+
+    function deleteGroup(groupId) {
+      const rootPassword = prompt('Enter root password to delete this group:');
+      if (!rootPassword) return;
+
+      $.ajax({
+        url: `/api/groups/${groupId}/delete`,
+        type: 'POST',
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        contentType: 'application/json',
+        data: JSON.stringify({
+          root_password: rootPassword
+        }),
+        success: function(response) {
+          alert('✓ ' + response.message);
+          loadGroups();
+        },
+        error: function(xhr) {
+          if (xhr.status === 401) {
+            alert('Session expired. Please login again.');
+            localStorage.removeItem('auth_token');
+            window.location.href = '/login';
+            return;
+          }
+          try {
+            const response = JSON.parse(xhr.responseText);
+            alert('✗ ' + response.error);
+          } catch (e) {
+            alert('✗ Failed to delete group');
+          }
+        }
+      });
+    }
+
+    // ===== Logout =====
+    document.getElementById('btn-logout').addEventListener('click', logout);
+
+    function logout() {
+      $.ajax({
+        url: '/logout',
+        type: 'POST',
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        complete: function() {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('username');
+          localStorage.removeItem('current_group_token');
+          localStorage.removeItem('current_group_id');
+          
+          Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('group_token_')) {
+              localStorage.removeItem(key);
+            }
+          });
+          
+          window.location.href = '/login';
+        }
+      });
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ===== Escape key to close modals =====
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        createModal.classList.remove('active');
+        joinModal.classList.remove('active');
+      }
+    });
+
+    console.log('[Init] Loading groups...');
+    loadGroups();
+    setInterval(loadGroups, 10000);
+  </script>
+</body>
+</html>
