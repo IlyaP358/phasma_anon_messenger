@@ -533,7 +533,8 @@
           errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
           
           if (response.session_token) {
-            localStorage.setItem(`group_token_${response.group_id}`, response.session_token);
+            localStorage.setItem(`group_session_${response.group_id}`, response.session_token);
+            console.log('[Groups] Saved session token for group', response.group_id);
           }
           
           setTimeout(() => {
@@ -624,9 +625,21 @@
     }
 
     function enterGroup(groupId) {
-      const groupToken = localStorage.getItem(`group_token_${groupId}`) || AUTH_TOKEN;
-      localStorage.setItem('current_group_token', groupToken);
+      // Попытаемся получить токен сессии группы из localStorage (если есть)
+      const groupToken = localStorage.getItem(`group_session_${groupId}`);
+      
+      console.log('[Groups] Entering group', groupId);
+      console.log('[Groups] Group session token:', groupToken ? groupToken.substring(0, 20) + '...' : 'NOT FOUND');
+      
+      // Сохраняем текущий ID группы
       localStorage.setItem('current_group_id', groupId);
+      
+      // Используем токен если есть, иначе будет создан новый в /group/<id>/chat
+      if (groupToken) {
+        localStorage.setItem('current_group_token', groupToken);
+        console.log('[Groups] Using existing session token');
+      }
+      
       window.location.href = `/group/${groupId}/chat`;
     }
 
@@ -677,7 +690,7 @@
           localStorage.removeItem('current_group_id');
           
           Object.keys(localStorage).forEach(key => {
-            if (key.startsWith('group_token_')) {
+            if (key.startsWith('group_token_') || key.startsWith('group_session_')) {
               localStorage.removeItem(key);
             }
           });
