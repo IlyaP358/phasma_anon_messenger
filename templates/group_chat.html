@@ -16,6 +16,29 @@
       flex-direction: column;
       height: 100vh;
     }
+    
+    .chat-header {
+      background: #0a1a0a;
+      border-bottom: 1px solid #0f0;
+      padding: 1em;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .chat-header-left h3 {
+      margin: 0;
+      color: #0f0;
+      font-size: 16px;
+    }
+    
+    .chat-user-badge {
+      font-size: 12px;
+      color: #0ff;
+      margin-top: 0.3em;
+      text-transform: uppercase;
+    }
+    
     #out {
       flex: 1;
       display: flex;
@@ -25,10 +48,12 @@
       white-space: pre-wrap;
       position: relative;
     }
+    
     #messages-container {
       display: flex;
       flex-direction: column;
     }
+    
     #load-more-container {
       text-align: center;
       padding: 0.5em;
@@ -39,6 +64,7 @@
       top: -20px;
       z-index: 100;
     }
+    
     #load-more-btn {
       background: #222;
       color: #0f0;
@@ -48,21 +74,25 @@
       cursor: pointer;
       transition: all 0.2s;
     }
+    
     #load-more-btn:hover {
       background: #0f0;
       color: #000;
     }
+    
     #load-more-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
       color: #888;
       border-color: #888;
     }
+    
     #input-container {
       padding: 1em;
       border-top: 1px solid #333;
       background: #111;
     }
+    
     input[type="text"] {
       width: 95%;
       padding: 0.5em;
@@ -72,6 +102,7 @@
       border: none;
       outline: none;
     }
+    
     #upload-btn {
       width: 48%;
       margin-top: 0.5em;
@@ -82,9 +113,11 @@
       font: inherit;
       cursor: pointer;
     }
+    
     #upload-btn:hover {
       background: #333;
     }
+    
     #leave-btn {
       width: 48%;
       margin-top: 0.5em;
@@ -95,35 +128,43 @@
       font: inherit;
       cursor: pointer;
     }
+    
     #leave-btn:hover {
       background: #a00;
     }
+    
     #file-input {
       display: none;
     }
+    
     .message {
       margin-bottom: 0.5em;
     }
+    
     .message-header {
       font-size: 11px;
       color: #888;
       margin-bottom: 2px;
     }
+    
     .message-content {
       color: #fff;
       white-space: normal;
       word-wrap: break-word;
     }
+    
     .message-text {
       color: #fff;
       margin-bottom: 0.5em;
     }
+    
     .url-previews {
       display: flex;
       flex-direction: column;
       gap: 0.5em;
       margin-top: 0.5em;
     }
+    
     .url-preview-card {
       border: 1px solid #0ff;
       border-left: 3px solid #0ff;
@@ -132,10 +173,12 @@
       transition: all 0.2s;
       cursor: pointer;
     }
+    
     .url-preview-card:hover {
       background: #0d2a2a;
       border-left-color: #0ff;
     }
+    
     .url-preview-service {
       font-size: 12px;
       color: #0ff;
@@ -143,6 +186,7 @@
       font-weight: bold;
       margin-bottom: 0.3em;
     }
+    
     .url-preview-url {
       font-size: 12px;
       color: #0ff;
@@ -151,17 +195,20 @@
       text-decoration: none;
       display: block;
     }
+    
     .url-preview-title {
       font-size: 14px;
       color: #aaa;
       margin-bottom: 0.3em;
       font-weight: bold;
     }
+    
     .url-preview-description {
       font-size: 12px;
       color: #888;
       margin-bottom: 0.5em;
     }
+    
     .url-preview-thumbnail {
       max-width: 100%;
       max-height: 200px;
@@ -169,9 +216,11 @@
       border: 1px solid #0ff;
       margin-bottom: 0.3em;
     }
+    
     .photo-msg {
       color: #0f0;
     }
+    
     .photo-msg img {
       max-width: 300px;
       margin-top: 0.5em;
@@ -179,10 +228,12 @@
       cursor: pointer;
       display: block;
     }
+    
     .file-msg {
       color: #0ff;
       margin-top: 0.5em;
     }
+    
     .file-attachment {
       display: flex;
       align-items: center;
@@ -193,20 +244,24 @@
       margin-top: 0.3em;
       position: relative;
     }
+    
     .file-icon {
       width: 32px;
       height: 32px;
       flex-shrink: 0;
     }
+    
     .file-info {
       flex: 1;
       min-width: 0;
     }
+    
     .file-name {
       color: #0ff;
       word-break: break-all;
       font-size: 14px;
     }
+    
     .file-download-btn {
       position: absolute;
       top: 4px;
@@ -219,9 +274,11 @@
       cursor: pointer;
       font-weight: bold;
     }
+    
     .file-download-btn:hover {
       background: #0aa;
     }
+    
     .file-loading, .photo-loading {
       color: #888;
       font-style: italic;
@@ -229,6 +286,13 @@
   </style>
 </head>
 <body>
+  <div class="chat-header">
+    <div class="chat-header-left">
+      <h3 id="group-name">Loading...</h3>
+      <div class="chat-user-badge">👤 <span id="chat-user">...</span></div>
+    </div>
+  </div>
+
   <div id="out">
     <div id="load-more-container">
       <button id="load-more-btn">↓ Load older messages</button>
@@ -237,7 +301,7 @@
   </div>
 
   <div id="input-container">
-    <b>Hi, {{ user }}!</b><br>
+    <b>Sending as: <span id="input-user">...</span></b><br>
     Message: <input type="text" id="in" autocomplete="off" />
     <button id="upload-btn">+ upload file</button>
     <button id="leave-btn">← Leave Group</button>
@@ -246,46 +310,101 @@
   </div>
 
   <script nonce="{{ nonce }}">
-    const USER = {{ user|tojson }};
     const GROUP_ID = {{ group_id|tojson }};
+    const TEMPLATE_USER = {{ user|tojson }};
+    const TEMPLATE_GROUP_TOKEN = {{ auth_token|tojson }};  // ← НОВОЕ
     
-    console.log('[Init] Group chat loaded. User:', USER, 'Group ID:', GROUP_ID);
+    let AUTH_TOKEN = null;
+    let CURRENT_USER = null;
+    let GROUP_SESSION_TOKEN = null;
     
-    // Получаем токен сессии группы - он передается через Flask в переменной auth_token
-    let GROUP_SESSION_TOKEN = {{ auth_token|tojson }};
+    console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
+    console.log('[Init] Template user:', TEMPLATE_USER);
+    console.log('[Init] Template group token:', TEMPLATE_GROUP_TOKEN ? TEMPLATE_GROUP_TOKEN.substring(0, 20) + '...' : 'NONE');  // ← НОВОЕ
     
-    console.log('[Init] GROUP_SESSION_TOKEN from template:', GROUP_SESSION_TOKEN ? GROUP_SESSION_TOKEN.substring(0, 20) + '...' : 'NULL');
-    
-    // Если токен передан через шаблон, сохраняем его
-    if (GROUP_SESSION_TOKEN) {
-      localStorage.setItem(`group_session_${GROUP_ID}`, GROUP_SESSION_TOKEN);
-      console.log('[Init] Saved group session token to localStorage');
-    } else {
-      // Пытаемся получить из localStorage
-      GROUP_SESSION_TOKEN = localStorage.getItem(`group_session_${GROUP_ID}`);
-      console.log('[Init] Retrieved from localStorage:', GROUP_SESSION_TOKEN ? GROUP_SESSION_TOKEN.substring(0, 20) + '...' : 'NULL');
+    // ========== ИНИЦИАЛИЗАЦИЯ ==========
+    function initChat() {
+      console.log('[Auth] Initializing chat authentication...');
+      
+      // Получаем токен и пользователя
+      AUTH_TOKEN = localStorage.getItem('auth_token');
+      CURRENT_USER = localStorage.getItem('username');
+      
+      console.log('[Auth] Auth token:', AUTH_TOKEN ? AUTH_TOKEN.substring(0, 20) + '...' : 'NONE');
+      console.log('[Auth] Current user:', CURRENT_USER);
+      
+      // Критическая проверка: убеждаемся, что это правильный пользователь
+      if (!AUTH_TOKEN || !CURRENT_USER) {
+        console.error('[Security] No auth token or username in localStorage');
+        alert('Session lost. Please login again.');
+        window.location.href = '/login';
+        return false;
+      }
+      
+      // Проверяем, что пользователь совпадает с шаблоном (это то, что сервер прислал)
+      if (TEMPLATE_USER && TEMPLATE_USER !== CURRENT_USER) {
+        console.error('[Security] Template user mismatch!');
+        console.error('[Security] Template:', TEMPLATE_USER, 'Current:', CURRENT_USER);
+        alert('SECURITY ERROR: User verification failed. Logging you out.');
+        logout();
+        return false;
+      }
+      
+      // ИСПРАВЛЕНИЕ: Используем токен, переданный сервером в шаблоне
+      if (TEMPLATE_GROUP_TOKEN) {
+        console.log('[Auth] Using group token from template');
+        GROUP_SESSION_TOKEN = TEMPLATE_GROUP_TOKEN;
+        localStorage.setItem(`group_session_${GROUP_ID}`, GROUP_SESSION_TOKEN);
+        console.log('[Auth] Group session token saved from template');
+      } else {
+        // Fallback на старый механизм если токена нет в шаблоне
+        console.log('[Auth] No token in template, trying localStorage...');
+        GROUP_SESSION_TOKEN = localStorage.getItem(`group_session_${GROUP_ID}`) ||
+                             localStorage.getItem('current_group_token') ||
+                             localStorage.getItem(`group_token_${GROUP_ID}`);
+        
+        if (!GROUP_SESSION_TOKEN) {
+          console.log('[Auth] No group session token found. Requesting from server...');
+          return requestGroupSession();
+        }
+      }
+      
+      console.log('[Auth] Group session token ready:', GROUP_SESSION_TOKEN.substring(0, 20) + '...');
+      setupChat();
+      return true;
     }
-    
-    // Если все еще нет - используем старый механизм (для обратной совместимости)
-    if (!GROUP_SESSION_TOKEN) {
-      GROUP_SESSION_TOKEN = localStorage.getItem('current_group_token') ||
-                           localStorage.getItem(`group_token_${GROUP_ID}`) ||
-                           localStorage.getItem('auth_token');
-      console.log('[Init] Fallback token:', GROUP_SESSION_TOKEN ? GROUP_SESSION_TOKEN.substring(0, 20) + '...' : 'NULL');
+
+    function setupChat() {
+      console.log('[Setup] Setting up chat interface...');
+      
+      // Обновляем интерфейс
+      document.getElementById('chat-user').textContent = CURRENT_USER;
+      document.getElementById('input-user').textContent = CURRENT_USER;
+      document.getElementById('group-name').textContent = 'Group #' + GROUP_ID;
+      
+      console.log('[Setup] Chat interface ready');
     }
-    
-    if (!GROUP_SESSION_TOKEN) {
-      console.error('[ERROR] No session token found!');
-      alert('Session lost. Please login again.');
+
+    function handleSessionExpired() {
+      console.error('[Session] Session expired');
+      alert('Your session has expired. Please login again.');
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('username');
+      localStorage.removeItem(`group_session_${GROUP_ID}`);
       window.location.href = '/login';
     }
 
-    try {
-      history.replaceState(null, '', `/group/${GROUP_ID}/chat`);
-    } catch (e) {
-      // ignore
+    function getCurrentUser() {
+      const stored = localStorage.getItem('username');
+      if (!stored || stored !== CURRENT_USER) {
+        console.error('[Security] User mismatch detected');
+        handleSessionExpired();
+        return null;
+      }
+      return CURRENT_USER;
     }
 
+    // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С СООБЩЕНИЯМИ ==========
     function formatLocalTime(timestamp) {
       try {
         const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
@@ -345,31 +464,52 @@
     const loadMoreBtn = document.getElementById("load-more-btn");
     const loadMoreContainer = document.getElementById("load-more-container");
 
+    // ========== УПРАВЛЕНИЕ СЕССИЕЙ ==========
+    let sessionCheckFailed = 0;
+    
     function checkSessionValidity() {
+      const user = getCurrentUser();
+      if (!user) return;
+
       fetch("/verify-session", {
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
       }).then(response => {
         if (response.status === 401) {
           console.error("[Session] Session expired");
-          alert("Your session has expired or is invalid.");
-          window.location.href = "/login";
+          handleSessionExpired();
+          return;
         }
         return response.json();
       }).then(data => {
+        if (!data) {
+          sessionCheckFailed++;
+          if (sessionCheckFailed > 3) {
+            console.error("[Session] Too many check failures");
+            handleSessionExpired();
+          }
+          return;
+        }
+        
+        // Успешная проверка - сбрасываем счётчик
+        sessionCheckFailed = 0;
+        
         if (data.valid && data.type === 'group' && data.group_id !== GROUP_ID) {
             console.warn("[Session] Session is valid but for wrong group");
             window.location.href = "/groups";
         } else if (!data.valid) {
             console.error("[Session] Session no longer valid");
-            alert("Your session is no longer valid.");
-            window.location.href = "/login";
+            handleSessionExpired();
+        } else if (data.valid) {
+            console.log("[Session] ✓ Session valid");
         }
       }).catch(err => {
-        console.log("[Session] Check failed:", err);
+        console.warn("[Session] Check failed:", err);
+        sessionCheckFailed++;
       });
     }
 
-    setInterval(checkSessionValidity, 10000);
+    // Проверяем сессию каждые 15 секунд
+    setInterval(checkSessionValidity, 15000);
 
     function parseMessageData(data) {
       const timeMatch = data.match(/^\[(\d+)\]\s+/);
@@ -504,6 +644,9 @@
     }
 
     function loadHistory() {
+      const user = getCurrentUser();
+      if (!user) return;
+
       if (isLoadingHistory || !hasMoreHistory) {
         return;
       }
@@ -663,15 +806,13 @@
       });
     }
 
-    console.log("[Init] Loading initial history...");
-    loadHistory();
-
     document.getElementById("in").addEventListener('keyup', function (e) {
+      const user = getCurrentUser();
+      if (!user) return;
+
       if (e.keyCode === 13) {
         const text = this.value;
         if (!text.trim()) return;
-        
-        console.log('[Chat] Sending message with token:', GROUP_SESSION_TOKEN.substring(0, 20) + '...');
         
         $.ajax({
           url: `/group/${GROUP_ID}/post`,
@@ -679,21 +820,15 @@
           headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
           data: { message: text },
           success: function() {
-            console.log('[Chat] Message sent successfully');
+            console.log('[Chat] Message sent by', user);
           },
           error: function(xhr) {
-            console.error('[Chat] Error:', xhr.status, xhr.responseText);
+            console.error('[Chat] Error:', xhr.status);
             if (xhr.status === 429) {
-              try {
-                const response = JSON.parse(xhr.responseText);
-                alert(response.message || "You are sending requests too quickly. Please try again later.");
-              } catch(e) {
-                alert("You are sending requests too quickly. Please try again later.");
-              }
+              alert("You are sending requests too quickly. Please try again later.");
             } else if (xhr.status === 401) {
-              console.error('[Chat] Session expired - redirecting to login');
-              alert("Session expired. Please login again.");
-              window.location.href = "/login";
+              console.error('[Chat] Session expired');
+              handleSessionExpired();
             } else if (xhr.status === 400) {
               try {
                 const response = JSON.parse(xhr.responseText);
@@ -711,10 +846,15 @@
     });
 
     document.getElementById("upload-btn").addEventListener('click', function () {
+      const user = getCurrentUser();
+      if (!user) return;
       document.getElementById("file-input").click();
     });
 
     document.getElementById("file-input").addEventListener('change', function () {
+      const user = getCurrentUser();
+      if (!user) return;
+
       const file = this.files[0];
       if (!file) return;
 
@@ -729,7 +869,7 @@
         processData: false,
         contentType: false,
         success: function (response) {
-          console.log("File uploaded:", response);
+          console.log("File uploaded by", user, ":", response);
           document.getElementById("file-input").value = "";
         },
         error: function (xhr) {
@@ -745,12 +885,16 @@
     });
 
     document.getElementById("leave-btn").addEventListener('click', function() {
+      const user = getCurrentUser();
+      if (!user) return;
+
       if (confirm("Are you sure you want to leave this group?")) {
         fetch(`/api/groups/${GROUP_ID}/leave`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
         }).then(response => {
           if (response.ok) {
+            console.log('[Chat] User', user, 'left the group');
             alert("You have left the group.");
             window.location.href = "/groups";
           } else {
@@ -770,6 +914,13 @@
         keepalive: true
       });
     });
+
+    // ========== INIT ==========
+    console.log('[Init] Starting group chat...');
+    if (initChat()) {
+      console.log('[Init] Loading initial history...');
+      loadHistory();
+    }
   </script>
 </body>
 </html>

@@ -15,6 +15,36 @@
       min-height: 100vh;
     }
 
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5em;
+      padding: 1em;
+      background: #0a1a0a;
+      border: 1px solid #0f0;
+      border-radius: 4px;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 1em;
+    }
+
+    .user-label {
+      color: #0ff;
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+
+    .user-name {
+      color: #0f0;
+      font-size: 16px;
+      font-weight: bold;
+    }
+
     h1 {
       color: #0f0;
       font-size: 24px;
@@ -285,12 +315,20 @@
   </style>
 </head>
 <body>
+  <!-- TOP BAR С ИНФОРМАЦИЕЙ О ПОЛЬЗОВАТЕЛЕ -->
+  <div class="top-bar">
+    <div class="user-info">
+      <div class="user-label">Logged in as:</div>
+      <div class="user-name" id="current-user">Loading...</div>
+    </div>
+    <button class="btn btn-secondary" id="btn-logout" style="flex: 0; padding: 0.4em 1em;">Exit</button>
+  </div>
+
   <h1>💬 phasma groups</h1>
 
   <div class="header-actions">
     <button class="btn btn-primary" id="btn-create">+ Create Group</button>
     <button class="btn btn-secondary" id="btn-join">Join Group</button>
-    <button class="btn btn-secondary" id="btn-logout">Logout</button>
   </div>
 
   <div class="section">
@@ -364,29 +402,90 @@
   </div>
 
   <script nonce="{{ nonce }}">
-    const USER = {{ user|tojson }};
-    
     let AUTH_TOKEN = null;
+    let CURRENT_USER = null;
     
-    {% if auth_token %}
-      AUTH_TOKEN = {{ auth_token|tojson }};
-      localStorage.setItem('auth_token', AUTH_TOKEN);
-      localStorage.setItem('username', USER);
-      console.log('[OK] Token saved from template');
-    {% else %}
-      AUTH_TOKEN = localStorage.getItem('auth_token');
-      console.log('[OK] Token loaded from localStorage');
-    {% endif %}
-    
-    if (!AUTH_TOKEN) {
-      console.error('[ERROR] No auth token found');
-      window.location.href = '/login';
-    }
-
     const createModal = document.getElementById('create-modal');
     const joinModal = document.getElementById('join-modal');
 
+    // ========== ИНИЦИАЛИЗАЦИЯ И ПРОВЕРКА СЕССИИ ==========
+    function initAuth() {
+      console.log('[Auth] Initializing authentication...');
+      
+      // Получаем токен из localStorage или cookie
+      AUTH_TOKEN = localStorage.getItem('auth_token');
+      CURRENT_USER = localStorage.getItem('username');
+      
+      console.log('[Auth] Found token:', AUTH_TOKEN ? AUTH_TOKEN.substring(0, 20) + '...' : 'NONE');
+      console.log('[Auth] Found user:', CURRENT_USER);
+      
+      if (!AUTH_TOKEN || !CURRENT_USER) {
+        console.error('[Auth] No valid session found - redirecting to login');
+        window.location.href = '/login';
+        return false;
+      }
+      
+      // Обновляем отображение пользователя
+      document.getElementById('current-user').textContent = CURRENT_USER;
+      
+      // Проверяем валидность сессии с сервером
+      verifySessionWithServer();
+      
+      return true;
+    }
+
+    function verifySessionWithServer() {
+      fetch("/verify-session", {
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+      }).then(response => {
+        if (response.status === 401) {
+          console.error('[Auth] Session expired on server');
+          handleSessionExpired();
+          return;
+        }
+        return response.json();
+      }).then(data => {
+        if (!data || !data.valid) {
+          console.error('[Auth] Session invalid on server');
+          handleSessionExpired();
+        }
+      }).catch(err => {
+        console.warn('[Auth] Could not verify session:', err);
+        // Продолжаем, сервер может быть временно недоступен
+      });
+    }
+
+    function handleSessionExpired() {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('username');
+      alert('Your session has expired. Please login again.');
+      window.location.href = '/login';
+    }
+
+    // ========== ПРОВЕРКА ПОЛЬЗОВАТЕЛЯ ПЕРЕД ДЕЙСТВИЯМИ ==========
+    function getCurrentUser() {
+      const stored = localStorage.getItem('username');
+      if (stored !== CURRENT_USER) {
+        console.error('[Security] User mismatch! Stored:', stored, 'Current:', CURRENT_USER);
+        handleSessionExpired();
+        return null;
+      }
+      return CURRENT_USER;
+    }
+
+    function getAuthToken() {
+      const stored = localStorage.getItem('auth_token');
+      if (stored !== AUTH_TOKEN) {
+        console.error('[Security] Token mismatch!');
+        handleSessionExpired();
+        return null;
+      }
+      return AUTH_TOKEN;
+    }
+
+    // ========== МОДАЛКИ ==========
     document.getElementById('btn-create').addEventListener('click', () => {
+      if (!getCurrentUser()) return;
       createModal.classList.add('active');
       document.getElementById('create-error').innerHTML = '';
       document.getElementById('create-name').value = '';
@@ -404,6 +503,7 @@
     });
 
     document.getElementById('btn-join').addEventListener('click', () => {
+      if (!getCurrentUser()) return;
       joinModal.classList.add('active');
       document.getElementById('join-error').innerHTML = '';
       document.getElementById('join-code').value = '';
@@ -426,9 +526,14 @@
       if (e.target === joinModal) joinModal.classList.remove('active');
     });
 
+    // ========== СОЗДАНИЕ ГРУППЫ ==========
     document.getElementById('btn-submit-create').addEventListener('click', createGroup);
 
     function createGroup() {
+      const user = getCurrentUser();
+      const token = getAuthToken();
+      if (!user || !token) return;
+
       const name = document.getElementById('create-name').value.trim();
       const password = document.getElementById('create-password').value;
       const rootPassword = document.getElementById('create-root-password').value;
@@ -467,7 +572,7 @@
       $.ajax({
         url: '/api/groups/create',
         type: 'POST',
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        headers: { 'Authorization': `Bearer ${token}` },
         contentType: 'application/json',
         data: JSON.stringify({
           name: name,
@@ -476,6 +581,7 @@
           max_members: maxMembers
         }),
         success: function(response) {
+          console.log('[Groups] Group created by', user, ':', response.group_code);
           errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
           setTimeout(() => {
             createModal.classList.remove('active');
@@ -484,9 +590,7 @@
         },
         error: function(xhr) {
           if (xhr.status === 401) {
-            alert('Session expired. Please login again.');
-            localStorage.removeItem('auth_token');
-            window.location.href = '/login';
+            handleSessionExpired();
             return;
           }
           try {
@@ -499,9 +603,14 @@
       });
     }
 
+    // ========== ПРИСОЕДИНЕНИЕ К ГРУППЕ ==========
     document.getElementById('btn-submit-join').addEventListener('click', joinGroup);
 
     function joinGroup() {
+      const user = getCurrentUser();
+      const token = getAuthToken();
+      if (!user || !token) return;
+
       const code = document.getElementById('join-code').value.trim().toUpperCase();
       const password = document.getElementById('join-password').value;
 
@@ -523,13 +632,14 @@
       $.ajax({
         url: '/api/groups/join',
         type: 'POST',
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        headers: { 'Authorization': `Bearer ${token}` },
         contentType: 'application/json',
         data: JSON.stringify({
           group_code: code,
           password: password
         }),
         success: function(response) {
+          console.log('[Groups] User', user, 'joined group:', code);
           errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
           
           if (response.session_token) {
@@ -544,9 +654,7 @@
         },
         error: function(xhr) {
           if (xhr.status === 401) {
-            alert('Session expired. Please login again.');
-            localStorage.removeItem('auth_token');
-            window.location.href = '/login';
+            handleSessionExpired();
             return;
           }
           try {
@@ -559,19 +667,22 @@
       });
     }
 
+    // ========== ЗАГРУЗКА И ОТОБРАЖЕНИЕ ГРУПП ==========
     function loadGroups() {
+      const user = getCurrentUser();
+      const token = getAuthToken();
+      if (!user || !token) return;
+
       $.ajax({
         url: '/api/groups/list',
         type: 'GET',
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        headers: { 'Authorization': `Bearer ${token}` },
         success: function(response) {
           renderGroups(response.groups);
         },
         error: function(xhr) {
           if (xhr.status === 401) {
-            alert('Session expired. Please login again.');
-            localStorage.removeItem('auth_token');
-            window.location.href = '/login';
+            handleSessionExpired();
           }
         }
       });
@@ -598,7 +709,7 @@
               · Joined: ${new Date(group.joined_at * 1000).toLocaleDateString()}
             </div>
             <div class="group-buttons">
-              <button class="btn btn-enter" data-group-id="${group.id}">Enter</button>
+              <button class="btn btn-enter" data-group-id="${group.id}" data-group-code="${group.code}">Enter</button>
               ${isCreator ? `<button class="btn btn-danger btn-delete" data-group-id="${group.id}">Delete</button>` : ''}
             </div>
           </div>
@@ -611,7 +722,8 @@
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           const groupId = btn.getAttribute('data-group-id');
-          enterGroup(groupId);
+          const groupCode = btn.getAttribute('data-group-code');
+          enterGroup(groupId, groupCode);
         });
       });
 
@@ -624,46 +736,46 @@
       });
     }
 
-    function enterGroup(groupId) {
-      // Попытаемся получить токен сессии группы из localStorage (если есть)
-      const groupToken = localStorage.getItem(`group_session_${groupId}`);
+    // ========== ВХОД В ЧАТ ГРУППЫ ==========
+    function enterGroup(groupId, groupCode) {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      console.log('[Groups] User', user, 'entering group', groupId);
       
-      console.log('[Groups] Entering group', groupId);
-      console.log('[Groups] Group session token:', groupToken ? groupToken.substring(0, 20) + '...' : 'NOT FOUND');
-      
-      // Сохраняем текущий ID группы
+      // Сохраняем username при входе в группу
+      localStorage.setItem(`group_user_${groupId}`, user);
       localStorage.setItem('current_group_id', groupId);
-      
-      // Используем токен если есть, иначе будет создан новый в /group/<id>/chat
-      if (groupToken) {
-        localStorage.setItem('current_group_token', groupToken);
-        console.log('[Groups] Using existing session token');
-      }
+      localStorage.setItem('current_group_user', user);
       
       window.location.href = `/group/${groupId}/chat`;
     }
 
+    // ========== УДАЛЕНИЕ ГРУППЫ ==========
     function deleteGroup(groupId) {
+      const user = getCurrentUser();
+      const token = getAuthToken();
+      if (!user || !token) return;
+
       const rootPassword = prompt('Enter root password to delete this group:');
       if (!rootPassword) return;
 
       $.ajax({
         url: `/api/groups/${groupId}/delete`,
         type: 'POST',
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        headers: { 'Authorization': `Bearer ${token}` },
         contentType: 'application/json',
         data: JSON.stringify({
           root_password: rootPassword
         }),
         success: function(response) {
+          console.log('[Groups] Group deleted by', user);
           alert('✓ ' + response.message);
           loadGroups();
         },
         error: function(xhr) {
           if (xhr.status === 401) {
-            alert('Session expired. Please login again.');
-            localStorage.removeItem('auth_token');
-            window.location.href = '/login';
+            handleSessionExpired();
             return;
           }
           try {
@@ -676,21 +788,34 @@
       });
     }
 
+    // ========== ВЫХОД ==========
     document.getElementById('btn-logout').addEventListener('click', logout);
 
     function logout() {
+      const token = getAuthToken();
+      const user = getCurrentUser();
+      
+      if (!token || !user) {
+        window.location.href = '/login';
+        return;
+      }
+
       $.ajax({
         url: '/logout',
         type: 'POST',
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        headers: { 'Authorization': `Bearer ${token}` },
         complete: function() {
+          console.log('[Auth] User', user, 'logged out');
           localStorage.removeItem('auth_token');
           localStorage.removeItem('username');
           localStorage.removeItem('current_group_token');
           localStorage.removeItem('current_group_id');
+          localStorage.removeItem('current_group_user');
           
           Object.keys(localStorage).forEach(key => {
-            if (key.startsWith('group_token_') || key.startsWith('group_session_')) {
+            if (key.startsWith('group_token_') || 
+                key.startsWith('group_session_') ||
+                key.startsWith('group_user_')) {
               localStorage.removeItem(key);
             }
           });
@@ -713,9 +838,13 @@
       }
     });
 
-    console.log('[Init] Loading groups...');
-    loadGroups();
-    setInterval(loadGroups, 10000);
+    // ========== INIT ==========
+    console.log('[Init] Starting groups page...');
+    if (initAuth()) {
+      loadGroups();
+      setInterval(loadGroups, 10000);
+      setInterval(verifySessionWithServer, 30000);
+    }
   </script>
 </body>
 </html>

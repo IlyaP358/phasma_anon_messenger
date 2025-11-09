@@ -7,8 +7,8 @@ import re
 import secrets
 import logging
 import json
-import subprocess  # Добавлено из old_script
-import tempfile    # Добавлено из old_script
+import subprocess
+import tempfile
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify, make_response
 from flask_sqlalchemy import SQLAlchemy
@@ -183,10 +183,6 @@ URL_PREVIEW_MAX_DESCRIPTION_LENGTH = 500
 MAX_URLS_PER_MESSAGE = 10
 URL_PARSE_RATE_LIMIT = 10  # URLs per minute per user
 
-# ===============================================================
-# ---- ИЗМЕНЕННЫЕ ПАТТЕРНЫ ----
-# ===============================================================
-# Service detection patterns (УЛУЧШЕННЫЕ)
 YOUTUBE_PATTERN = r'(?:https?://)?(?:www\.)?(?:youtube\.com|youtu\.be)/'
 YOUTUBE_ID_PATTERN = r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/|youtube\.com/live/)([a-zA-Z0-9_-]{11})'
 
@@ -194,7 +190,6 @@ VIMEO_PATTERN = r'(?:https?://)?(?:www\.)?vimeo\.com/(\d+)'
 INSTAGRAM_PATTERN = r'(?:https?://)?(?:www\.)?instagram\.com/'
 TIKTOK_PATTERN = r'(?:https?://)?(?:www\.)?(?:tiktok\.com|vm\.tiktok\.com)/'
 
-# УЛУЧШЕННЫЙ паттерн для изображений (теперь ловит CDN ссылки)
 IMAGE_PATTERN = r'(?:https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:[\?\#]|$)|https?://[^\s]*(?:/images?/|/img/|/photo/|/thumb|gstatic\.com/|imgur\.com/|cloudinary\.com/)[^\s]*)'
 # ===============================================================
 
@@ -283,9 +278,6 @@ class User(db.Model):
         
         return utc_time.isoformat() + 'Z'
 
-# ===============================================================
-# ---- ШАГ 1.2: ЗАМЕНА КЛАССА MESSAGE ----
-# ===============================================================
 class Message(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
     group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=True, index=True)  # ДОБАВЛЕНО
@@ -333,13 +325,8 @@ class Message(db.Model):
         except (InvalidToken, Exception) as e:
             print(f"[ERROR] Failed to decrypt/parse message {self.id}: {e}")
             return "[UNDECRYPTABLE MESSAGE]"
-# ===============================================================
-# ---- КОНЕЦ ЗАМЕНЫ MESSAGE ----
-# ===============================================================
-
 
 class File(db.Model):
-    """Renamed from Photo - now supports all file types"""
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), nullable=False, index=True)
     filename = db.Column(db.String(256), unique=True, nullable=False, index=True)
@@ -393,10 +380,6 @@ class Secret(db.Model):
         
         return utc_time.isoformat() + 'Z'
 
-# ===============================================================
-# ---- ADD THIS NEW MODEL after the Secret class ----
-# ===============================================================
-
 class URLPreview(db.Model):
     """Cache for URL previews (links in messages)"""
     id = db.Column(db.Integer, primary_key=True)
@@ -430,11 +413,6 @@ class URLPreview(db.Model):
             utc_time = self.cached_at.astimezone(datetime.timezone.utc)
         
         return utc_time.isoformat() + 'Z'
-
-
-# ===============================================================
-# ---- ШАГ 1.1: ДОБАВЛЕНИЕ МОДЕЛЕЙ ГРУПП ----
-# ===============================================================
 
 class Group(db.Model):
     """Модель группы (чата)"""
@@ -481,11 +459,6 @@ class GroupMember(db.Model):
         else:
             utc_time = self.joined_at.astimezone(datetime.timezone.utc)
         return int(utc_time.timestamp())
-
-# ===============================================================
-# ---- КОНЕЦ ДОБАВЛЕНИЯ МОДЕЛЕЙ ГРУПП ----
-# ===============================================================
-
 
 # ===============================================================
 # ---- Master key management ----
@@ -557,7 +530,6 @@ def init_upload_folder():
     else:
         print(f"[OK] Upload folder exists: {UPLOAD_FOLDER}")
 
-    # Добавлено из old_script
     if not os.path.exists(TEMP_FOLDER):
         os.makedirs(TEMP_FOLDER)
         print(f"[OK] Created temp folder: {TEMP_FOLDER}")
@@ -567,7 +539,7 @@ def init_upload_folder():
 init_upload_folder()
 
 # ===============================================================
-# ---- FFmpeg availability check (Добавлено из old_script) ----
+# ---- FFmpeg availability check----
 # ===============================================================
 def check_ffmpeg():
     try:
@@ -591,7 +563,7 @@ def check_ffmpeg():
 FFMPEG_AVAILABLE = check_ffmpeg()
 
 # ===============================================================
-# ---- METADATA REMOVAL FUNCTIONS (Добавлено из old_script) ----
+# ---- METADATA REMOVAL FUNCTIONS----
 # ===============================================================
 
 def strip_image_metadata(file_data: bytes, image_format: str) -> bytes or None:
@@ -1074,9 +1046,11 @@ def generate_auth_token(username: str) -> tuple:
     return token, old_token
 
 def verify_token(token: str, strict_ip_check: bool = False) -> str or None:
-    """Проверяет токен аутентификации
+    """
+    Проверяет токен аутентификации и возвращает username или None
     
-    strict_ip_check: если False, пропускаем проверку IP для локальных подключений
+    strict_ip_check: если False (по умолчанию), пропускаем строгую проверку IP
+    ИСПРАВЛЕНИЕ: IP проверка теперь мягче
     """
     if not token:
         return None
@@ -1095,17 +1069,19 @@ def verify_token(token: str, strict_ip_check: bool = False) -> str or None:
     username, stored_subnet = token_data.split('|', 1)
     current_subnet = get_client_ip_subnet()
     
-    # ОСЛАБЛЯЕМ проверку IP
+    # Если strict_ip_check = True (только для критичных операций)
     if strict_ip_check:
         if stored_subnet != current_subnet and current_subnet != "local" and stored_subnet != "local":
             print(f"[SECURITY] IP subnet mismatch for {username}: stored={stored_subnet}, current={current_subnet}")
             revoke_token(token)
             return None
     else:
-        # Для локального доступа игнорируем проверку
+        # Мягкая проверка - только логируем изменения
         if current_subnet != "local" and stored_subnet != "local" and stored_subnet != current_subnet:
-            print(f"[WARN] IP subnet changed for {username}: stored={stored_subnet}, current={current_subnet}")
-            # НЕ отзываем токен, просто логируем
+            print(f"[INFO] IP changed for {username}: {stored_subnet} → {current_subnet}")
+            # Обновляем IP в токене
+            new_token_data = f"{username}|{current_subnet}"
+            r.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, new_token_data.encode("utf-8"))
     
     return username
 
@@ -1141,34 +1117,51 @@ def generate_group_code() -> str:
 
 def verify_group_session(token: str) -> dict or None:
     """
-    Проверяет группу сессию и возвращает {username, group_id, ip_subnet} или None
+    Проверяет групповую сессию и возвращает {username, group_id, ip_subnet} или None
+    
+    ИСПРАВЛЕНИЕ: Убрана жёсткая проверка IP (она блокировала легальные запросы)
+    Вместо этого логируем изменения IP но не отклоняем запрос
     """
     if not token:
+        print(f"[WARN] Empty token in verify_group_session")
         return None
     
     session_data_bytes = r.get(f"group_session:{token}")
     if not session_data_bytes:
+        print(f"[WARN] Group session token not found in Redis: {token[:20]}...")
         return None
     
     try:
         session_data = json.loads(session_data_bytes.decode("utf-8"))
     except:
+        print(f"[ERROR] Could not parse group session data")
         return None
     
-    # Проверяешь IP subnet
+    # Проверяем IP, но не блокируем - только логируем
     current_subnet = get_client_ip_subnet()
-    if session_data.get('ip_subnet') != current_subnet:
-        print(f"[SECURITY] IP subnet mismatch for {session_data.get('username')}")
-        revoke_group_session(token)
-        return None
+    stored_subnet = session_data.get('ip_subnet')
+    
+    if stored_subnet and stored_subnet != current_subnet:
+        # Это может быть просто мобильный пользователь с меняющимся IP
+        # Логируем, но НЕ отклоняем
+        print(f"[INFO] IP changed for {session_data.get('username')}: {stored_subnet} → {current_subnet}")
+        # Обновляем IP в сессии для следующей проверки
+        session_data['ip_subnet'] = current_subnet
+        r.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(session_data).encode("utf-8"))
     
     return session_data
 
 def generate_group_session_token(username: str, group_id: int) -> str:
-    """Генерирует и сохраняет сессию группы"""
+    """
+    Генерирует и сохраняет групповую сессию
+    
+    ИСПРАВЛЕНИЕ: Лучше обработка старых сессий и более предсказуемое поведение
+    """
+    # Проверяем старую сессию
     old_session_bytes = r.get(f"user_group_session:{username}:{group_id}")
     old_token = old_session_bytes.decode("utf-8") if old_session_bytes else None
     
+    # Генерируем новый токен
     token = str(uuid.uuid4())
     ip_subnet = get_client_ip_subnet()
     
@@ -1176,15 +1169,18 @@ def generate_group_session_token(username: str, group_id: int) -> str:
         'username': username,
         'group_id': group_id,
         'ip_subnet': ip_subnet,
-        'created_at': int(time.time())
+        'created_at': int(time.time()),
+        'last_activity': int(time.time())  # Добавляем время последней активности
     }
     
     pipe = r.pipeline()
     pipe.multi()
     
+    # Удаляем старую сессию
     if old_token:
         pipe.delete(f"group_session:{old_token}")
     
+    # Сохраняем новую
     pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(session_data).encode("utf-8"))
     pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
     pipe.execute()
@@ -2132,21 +2128,6 @@ def format_message_for_sse(msg: Message) -> str:
         else:
             return f"[{ts}] {msg.username}: [INVALID MESSAGE]"
 
-# ===============================================================
-# ---- Message helpers ----
-# ===============================================================
-
-# ===============================================================
-# ---- ШАГ 4: УДАЛЕНИЕ СТАРЫХ HELPERS (save_message, event_stream) ----
-#
-# (Старые функции save_message и event_stream удалены отсюда)
-#
-# ===============================================================
-
-
-# ===============================================================
-# ---- Auth Routes ----
-# ===============================================================
 @app.route("/register", methods=["GET", "POST"])
 @limiter.limit("5 per 15 minutes", methods=["POST"])
 def register():
@@ -2560,52 +2541,44 @@ def api_delete_group(group_id: int):
         return jsonify({"error": "Failed to delete group"}), 500
 
 # ===============================================================
-# ---- КОНЕЦ ШАГА 3 ----
-# ===============================================================
-
-# ===============================================================
 # ---- ШАГ 7: ДОБАВЛЕНИЕ ROUTE ДЛЯ ОТОБРАЖЕНИЯ ЧАТА ----
 # ===============================================================
 @app.route("/group/<int:group_id>/chat")
 @limiter.limit("100 per minute")
 def group_chat(group_id: int):
+    """
+    Страница чата группы
+    ИСПРАВЛЕНИЕ: 
+    - Генерируем групповую сессию
+    - Передаём её в шаблон в переменной
+    - Клиент немедленно использует её
+    """
     token = extract_token_from_request()
-    username = verify_token(token, strict_ip_check=False)  # ❗ Ослабляем проверку IP
+    username = verify_token(token, strict_ip_check=False)
     
     if not username:
         print(f"[WARN] Unauthenticated access to /group/{group_id}/chat")
         return redirect("/login")
     
-    # Проверяем что пользователь в группе
+    # Проверяем, что пользователь в группе
     if not is_user_in_group(username, group_id):
         print(f"[SECURITY] User {username} tried to access group {group_id} without membership")
         return redirect("/groups")
     
     print(f"[OK] User {username} entering group {group_id} chat")
     
-    # Генерируем или получаем сессию группы
-    session_token = generate_group_session_token(username, group_id)
+    # ИСПРАВЛЕНИЕ: Генерируем групповую сессию И передаём токен в шаблон
+    group_session_token = generate_group_session_token(username, group_id)
     
     nonce = generate_nonce()
     request._csp_nonce = nonce
     
+    # Передаём групповой токен в шаблон, чтобы клиент мог его немедленно использовать
     return render_template("group_chat.html", 
-                         auth_token=session_token, 
+                         auth_token=group_session_token,  # ← ГЛАВНОЕ ИСПРАВЛЕНИЕ
                          user=username, 
                          group_id=group_id,
                          nonce=nonce)
-# ===============================================================
-# ---- КОНЕЦ ШАГА 7 ----
-# ===============================================================
-
-
-# ===============================================================
-# ---- ШАГ 4: ЗАМЕНА CHAT ROUTES И UPLOAD ROUTE ----
-#
-# (Старые routes /post, /stream, /history И /upload УДАЛЕНЫ)
-# (Вместо них добавлен код из modified_chat_routes.py)
-#
-# ===============================================================
 
 # ===============================================================
 # ---- Chat message routes (для групп) ----
@@ -2672,20 +2645,36 @@ def event_stream_group(group_id: int):
 @app.route("/group/<int:group_id>/post", methods=["POST"])
 @limiter.limit("30 per minute")
 def post_to_group(group_id: int):
+    """
+    Отправить сообщение в группу
+    ИСПРАВЛЕНИЯ:
+    - Лучше обработка ошибок сессии
+    - Автоматическое продление сессии
+    - Понятные ошибки
+    """
     token = extract_token_from_request()
+    
+    if not token:
+        print(f"[WARN] No token in post_to_group")
+        return abort(401)
+    
     session = verify_group_session(token)
     
     if not session:
+        print(f"[WARN] Invalid group session: {token[:20] if token else 'NONE'}...")
         return abort(401)
     
-    # Проверяешь что это правильная группа и юзер в ней
+    # Проверяем, что это правильная группа
     if session['group_id'] != group_id:
+        print(f"[SECURITY] User {session.get('username')} tried wrong group")
         return abort(403)
     
-    if not is_user_in_group(session['username'], group_id):
-        return abort(403)
-    
+    # Проверяем членство
     username = session['username']
+    if not is_user_in_group(username, group_id):
+        print(f"[SECURITY] User {username} not in group {group_id}")
+        return abort(403)
+    
     text = request.form.get("message", "").strip()
     if not text:
         return ("", 204)
@@ -2696,13 +2685,34 @@ def post_to_group(group_id: int):
     msg = save_message_to_group(username, group_id, text)
     if not msg:
         return ("", 204)
-
+    
+    # ИСПРАВЛЕНИЕ: Продляем групповую сессию при успешном действии
+    pipe = r.pipeline()
+    pipe.multi()
+    
+    updated_session_data = session.copy()
+    updated_session_data['last_activity'] = int(time.time())
+    
+    pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(updated_session_data).encode("utf-8"))
+    pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
+    pipe.execute()
+    
     return ("", 204)
 
 @app.route("/group/<int:group_id>/stream")
 @limiter.limit("100 per minute")
 def stream_group(group_id: int):
+    """
+    SSE stream для группы
+    ИСПРАВЛЕНИЯ:
+    - Лучше обработка ошибок
+    - Автоматическое продление сессии
+    """
     token = extract_token_from_request()
+    
+    if not token:
+        return abort(401)
+    
     session = verify_group_session(token)
     
     if not session:
@@ -2714,13 +2724,34 @@ def stream_group(group_id: int):
     if not is_user_in_group(session['username'], group_id):
         return abort(403)
     
+    # Продляем сессию при подключении к потоку
+    username = session['username']
+    updated_session_data = session.copy()
+    updated_session_data['last_activity'] = int(time.time())
+    
+    pipe = r.pipeline()
+    pipe.multi()
+    pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(updated_session_data).encode("utf-8"))
+    pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
+    pipe.execute()
+    
     return Response(event_stream_group(group_id), mimetype="text/event-stream")
+
 
 @app.route("/group/<int:group_id>/history")
 @limiter.limit("30 per minute")
 def history_group(group_id: int):
-    """Load message history for group with pagination"""
+    """
+    Загрузить историю сообщений группы
+    ИСПРАВЛЕНИЯ:
+    - Лучше обработка ошибок
+    - Автоматическое продление сессии
+    """
     token = extract_token_from_request()
+    
+    if not token:
+        return abort(401)
+    
     session = verify_group_session(token)
     
     if not session:
@@ -2731,6 +2762,17 @@ def history_group(group_id: int):
     
     if not is_user_in_group(session['username'], group_id):
         return abort(403)
+    
+    # Продляем сессию при загрузке истории
+    username = session['username']
+    updated_session_data = session.copy()
+    updated_session_data['last_activity'] = int(time.time())
+    
+    pipe = r.pipeline()
+    pipe.multi()
+    pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(updated_session_data).encode("utf-8"))
+    pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
+    pipe.execute()
     
     before_id = request.args.get('before_id', type=int)
     limit = request.args.get('limit', default=50, type=int)
@@ -2738,7 +2780,6 @@ def history_group(group_id: int):
     if limit > 100:
         limit = 100
     
-    # Фильтруешь по group_id
     query = Message.query.filter_by(group_id=group_id).order_by(Message.created_at.desc())
     
     if before_id:
@@ -2748,7 +2789,6 @@ def history_group(group_id: int):
     
     messages = query.limit(limit).all()
     
-    # Collect file IDs for preloading signed URLs
     file_ids = []
     for msg in messages:
         if msg.message_type in ('photo', 'file'):
@@ -2756,7 +2796,6 @@ def history_group(group_id: int):
             if isinstance(plain, dict) and 'file_id' in plain:
                 file_ids.append(plain['file_id'])
     
-    # Preload signed URLs for all files
     file_urls = {}
     if file_ids:
         files = File.query.filter(File.id.in_(file_ids)).all()
@@ -2768,7 +2807,6 @@ def history_group(group_id: int):
                 'filename': file_record.original_filename
             }
     
-    # Format results
     result = []
     for msg in reversed(messages):
         ts = msg.format_time()
@@ -2799,7 +2837,6 @@ def history_group(group_id: int):
                 message_text = f"[{ts}] {msg.username}: [FILE]"
         
         else:
-            # Text message
             plain_data = msg.get_plain()
             if isinstance(plain_data, dict):
                 sanitized_content = plain_data.get('text', '')
@@ -2827,7 +2864,17 @@ def history_group(group_id: int):
 @app.route("/group/<int:group_id>/upload", methods=["POST"])
 @limiter.limit("10 per minute; 100 per day")
 def upload_to_group(group_id: int):
+    """
+    Загрузить файл в группу
+    ИСПРАВЛЕНИЯ:
+    - Лучше обработка ошибок
+    - Автоматическое продление сессии
+    """
     token = extract_token_from_request()
+    
+    if not token:
+        return abort(401)
+    
     session = verify_group_session(token)
     
     if not session:
@@ -2861,13 +2908,21 @@ def upload_to_group(group_id: int):
     
     file_record, message = result
     
-    # Обновляешь group_id в сообщении
     message.group_id = group_id
     db.session.commit()
     
-    # Publish message for SSE
     message_text = format_message_for_sse(message)
     r.publish(f"chat:group:{group_id}", message_text.encode("utf-8"))
+    
+    # Продляем сессию после успешной загрузки
+    updated_session_data = session.copy()
+    updated_session_data['last_activity'] = int(time.time())
+    
+    pipe = r.pipeline()
+    pipe.multi()
+    pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(updated_session_data).encode("utf-8"))
+    pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
+    pipe.execute()
     
     increment_message_count()
     
