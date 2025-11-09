@@ -231,7 +231,7 @@
 <body>
   <div id="out">
     <div id="load-more-container">
-      <button id="load-more-btn">↑ Load older messages</button>
+      <button id="load-more-btn">↓ Load older messages</button>
     </div>
     <div id="messages-container"></div>
   </div>
@@ -249,13 +249,34 @@
     const USER = {{ user|tojson }};
     const GROUP_ID = {{ group_id|tojson }};
     
-    let AUTH_TOKEN = localStorage.getItem('current_group_token') ||
-                     localStorage.getItem(`group_token_${GROUP_ID}`) ||
-                     localStorage.getItem('auth_token');
+    console.log('[Init] Group chat loaded. User:', USER, 'Group ID:', GROUP_ID);
     
-    if (!AUTH_TOKEN) {
-      console.error('[ERROR] No auth token found');
-      alert('Session expired. Please login again.');
+    // Получаем токен сессии группы - он передается через Flask в переменной auth_token
+    let GROUP_SESSION_TOKEN = {{ auth_token|tojson }};
+    
+    console.log('[Init] GROUP_SESSION_TOKEN from template:', GROUP_SESSION_TOKEN ? GROUP_SESSION_TOKEN.substring(0, 20) + '...' : 'NULL');
+    
+    // Если токен передан через шаблон, сохраняем его
+    if (GROUP_SESSION_TOKEN) {
+      localStorage.setItem(`group_session_${GROUP_ID}`, GROUP_SESSION_TOKEN);
+      console.log('[Init] Saved group session token to localStorage');
+    } else {
+      // Пытаемся получить из localStorage
+      GROUP_SESSION_TOKEN = localStorage.getItem(`group_session_${GROUP_ID}`);
+      console.log('[Init] Retrieved from localStorage:', GROUP_SESSION_TOKEN ? GROUP_SESSION_TOKEN.substring(0, 20) + '...' : 'NULL');
+    }
+    
+    // Если все еще нет - используем старый механизм (для обратной совместимости)
+    if (!GROUP_SESSION_TOKEN) {
+      GROUP_SESSION_TOKEN = localStorage.getItem('current_group_token') ||
+                           localStorage.getItem(`group_token_${GROUP_ID}`) ||
+                           localStorage.getItem('auth_token');
+      console.log('[Init] Fallback token:', GROUP_SESSION_TOKEN ? GROUP_SESSION_TOKEN.substring(0, 20) + '...' : 'NULL');
+    }
+    
+    if (!GROUP_SESSION_TOKEN) {
+      console.error('[ERROR] No session token found!');
+      alert('Session lost. Please login again.');
       window.location.href = '/login';
     }
 
@@ -326,23 +347,25 @@
 
     function checkSessionValidity() {
       fetch("/verify-session", {
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
       }).then(response => {
         if (response.status === 401) {
+          console.error("[Session] Session expired");
           alert("Your session has expired or is invalid.");
           window.location.href = "/login";
         }
         return response.json();
       }).then(data => {
         if (data.valid && data.type === 'group' && data.group_id !== GROUP_ID) {
-            console.warn("Session is valid, but for the wrong group. Redirecting.");
+            console.warn("[Session] Session is valid but for wrong group");
             window.location.href = "/groups";
         } else if (!data.valid) {
+            console.error("[Session] Session no longer valid");
             alert("Your session is no longer valid.");
             window.location.href = "/login";
         }
       }).catch(err => {
-        console.log("Session check failed:", err);
+        console.log("[Session] Check failed:", err);
       });
     }
 
@@ -498,7 +521,7 @@
         : `/group/${GROUP_ID}/history?limit=50`;
 
       fetch(url, {
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
       })
       .then(response => response.json())
       .then(data => {
@@ -554,7 +577,7 @@
             loadMoreContainer.style.display = "none";
           }, 2000);
         } else {
-          loadMoreBtn.textContent = "↑ Load older messages";
+          loadMoreBtn.textContent = "↓ Load older messages";
         }
 
         if (!initialLoadDone) {
@@ -597,7 +620,7 @@
       console.log("[SSE] Connecting to event stream...");
       
       fetch(`/group/${GROUP_ID}/stream`, {
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
       }).then(response => {
         console.log("[SSE] Connected successfully");
         const reader = response.body.getReader();
@@ -648,15 +671,18 @@
         const text = this.value;
         if (!text.trim()) return;
         
+        console.log('[Chat] Sending message with token:', GROUP_SESSION_TOKEN.substring(0, 20) + '...');
+        
         $.ajax({
           url: `/group/${GROUP_ID}/post`,
           type: "POST",
-          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+          headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
           data: { message: text },
           success: function() {
-            // Message sent successfully
+            console.log('[Chat] Message sent successfully');
           },
           error: function(xhr) {
+            console.error('[Chat] Error:', xhr.status, xhr.responseText);
             if (xhr.status === 429) {
               try {
                 const response = JSON.parse(xhr.responseText);
@@ -665,6 +691,7 @@
                 alert("You are sending requests too quickly. Please try again later.");
               }
             } else if (xhr.status === 401) {
+              console.error('[Chat] Session expired - redirecting to login');
               alert("Session expired. Please login again.");
               window.location.href = "/login";
             } else if (xhr.status === 400) {
@@ -697,7 +724,7 @@
       $.ajax({
         url: `/group/${GROUP_ID}/upload`,
         type: "POST",
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
         data: formData,
         processData: false,
         contentType: false,
@@ -721,7 +748,7 @@
       if (confirm("Are you sure you want to leave this group?")) {
         fetch(`/api/groups/${GROUP_ID}/leave`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+          headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
         }).then(response => {
           if (response.ok) {
             alert("You have left the group.");
@@ -739,7 +766,7 @@
     window.addEventListener('beforeunload', function () {
       fetch('/logout', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` },
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
         keepalive: true
       });
     });
