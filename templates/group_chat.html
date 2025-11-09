@@ -237,7 +237,7 @@
   </div>
 
   <div id="input-container">
-    <b>Hi, <span id="username-display"></span>!</b><br>
+    <b>Hi, {{ user }}!</b><br>
     Message: <input type="text" id="in" autocomplete="off" />
     <button id="upload-btn">+ upload file</button>
     <button id="leave-btn">← Leave Group</button>
@@ -246,31 +246,15 @@
   </div>
 
   <script nonce="{{ nonce }}">
-    // ===== INITIALIZATION =====
     const USER = {{ user|tojson }};
     const GROUP_ID = {{ group_id|tojson }};
     
-    console.log('[INIT] group_chat.html loaded');
-    console.log('[INIT] USER:', USER);
-    console.log('[INIT] GROUP_ID:', GROUP_ID);
-    
-    document.getElementById('username-display').textContent = USER;
-    
-    // ❗ ИСПРАВЛЕНО: Берем токен в правильном порядке
-    let AUTH_TOKEN = localStorage.getItem(`group_token_${GROUP_ID}`);
+    let AUTH_TOKEN = localStorage.getItem('current_group_token') ||
+                     localStorage.getItem(`group_token_${GROUP_ID}`) ||
+                     localStorage.getItem('auth_token');
     
     if (!AUTH_TOKEN) {
-      AUTH_TOKEN = localStorage.getItem('current_group_token');
-    }
-    
-    if (!AUTH_TOKEN) {
-      AUTH_TOKEN = localStorage.getItem('auth_token');
-    }
-    
-    console.log('[INIT] AUTH_TOKEN:', AUTH_TOKEN ? AUTH_TOKEN.substring(0, 20) + '...' : 'NONE');
-    
-    if (!AUTH_TOKEN) {
-      console.error('[ERROR] No auth token found in localStorage');
+      console.error('[ERROR] No auth token found');
       alert('Session expired. Please login again.');
       window.location.href = '/login';
     }
@@ -327,7 +311,6 @@
       }
     }
 
-    // Message management
     let loadedMessageIds = new Set();
     let oldestMessageId = null;
     let newestMessageId = null;
@@ -342,32 +325,24 @@
     const loadMoreContainer = document.getElementById("load-more-container");
 
     function checkSessionValidity() {
-      console.log('[SESSION] Checking session validity...');
       fetch("/verify-session", {
         headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
       }).then(response => {
         if (response.status === 401) {
-          console.error('[ERROR] Session is invalid (401)');
           alert("Your session has expired or is invalid.");
           window.location.href = "/login";
-          return;
         }
         return response.json();
       }).then(data => {
-        if (!data) return;
-        
-        console.log('[SESSION] Session check result:', data);
-        
         if (data.valid && data.type === 'group' && data.group_id !== GROUP_ID) {
             console.warn("Session is valid, but for the wrong group. Redirecting.");
             window.location.href = "/groups";
         } else if (!data.valid) {
-            console.error('[ERROR] Session is no longer valid');
             alert("Your session is no longer valid.");
             window.location.href = "/login";
         }
       }).catch(err => {
-        console.error("Session check failed:", err);
+        console.log("Session check failed:", err);
       });
     }
 
@@ -459,66 +434,6 @@
       return card;
     }
 
-    function createPhotoElement(photoId, photoUrl, username) {
-      const contentDiv = document.createElement("div");
-      contentDiv.className = "message-content photo-msg";
-      contentDiv.setAttribute('data-photo-id', photoId);
-      
-      const usernameSpan = document.createElement("span");
-      usernameSpan.textContent = username;
-      contentDiv.appendChild(usernameSpan);
-      
-      const img = document.createElement("img");
-      img.src = photoUrl;
-      img.alt = "Photo";
-      img.loading = "lazy";
-      contentDiv.appendChild(img);
-      
-      return contentDiv;
-    }
-
-    function createFileElement(fileId, category, filename, fileUrl, username) {
-      const contentDiv = document.createElement("div");
-      contentDiv.className = "message-content file-msg";
-      contentDiv.setAttribute('data-file-id', fileId);
-      
-      const usernameSpan = document.createElement("span");
-      usernameSpan.textContent = username;
-      usernameSpan.style.display = "block";
-      contentDiv.appendChild(usernameSpan);
-      
-      const attachmentDiv = document.createElement("div");
-      attachmentDiv.className = "file-attachment";
-      
-      const icon = document.createElement("img");
-      icon.src = "/static/phasma_file.png";
-      icon.className = "file-icon";
-      icon.alt = "File";
-      attachmentDiv.appendChild(icon);
-      
-      const fileInfo = document.createElement("div");
-      fileInfo.className = "file-info";
-      
-      const fileNameSpan = document.createElement("div");
-      fileNameSpan.className = "file-name";
-      fileNameSpan.textContent = filename;
-      fileInfo.appendChild(fileNameSpan);
-      
-      attachmentDiv.appendChild(fileInfo);
-      
-      const downloadBtn = document.createElement("button");
-      downloadBtn.className = "file-download-btn";
-      downloadBtn.textContent = "â¬‡";
-      downloadBtn.onclick = function() {
-        window.open(fileUrl, '_blank');
-      };
-      attachmentDiv.appendChild(downloadBtn);
-      
-      contentDiv.appendChild(attachmentDiv);
-      
-      return contentDiv;
-    }
-
     function createMessageElement(data) {
       const parsed = parseMessageData(data);
       if (!parsed) {
@@ -540,135 +455,6 @@
       header.textContent = `${localDate}, [${localTime}]`;
       msgWrapper.appendChild(header);
       
-      // [PHOTO:ID:URL]
-      const photoWithUrlMatch = parsed.content.match(/\[PHOTO:(\d+):([^\]]+)\]/);
-      if (photoWithUrlMatch) {
-        const photoId = photoWithUrlMatch[1];
-        const photoUrl = photoWithUrlMatch[2];
-        const contentDiv = createPhotoElement(photoId, photoUrl, parsed.username);
-        msgWrapper.appendChild(contentDiv);
-        return msgWrapper;
-      }
-      
-      // [FILE:ID:category:filename:URL]
-      const fileWithUrlMatch = parsed.content.match(/\[FILE:(\d+):([^:]+):([^:]+):([^\]]+)\]/);
-      if (fileWithUrlMatch) {
-        const fileId = fileWithUrlMatch[1];
-        const category = fileWithUrlMatch[2];
-        const filename = fileWithUrlMatch[3];
-        const fileUrl = fileWithUrlMatch[4];
-        const contentDiv = createFileElement(fileId, category, filename, fileUrl, parsed.username);
-        msgWrapper.appendChild(contentDiv);
-        return msgWrapper;
-      }
-      
-      // [PHOTO:ID]
-      const photoMatch = parsed.content.match(/\[PHOTO:(\d+)\]/);
-      if (photoMatch) {
-        const photoId = photoMatch[1];
-        const contentDiv = document.createElement("div");
-        contentDiv.className = "message-content photo-msg";
-        contentDiv.setAttribute('data-photo-id', photoId);
-        
-        const usernameSpan = document.createElement("span");
-        usernameSpan.textContent = parsed.username;
-        contentDiv.appendChild(usernameSpan);
-        
-        const loader = document.createElement("div");
-        loader.textContent = "[Loading photo...]";
-        loader.classList.add("photo-loading");
-        contentDiv.appendChild(loader);
-        
-        fetch(`/file/sign/${photoId}`, {
-          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-        })
-        .then(response => response.json())
-        .then(data => {
-          loader.remove();
-          const img = document.createElement("img");
-          img.src = data.url;
-          img.alt = "Photo";
-          img.loading = "lazy";
-          contentDiv.appendChild(img);
-        })
-        .catch(err => {
-          console.error("Failed to load photo:", err);
-          loader.textContent = "[Failed to load photo]";
-          loader.style.color = "#f00";
-        });
-        
-        msgWrapper.appendChild(contentDiv);
-        return msgWrapper;
-      }
-      
-      // [FILE:ID:category:filename]
-      const fileMatch = parsed.content.match(/\[FILE:(\d+):([^:]+):([^\]]+)\]/);
-      if (fileMatch) {
-        const fileId = fileMatch[1];
-        const category = fileMatch[2];
-        const filename = fileMatch[3];
-        
-        const contentDiv = document.createElement("div");
-        contentDiv.className = "message-content file-msg";
-        contentDiv.setAttribute('data-file-id', fileId);
-        
-        const usernameSpan = document.createElement("span");
-        usernameSpan.textContent = parsed.username;
-        usernameSpan.style.display = "block";
-        contentDiv.appendChild(usernameSpan);
-        
-        const loader = document.createElement("div");
-        loader.textContent = "[Loading file...]";
-        loader.classList.add("file-loading");
-        contentDiv.appendChild(loader);
-        
-        fetch(`/file/sign/${fileId}`, {
-          headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-        })
-        .then(response => response.json())
-        .then(data => {
-          loader.remove();
-          
-          const attachmentDiv = document.createElement("div");
-          attachmentDiv.className = "file-attachment";
-          
-          const icon = document.createElement("img");
-          icon.src = "/static/phasma_file.png";
-          icon.className = "file-icon";
-          icon.alt = "File";
-          attachmentDiv.appendChild(icon);
-          
-          const fileInfo = document.createElement("div");
-          fileInfo.className = "file-info";
-          
-          const fileNameSpan = document.createElement("div");
-          fileNameSpan.className = "file-name";
-          fileNameSpan.textContent = data.filename;
-          fileInfo.appendChild(fileNameSpan);
-          
-          attachmentDiv.appendChild(fileInfo);
-          
-          const downloadBtn = document.createElement("button");
-          downloadBtn.className = "file-download-btn";
-          downloadBtn.textContent = "â¬‡";
-          downloadBtn.onclick = function() {
-            window.open(data.url, '_blank');
-          };
-          attachmentDiv.appendChild(downloadBtn);
-          
-          contentDiv.appendChild(attachmentDiv);
-        })
-        .catch(err => {
-          console.error("Failed to load file:", err);
-          loader.textContent = "[Failed to load file]";
-          loader.style.color = "#f00";
-        });
-        
-        msgWrapper.appendChild(contentDiv);
-        return msgWrapper;
-      }
-      
-      // Text message
       const mainContent = document.createElement("div");
       mainContent.className = "message-content";
       
@@ -768,7 +554,7 @@
             loadMoreContainer.style.display = "none";
           }, 2000);
         } else {
-          loadMoreBtn.textContent = "â†‘ Load older messages";
+          loadMoreBtn.textContent = "↑ Load older messages";
         }
 
         if (!initialLoadDone) {
@@ -788,7 +574,7 @@
       })
       .catch(err => {
         console.error("Failed to load history:", err);
-        loadMoreBtn.textContent = "âš  Error - try again";
+        loadMoreBtn.textContent = "⚠ Error - try again";
         hasMoreHistory = true;
       })
       .finally(() => {
@@ -857,7 +643,6 @@
     console.log("[Init] Loading initial history...");
     loadHistory();
 
-    // ===== Message sending =====
     document.getElementById("in").addEventListener('keyup', function (e) {
       if (e.keyCode === 13) {
         const text = this.value;
@@ -898,7 +683,6 @@
       }
     });
 
-    // ===== File upload =====
     document.getElementById("upload-btn").addEventListener('click', function () {
       document.getElementById("file-input").click();
     });
@@ -933,7 +717,6 @@
       });
     });
 
-    // ===== Leave group =====
     document.getElementById("leave-btn").addEventListener('click', function() {
       if (confirm("Are you sure you want to leave this group?")) {
         fetch(`/api/groups/${GROUP_ID}/leave`, {

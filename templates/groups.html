@@ -366,19 +366,16 @@
   <script nonce="{{ nonce }}">
     const USER = {{ user|tojson }};
     
-    // КЛЮЧЕВОЙ МОМЕНТ: токен передается из Python шаблона
     let AUTH_TOKEN = null;
     
     {% if auth_token %}
-      // После логина: берем токен из переменной шаблона
       AUTH_TOKEN = {{ auth_token|tojson }};
       localStorage.setItem('auth_token', AUTH_TOKEN);
       localStorage.setItem('username', USER);
-      console.log('[OK] Token saved from login: ' + AUTH_TOKEN.substring(0, 20) + '...');
+      console.log('[OK] Token saved from template');
     {% else %}
-      // На странице /groups без логина: берем из localStorage
       AUTH_TOKEN = localStorage.getItem('auth_token');
-      console.log('[OK] Token from localStorage');
+      console.log('[OK] Token loaded from localStorage');
     {% endif %}
     
     if (!AUTH_TOKEN) {
@@ -386,7 +383,6 @@
       window.location.href = '/login';
     }
 
-    // ===== Modal Controls =====
     const createModal = document.getElementById('create-modal');
     const joinModal = document.getElementById('join-modal');
 
@@ -422,7 +418,6 @@
       joinModal.classList.remove('active');
     });
 
-    // Close modals on outside click
     createModal.addEventListener('click', (e) => {
       if (e.target === createModal) createModal.classList.remove('active');
     });
@@ -431,7 +426,6 @@
       if (e.target === joinModal) joinModal.classList.remove('active');
     });
 
-    // ===== Create Group =====
     document.getElementById('btn-submit-create').addEventListener('click', createGroup);
 
     function createGroup() {
@@ -443,7 +437,6 @@
       const errorDiv = document.getElementById('create-error');
       errorDiv.innerHTML = '';
 
-      // Validation
       if (!name || name.length < 3 || name.length > 50) {
         errorDiv.innerHTML = '<div class="error">Group name must be 3-50 characters</div>';
         return;
@@ -506,7 +499,6 @@
       });
     }
 
-    // ===== Join Group =====
     document.getElementById('btn-submit-join').addEventListener('click', joinGroup);
 
     function joinGroup() {
@@ -566,7 +558,6 @@
       });
     }
 
-    // ===== Load & Render Groups =====
     function loadGroups() {
       $.ajax({
         url: '/api/groups/list',
@@ -615,7 +606,6 @@
 
       list.innerHTML = html;
 
-      // Add event listeners
       document.querySelectorAll('.btn-enter').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -673,7 +663,6 @@
       });
     }
 
-    // ===== Logout =====
     document.getElementById('btn-logout').addEventListener('click', logout);
 
     function logout() {
@@ -704,7 +693,6 @@
       return div.innerHTML;
     }
 
-    // ===== Escape key to close modals =====
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         createModal.classList.remove('active');

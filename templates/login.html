@@ -1,13 +1,13 @@
-<!doctype html>
-<title>Login</title>
+<!doctype html>            
+<title>Login</title>       
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   body {
-    max-width: 500px;
-    margin-top: 90px;
-    margin-left: 700px;
-    padding: 1em;
-    background: black;
+    max-width: 500px;      
+    margin-top: 90px;      
+    margin-left: 700px;    
+    padding: 1em;          
+    background: black;     
     color: #fff;
     font: 16px/1.6 menlo, monospace;
   }
@@ -30,6 +30,15 @@
     margin: 1em 0;
     border-radius: 2px;
   }
+
+  .loading {
+    color: #0f0;
+    background: rgba(0, 255, 0, 0.1);
+    border: 1px solid #0f0;
+    padding: 0.8em;
+    margin: 1em 0;
+    border-radius: 2px;
+  }
 </style>
 <body>
   <div>
@@ -39,70 +48,99 @@
   
   <div id="error-msg"></div>
   
-  <form id="login-form" method="POST" action="/login">
+  <form id="login-form">  
     <p>Username: <input name="user" id="username" required autocomplete="username" /></p>
     <p>Password: <input type="password" name="password" id="password" required autocomplete="current-password" /></p>
-    <p><input type="submit" value="Log in" /></p>
+    <p><input type="submit" value="Log in" id="submit-btn" /></p>
   </form>
   <p>Don't have an account? <a href="/register">Register</a></p>
 
   <script nonce="{{ nonce }}">
-    // Очищаем старые токены при загрузке страницы логина
+    console.log('[Init] Login page loaded');
+    
+    // Очищаем старые токены
     localStorage.removeItem('auth_token');
     localStorage.removeItem('username');
+    localStorage.removeItem('current_group_token');
+    localStorage.removeItem('current_group_id');
     
     document.getElementById('login-form').addEventListener('submit', function(e) {
       e.preventDefault();
       
-      const username = document.getElementById('username').value;
+      const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
       const errorDiv = document.getElementById('error-msg');
+      const submitBtn = document.getElementById('submit-btn');
       
-      errorDiv.innerHTML = '';
+      console.log('[Login] Form submitted for user:', username);
+      
+      if (!username || !password) {
+        errorDiv.innerHTML = '<div class="error">Please enter username and password</div>';
+        return;
+      }
+      
+      errorDiv.innerHTML = '<div class="loading">Logging in...</div>';
+      submitBtn.disabled = true;
       
       const formData = new URLSearchParams();
       formData.append('user', username);
       formData.append('password', password);
+      
+      console.log('[Login] Sending POST request to /login');
       
       fetch('/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: formData.toString()
+        body: formData.toString(),
+        credentials: 'include'  // Включаем cookies
       })
       .then(response => {
+        console.log('[Login] Response status:', response.status);
+        
         if (!response.ok) {
-          return response.text().then(text => {
-            throw new Error(text);
+          return response.json().then(data => {
+            console.error('[Login] Server error:', data);
+            throw new Error(data.error || 'Login failed');
           });
         }
         return response.json();
       })
       .then(data => {
-        if (data.success && data.auth_token) {
-          const token = data.auth_token;
-          const user = data.username;
+        console.log('[Login] Response data:', data);
+        
+        if (data.success && data.token) {
+          console.log('[Login] Success! Token received:', data.token.substring(0, 20) + '...');
           
-          // Сохраняем в localStorage
-          localStorage.setItem('auth_token', token);
-          localStorage.setItem('username', user);
+          // Сохраняем токен и имя пользователя
+          localStorage.setItem('auth_token', data.token);
+          localStorage.setItem('username', data.username);
           
-          console.log('[OK] Login successful. Token saved.');
+          console.log('[Login] Saved to localStorage:');
+          console.log('  - auth_token:', localStorage.getItem('auth_token').substring(0, 20) + '...');
+          console.log('  - username:', localStorage.getItem('username'));
           
           // Очищаем форму
           document.getElementById('username').value = '';
           document.getElementById('password').value = '';
           
-          // Редирект на /groups
-          window.location.href = '/groups';
+          errorDiv.innerHTML = '<div class="loading">✓ Login successful! Redirecting...</div>';
+          
+          // Переходим на страницу групп через 500ms
+          console.log('[Login] Redirecting to:', data.redirect || '/groups');
+          setTimeout(() => {
+            window.location.href = data.redirect || '/groups';
+          }, 500);
         } else {
+          console.error('[Login] Invalid response:', data);
           throw new Error('Invalid response from server');
         }
       })
       .catch(error => {
-        console.error('[ERROR] Login failed:', error);
-        errorDiv.innerHTML = '<div class="error">' + error.message + '</div>';
+        console.error('[Login] Error caught:', error.message);
+        errorDiv.innerHTML = '<div class="error">✗ ' + error.message + '</div>';
+        submitBtn.disabled = false;
       });
     });
   </script>

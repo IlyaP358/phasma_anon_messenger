@@ -1379,15 +1379,30 @@ def delete_group(group_id: int) -> bool:
 # ===============================================================
 
 def extract_token_from_request() -> str or None:
+    """Извлекает токен из запроса (заголовок, форма, или cookie)"""
+    
+    # 1. Проверяем Authorization заголовок (Bearer)
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        return auth_header[7:]
+        token = auth_header[7:]
+        if token:
+            print(f"[DEBUG] Token from Authorization header: {token[:20]}...")
+            return token
     
+    # 2. Проверяем форму (для POST запросов)
     if request.method == "POST":
         token = request.form.get("token", "").strip()
         if token:
+            print(f"[DEBUG] Token from form: {token[:20]}...")
             return token
     
+    # 3. Проверяем cookie (для прямых переходов и GET запросов)
+    token = request.cookies.get("auth_token", "").strip()
+    if token:
+        print(f"[DEBUG] Token from cookie: {token[:20]}...")
+        return token
+    
+    print("[DEBUG] No token found in request (header, form, or cookie)")
     return None
 
 # ===============================================================
@@ -2183,7 +2198,7 @@ def login():
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
                 pass
-            return "INCORRECT username or password", 400
+            return jsonify({"error": "INCORRECT username or password"}), 400
 
         valid_password, password_error = validate_password(password)
         if not valid_password:
@@ -2191,7 +2206,7 @@ def login():
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
                 pass
-            return "INCORRECT username or password", 400
+            return jsonify({"error": "INCORRECT username or password"}), 400
 
         user = User.query.filter_by(username=username).first()
         if not user:
@@ -2199,21 +2214,29 @@ def login():
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
                 pass
-            return "INCORRECT username or password", 400
+            return jsonify({"error": "INCORRECT username or password"}), 400
 
         try:
             argon2Hasher.verify(user.password_hash, password)
             auth_token, old_token = generate_auth_token(username)
             
-            # Возвращаем JSON вместо HTML
-            return jsonify({
+            print(f"[OK] Login successful for {username}, token: {auth_token[:20]}...")
+            
+            # Создаем ответ с установкой cookie и JSON
+            response = make_response(jsonify({
                 "success": True,
-                "auth_token": auth_token,
-                "username": username
-            }), 200
+                "token": auth_token,
+                "username": username,
+                "redirect": "/groups"
+            }))
+            
+            # Устанавливаем cookie с токеном
+            response.set_cookie('auth_token', auth_token, max_age=AUTH_TOKEN_TTL, httponly=False, secure=is_production)
+            
+            return response, 200
             
         except VerifyMismatchError:
-            return "INCORRECT username or password", 400
+            return jsonify({"error": "INCORRECT username or password"}), 400
 
     nonce = generate_nonce()
     request._csp_nonce = nonce
@@ -2226,17 +2249,18 @@ def login():
 @app.route("/groups", methods=["GET"])
 @limiter.limit("30 per minute")
 def list_groups():
-    """Показывает список групп пользователя"""
     token = extract_token_from_request()
-    username = verify_token(token, strict_ip_check=False)  # ❗ Ослабляем проверку IP
+    
+    print(f"[DEBUG] Token from extract_token_from_request: {token[:20] if token else 'None'}...")
+    
+    if not token:
+        token = request.cookies.get('auth_token', '').strip()
+        print(f"[DEBUG] Token from cookies: {token[:20] if token else 'None'}...")
+    
+    username = verify_token(token, strict_ip_check=False)
     
     if not username:
         print(f"[WARN] User not authenticated. Token: {token[:20] if token else 'None'}...")
-        
-        # Проверяем, может быть это Fetch без Bearer?
-        if request.method == 'GET' and not token:
-            print("[INFO] No token in request. Redirecting to login.")
-        
         return redirect("/login")
     
     print(f"[OK] User {username} accessing /groups")
@@ -2251,13 +2275,18 @@ def list_groups():
         print(f"[ERROR] Failed to get user groups: {e}")
         user_groups = []
     
-    return render_template(
+    response = make_response(render_template(
         "groups.html", 
         user=username, 
         groups=user_groups, 
         nonce=nonce,
-        auth_token=None
-    )
+        auth_token=None  # Передаем None, т.к. токен уже в cookie
+    ))
+    
+    if token:
+        response.set_cookie('auth_token', token, max_age=AUTH_TOKEN_TTL, httponly=False, secure=is_production)
+    
+    return response
 
 @app.route("/api/groups/list", methods=["GET"])
 @limiter.limit("20 per minute")
