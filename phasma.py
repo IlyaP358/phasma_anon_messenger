@@ -2540,19 +2540,9 @@ def api_delete_group(group_id: int):
         print(f"[ERROR] Failed to delete group: {e}")
         return jsonify({"error": "Failed to delete group"}), 500
 
-# ===============================================================
-# ---- ШАГ 7: ДОБАВЛЕНИЕ ROUTE ДЛЯ ОТОБРАЖЕНИЯ ЧАТА ----
-# ===============================================================
 @app.route("/group/<int:group_id>/chat")
 @limiter.limit("100 per minute")
 def group_chat(group_id: int):
-    """
-    Страница чата группы
-    ИСПРАВЛЕНИЕ: 
-    - Генерируем групповую сессию
-    - Передаём её в шаблон в переменной
-    - Клиент немедленно использует её
-    """
     token = extract_token_from_request()
     username = verify_token(token, strict_ip_check=False)
     
@@ -2560,24 +2550,25 @@ def group_chat(group_id: int):
         print(f"[WARN] Unauthenticated access to /group/{group_id}/chat")
         return redirect("/login")
     
-    # Проверяем, что пользователь в группе
     if not is_user_in_group(username, group_id):
         print(f"[SECURITY] User {username} tried to access group {group_id} without membership")
         return redirect("/groups")
     
     print(f"[OK] User {username} entering group {group_id} chat")
     
-    # ИСПРАВЛЕНИЕ: Генерируем групповую сессию И передаём токен в шаблон
+    group = Group.query.filter_by(id=group_id).first()
+    group_name = group.name if group else "Unknown Group"
+    
     group_session_token = generate_group_session_token(username, group_id)
     
     nonce = generate_nonce()
     request._csp_nonce = nonce
     
-    # Передаём групповой токен в шаблон, чтобы клиент мог его немедленно использовать
     return render_template("group_chat.html", 
-                         auth_token=group_session_token,  # ← ГЛАВНОЕ ИСПРАВЛЕНИЕ
+                         auth_token=group_session_token,
                          user=username, 
                          group_id=group_id,
+                         group_name=group_name,
                          nonce=nonce)
 
 # ===============================================================

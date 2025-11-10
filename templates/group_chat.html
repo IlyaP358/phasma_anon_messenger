@@ -5,13 +5,22 @@
   <link rel="icon" type="image/png" href="/static/icon.png">
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
   <style>
-    body {
-      max-width: 500px;
-      margin: auto;
+    * {
+      margin: 0;
       padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
       background: black;
       color: #fff;
       font: 16px/1.6 menlo, monospace;
+      height: 100vh;
+    }
+    
+    .chat-wrapper {
+      max-width: 500px;
+      margin: auto;
       display: flex;
       flex-direction: column;
       height: 100vh;
@@ -118,23 +127,27 @@
       background: #333;
     }
     
+    #file-input {
+      display: none;
+    }
+    
     #leave-btn {
-      width: 48%;
-      margin-top: 0.5em;
       background: #500;
       color: #fff;
       border: 1px solid #a00;
-      padding: 0.5em;
+      padding: 0.5em 0.8em;
       font: inherit;
       cursor: pointer;
+      transition: all 0.2s;
+      position: fixed;
+      top: 0;
+      right: 0;
+      z-index: 10000;
+      margin: 0;
     }
     
     #leave-btn:hover {
       background: #a00;
-    }
-    
-    #file-input {
-      display: none;
     }
     
     .message {
@@ -288,33 +301,37 @@
   </style>
 </head>
 <body>
-  <div class="chat-header">
-    <div class="chat-header-left">
-      <h3 id="group-name">Loading...</h3>
-      <div class="chat-user-badge">🔤 <span id="chat-user">...</span></div>
+  <button id="leave-btn">↤ Leave Group</button>
+  
+  <div class="chat-wrapper">
+    <div class="chat-header">
+      <div class="chat-header-left">
+        <h3 id="group-name">Loading...</h3>
+        <div class="chat-user-badge">🔤 <span id="chat-user">...</span></div>
+      </div>
     </div>
-  </div>
 
-  <div id="out">
-    <div id="load-more-container">
-      <button id="load-more-btn">↓ Load older messages</button>
+    <div id="out">
+      <div id="load-more-container">
+        <button id="load-more-btn">↓ Load older messages</button>
+      </div>
+      <div id="messages-container"></div>
     </div>
-    <div id="messages-container"></div>
-  </div>
 
-  <div id="input-container">
-    <b>Sending as: <span id="input-user">...</span></b><br>
-    Message: <input type="text" id="in" autocomplete="off" />
-    <button id="upload-btn">+ upload file</button>
-    <button id="leave-btn">↤ Leave Group</button>
-    
-    <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
+    <div id="input-container">
+      <b>Sending as: <span id="input-user">...</span></b><br>
+      Message: <input type="text" id="in" autocomplete="off" />
+      <button id="upload-btn">+ upload file</button>
+      
+      <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
+    </div>
   </div>
 
   <script nonce="{{ nonce }}">
     const GROUP_ID = {{ group_id|tojson }};
     const TEMPLATE_USER = {{ user|tojson }};
     const TEMPLATE_GROUP_TOKEN = {{ auth_token|tojson }};
+    const GROUP_NAME = {{ group_name|tojson }};
     
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
@@ -376,7 +393,7 @@
       
       document.getElementById('chat-user').textContent = CURRENT_USER;
       document.getElementById('input-user').textContent = CURRENT_USER;
-      document.getElementById('group-name').textContent = 'Group #' + GROUP_ID;
+      document.getElementById('group-name').textContent = GROUP_NAME;
       
       console.log('[Setup] Chat interface ready');
     }
@@ -954,7 +971,7 @@
       const user = getCurrentUser();
       if (!user) return;
 
-      if (confirm("Are you sure you want to leave this group?")) {
+      if (confirm("Warning: If you leave this group, it will be removed from your personal account and you won't be able to access it anymore. Are you sure?")) {
         fetch(`/api/groups/${GROUP_ID}/leave`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
