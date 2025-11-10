@@ -249,6 +249,7 @@
       width: 32px;
       height: 32px;
       flex-shrink: 0;
+      object-fit: contain;
     }
     
     .file-info {
@@ -269,10 +270,11 @@
       background: #0ff;
       color: #000;
       border: none;
-      padding: 3px 8px;
-      font: 11px monospace;
+      padding: 4px 8px;
+      font: 14px monospace;
       cursor: pointer;
       font-weight: bold;
+      line-height: 1;
     }
     
     .file-download-btn:hover {
@@ -289,7 +291,7 @@
   <div class="chat-header">
     <div class="chat-header-left">
       <h3 id="group-name">Loading...</h3>
-      <div class="chat-user-badge">👤 <span id="chat-user">...</span></div>
+      <div class="chat-user-badge">🔤 <span id="chat-user">...</span></div>
     </div>
   </div>
 
@@ -304,7 +306,7 @@
     <b>Sending as: <span id="input-user">...</span></b><br>
     Message: <input type="text" id="in" autocomplete="off" />
     <button id="upload-btn">+ upload file</button>
-    <button id="leave-btn">← Leave Group</button>
+    <button id="leave-btn">↤ Leave Group</button>
     
     <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
   </div>
@@ -312,7 +314,7 @@
   <script nonce="{{ nonce }}">
     const GROUP_ID = {{ group_id|tojson }};
     const TEMPLATE_USER = {{ user|tojson }};
-    const TEMPLATE_GROUP_TOKEN = {{ auth_token|tojson }};  // ← НОВОЕ
+    const TEMPLATE_GROUP_TOKEN = {{ auth_token|tojson }};
     
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
@@ -320,20 +322,18 @@
     
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
     console.log('[Init] Template user:', TEMPLATE_USER);
-    console.log('[Init] Template group token:', TEMPLATE_GROUP_TOKEN ? TEMPLATE_GROUP_TOKEN.substring(0, 20) + '...' : 'NONE');  // ← НОВОЕ
+    console.log('[Init] Template group token:', TEMPLATE_GROUP_TOKEN ? TEMPLATE_GROUP_TOKEN.substring(0, 20) + '...' : 'NONE');
     
     // ========== ИНИЦИАЛИЗАЦИЯ ==========
     function initChat() {
       console.log('[Auth] Initializing chat authentication...');
       
-      // Получаем токен и пользователя
       AUTH_TOKEN = localStorage.getItem('auth_token');
       CURRENT_USER = localStorage.getItem('username');
       
       console.log('[Auth] Auth token:', AUTH_TOKEN ? AUTH_TOKEN.substring(0, 20) + '...' : 'NONE');
       console.log('[Auth] Current user:', CURRENT_USER);
       
-      // Критическая проверка: убеждаемся, что это правильный пользователь
       if (!AUTH_TOKEN || !CURRENT_USER) {
         console.error('[Security] No auth token or username in localStorage');
         alert('Session lost. Please login again.');
@@ -341,7 +341,6 @@
         return false;
       }
       
-      // Проверяем, что пользователь совпадает с шаблоном (это то, что сервер прислал)
       if (TEMPLATE_USER && TEMPLATE_USER !== CURRENT_USER) {
         console.error('[Security] Template user mismatch!');
         console.error('[Security] Template:', TEMPLATE_USER, 'Current:', CURRENT_USER);
@@ -350,14 +349,12 @@
         return false;
       }
       
-      // ИСПРАВЛЕНИЕ: Используем токен, переданный сервером в шаблоне
       if (TEMPLATE_GROUP_TOKEN) {
         console.log('[Auth] Using group token from template');
         GROUP_SESSION_TOKEN = TEMPLATE_GROUP_TOKEN;
         localStorage.setItem(`group_session_${GROUP_ID}`, GROUP_SESSION_TOKEN);
         console.log('[Auth] Group session token saved from template');
       } else {
-        // Fallback на старый механизм если токена нет в шаблоне
         console.log('[Auth] No token in template, trying localStorage...');
         GROUP_SESSION_TOKEN = localStorage.getItem(`group_session_${GROUP_ID}`) ||
                              localStorage.getItem('current_group_token') ||
@@ -377,7 +374,6 @@
     function setupChat() {
       console.log('[Setup] Setting up chat interface...');
       
-      // Обновляем интерфейс
       document.getElementById('chat-user').textContent = CURRENT_USER;
       document.getElementById('input-user').textContent = CURRENT_USER;
       document.getElementById('group-name').textContent = 'Group #' + GROUP_ID;
@@ -464,7 +460,7 @@
     const loadMoreBtn = document.getElementById("load-more-btn");
     const loadMoreContainer = document.getElementById("load-more-container");
 
-    // ========== УПРАВЛЕНИЕ СЕССИЕЙ ==========
+    // ========== ПРОВЕРКА СЕССИИ ==========
     let sessionCheckFailed = 0;
     
     function checkSessionValidity() {
@@ -490,7 +486,6 @@
           return;
         }
         
-        // Успешная проверка - сбрасываем счётчик
         sessionCheckFailed = 0;
         
         if (data.valid && data.type === 'group' && data.group_id !== GROUP_ID) {
@@ -508,7 +503,6 @@
       });
     }
 
-    // Проверяем сессию каждые 15 секунд
     setInterval(checkSessionValidity, 15000);
 
     function parseMessageData(data) {
@@ -621,21 +615,93 @@
       const mainContent = document.createElement("div");
       mainContent.className = "message-content";
       
-      const textDiv = document.createElement("div");
-      textDiv.className = "message-text";
-      textDiv.textContent = `${parsed.username}: ${parsed.content}`;
-      mainContent.appendChild(textDiv);
-      
-      if (parsed.urls && Object.keys(parsed.urls).length > 0) {
-        const previewsContainer = document.createElement("div");
-        previewsContainer.className = "url-previews";
-        
-        for (const [url, preview] of Object.entries(parsed.urls)) {
-          const card = createURLPreviewCard(url, preview);
-          previewsContainer.appendChild(card);
+      // Проверяем, это ли PHOTO сообщение [PHOTO:file_id:url]
+      if (parsed.content.startsWith("[PHOTO:")) {
+        const photoMatch = parsed.content.match(/^\[PHOTO:(\d+):(.+)\]$/);
+        if (photoMatch) {
+          const fileId = photoMatch[1];
+          const url = photoMatch[2];
+          
+          const photoDiv = document.createElement("div");
+          photoDiv.className = "photo-msg";
+          photoDiv.textContent = `${parsed.username}: `;
+          
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "Photo";
+          img.loading = "lazy";
+          img.onerror = () => {
+            img.style.display = 'none';
+          };
+          img.onclick = () => window.open(url, '_blank');
+          
+          photoDiv.appendChild(img);
+          mainContent.appendChild(photoDiv);
         }
+      }
+      // Проверяем, это ли FILE сообщение [FILE:file_id:category:filename:url]
+      else if (parsed.content.startsWith("[FILE:")) {
+        const fileMatch = parsed.content.match(/^\[FILE:(\d+):([^:]+):(.+?):(.+)\]$/);
+        if (fileMatch) {
+          const fileId = fileMatch[1];
+          const category = fileMatch[2];
+          const filename = fileMatch[3];
+          const url = fileMatch[4];
+          
+          const fileDiv = document.createElement("div");
+          fileDiv.className = "file-msg";
+          
+          const fileAttachment = document.createElement("div");
+          fileAttachment.className = "file-attachment";
+          
+          const fileIcon = document.createElement("img");
+          fileIcon.className = "file-icon";
+          fileIcon.src = "/static/phasma_file.png";
+          fileIcon.alt = "File";
+          
+          const fileInfo = document.createElement("div");
+          fileInfo.className = "file-info";
+          const fileName = document.createElement("div");
+          fileName.className = "file-name";
+          fileName.textContent = `${parsed.username}: ${filename}`;
+          fileInfo.appendChild(fileName);
+          
+          const downloadBtn = document.createElement("button");
+          downloadBtn.className = "file-download-btn";
+          downloadBtn.textContent = "↓";
+          downloadBtn.onclick = () => {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+          };
+          
+          fileAttachment.appendChild(fileIcon);
+          fileAttachment.appendChild(fileInfo);
+          fileAttachment.appendChild(downloadBtn);
+          
+          fileDiv.appendChild(fileAttachment);
+          mainContent.appendChild(fileDiv);
+        }
+      }
+      // Обычное текстовое сообщение
+      else {
+        const textDiv = document.createElement("div");
+        textDiv.className = "message-text";
+        textDiv.textContent = `${parsed.username}: ${parsed.content}`;
+        mainContent.appendChild(textDiv);
         
-        mainContent.appendChild(previewsContainer);
+        if (parsed.urls && Object.keys(parsed.urls).length > 0) {
+          const previewsContainer = document.createElement("div");
+          previewsContainer.className = "url-previews";
+          
+          for (const [url, preview] of Object.entries(parsed.urls)) {
+            const card = createURLPreviewCard(url, preview);
+            previewsContainer.appendChild(card);
+          }
+          
+          mainContent.appendChild(previewsContainer);
+        }
       }
       
       msgWrapper.appendChild(mainContent);
