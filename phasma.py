@@ -2132,8 +2132,18 @@ def format_message_for_sse(msg: Message) -> str:
 @limiter.limit("5 per 15 minutes", methods=["POST"])
 def register():
     if request.method == "POST":
-        username = request.form.get("user", "").strip()
-        password = request.form.get("password", "").strip()
+        # Для AJAX запросов возвращаем JSON
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        
+        if request.is_json:
+            data = request.get_json()
+            username = data.get("user", "").strip()
+            password = data.get("password", "").strip()
+        else:
+            username = request.form.get("user", "").strip()
+            password = request.form.get("password", "").strip()
+        
+        print(f"[DEBUG] Register POST: username='{username}', password_len={len(password)}, is_ajax={is_ajax}")
 
         valid_username, username_error = validate_username(username)
         if not valid_username:
@@ -2141,7 +2151,13 @@ def register():
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
                 pass
+            
+            print(f"[WARN] Invalid username: {username_error}")
+            if is_ajax:
+                return jsonify({"error": username_error}), 400
+            
             nonce = generate_nonce()
+            request._csp_nonce = nonce
             return render_template("register.html", nonce=nonce, error=username_error), 400
 
         valid_password, password_error = validate_password(password)
@@ -2150,20 +2166,48 @@ def register():
                 argon2Hasher.verify(DUMMY_HASH, password)
             except:
                 pass
+            
+            print(f"[WARN] Invalid password: {password_error}")
+            if is_ajax:
+                return jsonify({"error": password_error}), 400
+            
             nonce = generate_nonce()
+            request._csp_nonce = nonce
             return render_template("register.html", nonce=nonce, error=password_error), 400
 
-        if User.query.filter_by(username=username).first():
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            print(f"[WARN] User already exists: {username}")
+            if is_ajax:
+                return jsonify({"error": "A user with this name already EXISTS."}), 400
+            
             nonce = generate_nonce()
+            request._csp_nonce = nonce
             return render_template("register.html", nonce=nonce, error="A user with this name already EXISTS."), 400
 
-        password_hash = argon2Hasher.hash(password)
-        db.session.add(User(username=username, password_hash=password_hash))
-        db.session.commit()
-        
-        return redirect("/login")
+        try:
+            password_hash = argon2Hasher.hash(password)
+            new_user = User(username=username, password_hash=password_hash)
+            db.session.add(new_user)
+            db.session.commit()
+            
+            print(f"[OK] User registered: {username}")
+            
+            if is_ajax:
+                return jsonify({"success": True, "message": "Account created successfully!"}), 201
+            
+            return redirect("/login")
+        except Exception as e:
+            db.session.rollback()
+            print(f"[ERROR] Registration failed: {e}")
+            if is_ajax:
+                return jsonify({"error": "Registration failed. Please try again."}), 500
+            nonce = generate_nonce()
+            request._csp_nonce = nonce
+            return render_template("register.html", nonce=nonce, error="Registration failed. Please try again."), 500
 
     nonce = generate_nonce()
+    request._csp_nonce = nonce
     return render_template("register.html", nonce=nonce)
 
 @app.route("/login", methods=["GET", "POST"])

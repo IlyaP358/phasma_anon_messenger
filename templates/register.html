@@ -21,17 +21,226 @@
     height: auto;
     z-index: -1;
   }
+
+  .error {
+    color: #f00;
+    background: rgba(255, 0, 0, 0.1);
+    border: 1px solid #f00;
+    padding: 0.8em;
+    margin: 1em 0;
+    border-radius: 2px;
+  }
+
+  .success {
+    color: #0f0;
+    background: rgba(0, 255, 0, 0.1);
+    border: 1px solid #0f0;
+    padding: 0.8em;
+    margin: 1em 0;
+    border-radius: 2px;
+  }
+
+  .loading {
+    color: #0ff;
+    background: rgba(0, 255, 255, 0.1);
+    border: 1px solid #0ff;
+    padding: 0.8em;
+    margin: 1em 0;
+    border-radius: 2px;
+  }
+
+  .requirements {
+    color: #888;
+    font-size: 12px;
+    margin-top: 0.5em;
+    line-height: 1.5;
+  }
+
+  .requirement-met {
+    color: #0f0;
+  }
+
+  .requirement-unmet {
+    color: #f00;
+  }
+
+  input[type="submit"] {
+    cursor: pointer;
+  }
+
+  input[type="submit"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 </style>
 <body>
   <div>
     <img src="/static/phisma_title.png" alt="kartinka ERROR" class="logo">
   </div>
   <h2>Registration</h2>
-  <form action="" method="post">
-    <p>Username: <input name="user" required /></p>
-    <p>Password: <input type="password" name="password" required /></p>
-    <p><input type="submit" value="Create account" /></p>
+  
+  <div id="message-box"></div>
+  
+  <form id="register-form">
+    <p>
+      Username: 
+      <input type="text" name="user" id="username" required autocomplete="username" />
+    </p>
+    <div id="username-requirements" class="requirements"></div>
+
+    <p>
+      Password: 
+      <input type="password" name="password" id="password" required autocomplete="new-password" />
+    </p>
+    <div id="password-requirements" class="requirements"></div>
+
+    <p>
+      <input type="submit" value="Create account" id="submit-btn" />
+    </p>
   </form>
   <p>Already have acc? <a href="/login">Log in</a></p>
+
+  <script nonce="{{ nonce }}">
+    console.log('[Init] Register page loaded');
+
+    const USERNAME_MIN = 3;
+    const USERNAME_MAX = 32;
+    const PASSWORD_MIN = 8;
+    const PASSWORD_MAX = 128;
+
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const messageBox = document.getElementById('message-box');
+    const submitBtn = document.getElementById('submit-btn');
+    const usernameReqs = document.getElementById('username-requirements');
+    const passwordReqs = document.getElementById('password-requirements');
+
+    // Проверка требований username в реальном времени
+    usernameInput.addEventListener('input', function() {
+      const username = this.value.trim();
+      let html = '';
+
+      const validLength = username.length >= USERNAME_MIN && username.length <= USERNAME_MAX;
+      html += `<div class="${validLength ? 'requirement-met' : 'requirement-unmet'}">
+        ${validLength ? '✓' : '✗'} Length: ${username.length}/${USERNAME_MIN}-${USERNAME_MAX} characters
+      </div>`;
+
+      const validChars = /^[a-zA-Z0-9_-]*$/.test(username);
+      html += `<div class="${validChars ? 'requirement-met' : 'requirement-unmet'}">
+        ${validChars ? '✓' : '✗'} Only letters, numbers, underscores, hyphens
+      </div>`;
+
+      usernameReqs.innerHTML = html;
+    });
+
+    // Проверка требований password в реальном времени
+    passwordInput.addEventListener('input', function() {
+      const password = this.value;
+      let html = '';
+
+      const validLength = password.length >= PASSWORD_MIN && password.length <= PASSWORD_MAX;
+      html += `<div class="${validLength ? 'requirement-met' : 'requirement-unmet'}">
+        ${validLength ? '✓' : '✗'} Length: ${password.length}/${PASSWORD_MIN}-${PASSWORD_MAX} characters
+      </div>`;
+
+      passwordReqs.innerHTML = html;
+    });
+
+    document.getElementById('register-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+
+      console.log('[Register] Form submitted for user:', username);
+
+      // Валидация на клиенте
+      if (!username) {
+        messageBox.innerHTML = '<div class="error">✗ Username cannot be empty</div>';
+        return;
+      }
+
+      if (username.length < USERNAME_MIN) {
+        messageBox.innerHTML = `<div class="error">✗ Username must be at least ${USERNAME_MIN} characters</div>`;
+        return;
+      }
+
+      if (username.length > USERNAME_MAX) {
+        messageBox.innerHTML = `<div class="error">✗ Username must not exceed ${USERNAME_MAX} characters</div>`;
+        return;
+      }
+
+      if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+        messageBox.innerHTML = '<div class="error">✗ Username can only contain letters, numbers, underscores, and hyphens</div>';
+        return;
+      }
+
+      if (!password) {
+        messageBox.innerHTML = '<div class="error">✗ Password cannot be empty</div>';
+        return;
+      }
+
+      if (password.length < PASSWORD_MIN) {
+        messageBox.innerHTML = `<div class="error">✗ Password must be at least ${PASSWORD_MIN} characters</div>`;
+        return;
+      }
+
+      if (password.length > PASSWORD_MAX) {
+        messageBox.innerHTML = `<div class="error">✗ Password must not exceed ${PASSWORD_MAX} characters</div>`;
+        return;
+      }
+
+      messageBox.innerHTML = '<div class="loading">Creating account...</div>';
+      submitBtn.disabled = true;
+
+      console.log('[Register] Sending POST request to /register');
+      console.log('[Register] Username:', username);
+      console.log('[Register] Password length:', password.length);
+
+      fetch('/register', {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user: username,
+          password: password
+        })
+      })
+      .then(response => {
+        console.log('[Register] Response status:', response.status);
+        return response.json().then(data => {
+          return { status: response.status, data: data };
+        });
+      })
+      .then(result => {
+        if (result.status === 201 || result.status === 200) {
+          console.log('[Register] Success! Account created for:', username);
+          messageBox.innerHTML = '<div class="success">✓ ' + result.data.message + ' Redirecting to login...</div>';
+          
+          usernameInput.value = '';
+          passwordInput.value = '';
+          usernameReqs.innerHTML = '';
+          passwordReqs.innerHTML = '';
+
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 1500);
+        } else if (result.status === 400) {
+          console.error('[Register] Server error:', result.data.error);
+          messageBox.innerHTML = `<div class="error">✗ ${result.data.error}</div>`;
+          submitBtn.disabled = false;
+        } else {
+          throw new Error(`HTTP ${result.status}`);
+        }
+      })
+      .catch(error => {
+        console.error('[Register] Error caught:', error.message);
+        messageBox.innerHTML = '<div class="error">✗ An error occurred. Please try again.</div>';
+        submitBtn.disabled = false;
+      });
+    });
+  </script>
 </body>
 </html>
