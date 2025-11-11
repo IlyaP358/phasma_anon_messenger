@@ -2614,6 +2614,85 @@ def group_chat(group_id: int):
                          group_id=group_id,
                          group_name=group_name,
                          nonce=nonce)
+    
+@app.route("/api/groups/<int:group_id>/members", methods=["GET"])
+@limiter.limit("30 per minute")
+def api_get_group_members(group_id: int):
+    """Try to get members group data"""
+    token = extract_token_from_request()
+    session = verify_group_session(token)
+    
+    if not session:
+        return abort(401)
+    
+    if session['group_id'] != group_id:
+        return abort(403)
+    
+    username = session['username']
+    
+    if not is_user_in_group(username, group_id):
+        return abort(403)
+    
+    try:
+        members = GroupMember.query.filter_by(group_id=group_id).all()
+        
+        online_members_bytes = r.smembers(f"group_members:online:{group_id}")
+        online_members = set()
+        for m in online_members_bytes:
+            if isinstance(m, bytes):
+                online_members.add(m.decode("utf-8"))
+            else:
+                online_members.add(m)
+        
+        members_list = []
+        for member in members:
+            is_online = member.username in online_members
+            members_list.append({
+                'username': member.username,
+                'role': member.role,
+                'joined_at': member.format_time(),
+                'is_online': is_online
+            })
+        
+        # Сортируем: онлайн вверху, потом creator, потом остальные
+        members_list.sort(key=lambda x: (not x['is_online'], x['role'] != 'creator', x['username']))
+        
+        return jsonify({
+            'members': members_list,
+            'total': len(members_list)
+        }), 200
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get group members: {e}")
+        return jsonify({"error": "Failed to get members"}), 500
+
+@app.route("/api/groups/<int:group_id>/members/online", methods=["POST"])
+@limiter.limit("60 per minute")
+def api_set_member_online(group_id: int):
+    """Отметить юзера как онлайн в группе"""
+    token = extract_token_from_request()
+    session = verify_group_session(token)
+
+    if not session:
+        return abort(401)
+
+    if session['group_id'] != group_id:
+        return abort(403)
+
+    username = session['username']
+
+    if not is_user_in_group(username, group_id):
+        return abort(403)
+
+    try:
+        # Добавляем в Redis set онлайн юзеров
+        r.sadd(f"group_members:online:{group_id}", username)
+        r.expire(f"group_members:online:{group_id}", 300)  # 5 минут TTL
+
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        print(f"[ERROR] Failed to set member online: {e}")
+        return jsonify({"error": "Failed to update status"}), 500
 
 # ===============================================================
 # ---- Chat message routes (для групп) ----
@@ -3099,4 +3178,4 @@ if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])
+    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])
