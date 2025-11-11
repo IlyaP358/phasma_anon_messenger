@@ -241,6 +241,21 @@
       cursor: pointer;
       display: block;
     }
+
+    .video-msg {
+      color: #0ff;
+      margin-top: 0.5em;
+    }
+
+    .video-player {
+      max-width: 100%;
+      max-height: 400px;
+      background: #000;
+      border-radius: 4px;
+      border: 1px solid #0ff;
+      margin-top: 0.5em;
+      display: block;
+    }
     
     .file-msg {
       color: #0ff;
@@ -307,7 +322,7 @@
     <div class="chat-header">
       <div class="chat-header-left">
         <h3 id="group-name">Loading...</h3>
-        <div class="chat-user-badge">🔤 <span id="chat-user">...</span></div>
+        <div class="chat-user-badge">📤 <span id="chat-user">...</span></div>
       </div>
     </div>
 
@@ -417,7 +432,7 @@
       return CURRENT_USER;
     }
 
-    // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С СООБЩЕНИЯМИ ==========
+    // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ВРЕМЕНЕМ ==========
     function formatLocalTime(timestamp) {
       try {
         const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
@@ -632,8 +647,28 @@
       const mainContent = document.createElement("div");
       mainContent.className = "message-content";
       
+      // Проверяем, это ли VIDEO сообщение [VIDEO:file_id:url]
+      if (parsed.content.startsWith("[VIDEO:")) {
+        const videoMatch = parsed.content.match(/^\[VIDEO:(\d+):(.+)\]$/);
+        if (videoMatch) {
+          const fileId = videoMatch[1];
+          const url = videoMatch[2];
+          
+          const videoDiv = document.createElement("div");
+          videoDiv.className = "video-msg";
+          videoDiv.textContent = `${parsed.username}: `;
+          
+          const video = document.createElement("video");
+          video.className = "video-player";
+          video.src = url;
+          video.controls = true;
+          
+          videoDiv.appendChild(video);
+          mainContent.appendChild(videoDiv);
+        }
+      }
       // Проверяем, это ли PHOTO сообщение [PHOTO:file_id:url]
-      if (parsed.content.startsWith("[PHOTO:")) {
+      else if (parsed.content.startsWith("[PHOTO:")) {
         const photoMatch = parsed.content.match(/^\[PHOTO:(\d+):(.+)\]$/);
         if (photoMatch) {
           const fileId = photoMatch[1];

@@ -2111,22 +2111,17 @@ def format_message_for_sse(msg: Message) -> str:
             if file_record:
                 signed_data = generate_signed_file_url(file_record.file_token)
                 file_url = f"/file/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
-                return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_url}]"
+                
+                if category == 'video':
+                    return f"[{ts}] {msg.username}: [VIDEO:{file_id}:{file_url}]"
+                else:
+                    return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_url}]"
             else:
-                return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
+                if category == 'video':
+                    return f"[{ts}] {msg.username}: [VIDEO:{file_id}]"
+                else:
+                    return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
         return f"[{ts}] {msg.username}: [FILE]"
-    
-    else:
-        # Text message
-        plain_data = msg.get_plain()
-        if isinstance(plain_data, dict):
-            sanitized_content = plain_data.get('text', '')
-            url_previews = plain_data.get('urls', {})
-            return f"[{ts}] {msg.username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
-        elif isinstance(plain_data, str):
-            return f"[{ts}] {msg.username}: {plain_data}|URLS:{{}}"
-        else:
-            return f"[{ts}] {msg.username}: [INVALID MESSAGE]"
 
 @app.route("/register", methods=["GET", "POST"])
 @limiter.limit("5 per 15 minutes", methods=["POST"])
@@ -2778,9 +2773,6 @@ def stream_group(group_id: int):
 def history_group(group_id: int):
     """
     Загрузить историю сообщений группы
-    ИСПРАВЛЕНИЯ:
-    - Лучше обработка ошибок
-    - Автоматическое продление сессии
     """
     token = extract_token_from_request()
     
@@ -2865,9 +2857,16 @@ def history_group(group_id: int):
                 filename = plain.get('filename', 'file')
                 
                 if file_id in file_urls:
-                    message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_urls[file_id]['url']}]"
+                    # НОВОЕ: используй VIDEO для видео файлов
+                    if category == 'video':
+                        message_text = f"[{ts}] {msg.username}: [VIDEO:{file_id}:{file_urls[file_id]['url']}]"
+                    else:
+                        message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_urls[file_id]['url']}]"
                 else:
-                    message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
+                    if category == 'video':
+                        message_text = f"[{ts}] {msg.username}: [VIDEO:{file_id}]"
+                    else:
+                        message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
             else:
                 message_text = f"[{ts}] {msg.username}: [FILE]"
         
