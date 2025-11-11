@@ -2103,23 +2103,28 @@ def format_message_for_sse(msg: Message) -> str:
         plain = msg.get_plain()
         if isinstance(plain, dict) and 'file_id' in plain:
             file_id = plain['file_id']
-            category = plain.get('category', 'file')
-            filename = plain.get('filename', 'file')
-            
             file_record = File.query.filter_by(id=file_id).first()
             
             if file_record:
                 signed_data = generate_signed_file_url(file_record.file_token)
                 file_url = f"/file/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
+                category = plain.get('category', 'file')
                 
-                if category == 'video':
+                if category == 'audio':
+                    return f"[{ts}] {msg.username}: [AUDIO:{file_id}:{file_url}]"
+                elif category == 'video':
                     return f"[{ts}] {msg.username}: [VIDEO:{file_id}:{file_url}]"
                 else:
+                    filename = plain.get('filename', 'file')
                     return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_url}]"
             else:
-                if category == 'video':
+                category = plain.get('category', 'file')
+                if category == 'audio':
+                    return f"[{ts}] {msg.username}: [AUDIO:{file_id}]"
+                elif category == 'video':
                     return f"[{ts}] {msg.username}: [VIDEO:{file_id}]"
                 else:
+                    filename = plain.get('filename', 'file')
                     return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
         return f"[{ts}] {msg.username}: [FILE]"
 
@@ -2857,13 +2862,17 @@ def history_group(group_id: int):
                 filename = plain.get('filename', 'file')
                 
                 if file_id in file_urls:
-                    # НОВОЕ: используй VIDEO для видео файлов
-                    if category == 'video':
+                    # НОВОЕ: Обработка аудио
+                    if category == 'audio':
+                        message_text = f"[{ts}] {msg.username}: [AUDIO:{file_id}:{file_urls[file_id]['url']}]"
+                    elif category == 'video':
                         message_text = f"[{ts}] {msg.username}: [VIDEO:{file_id}:{file_urls[file_id]['url']}]"
                     else:
                         message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_urls[file_id]['url']}]"
                 else:
-                    if category == 'video':
+                    if category == 'audio':
+                        message_text = f"[{ts}] {msg.username}: [AUDIO:{file_id}]"
+                    elif category == 'video':
                         message_text = f"[{ts}] {msg.username}: [VIDEO:{file_id}]"
                     else:
                         message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
@@ -2900,9 +2909,6 @@ def history_group(group_id: int):
 def upload_to_group(group_id: int):
     """
     Загрузить файл в группу
-    ИСПРАВЛЕНИЯ:
-    - Лучше обработка ошибок
-    - Автоматическое продление сессии
     """
     token = extract_token_from_request()
     
@@ -2965,11 +2971,6 @@ def upload_to_group(group_id: int):
         "message_id": message.id,
         "category": file_record.file_category
     }), 200
-
-# ===============================================================
-# ---- КОНЕЦ ШАГА 4 ----
-# ===============================================================
-
 
 @app.route("/file/sign/<int:file_id>", methods=["GET"])
 @limiter.limit("20 per minute")

@@ -256,6 +256,29 @@
       margin-top: 0.5em;
       display: block;
     }
+
+    .audio-msg {
+      color: #70FFA9;
+      margin-top: 0.5em;
+      font-weight: bold;
+    }
+
+    .audio-player {
+      width: 100%;
+      max-width: 280px;
+      height: 32px;
+      margin-top: 0.5em;
+      border: 2px solid #70FFA9;
+      border-radius: 2px;
+      background: linear-gradient(to bottom, #2a2a00, #1a1a00);
+      font-family: menlo, monospace;
+      cursor: pointer;
+    }
+
+    .audio-player:hover {
+      border-color: #ffff00;
+      box-shadow: 0 0 8px rgba(255, 255, 0, 0.4);
+    }
     
     .file-msg {
       color: #0ff;
@@ -432,7 +455,7 @@
       return CURRENT_USER;
     }
 
-    // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ВРЕМЕНЕМ ==========
+    // ========== ФУНКЦИИ ДЛЯ РАБОТЫ СО ВРЕМЕНЕМ ==========
     function formatLocalTime(timestamp) {
       try {
         const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
@@ -647,8 +670,29 @@
       const mainContent = document.createElement("div");
       mainContent.className = "message-content";
       
-      // Проверяем, это ли VIDEO сообщение [VIDEO:file_id:url]
-      if (parsed.content.startsWith("[VIDEO:")) {
+      // Проверяем AUDIO сообщение [AUDIO:file_id:url]
+      if (parsed.content.startsWith("[AUDIO:")) {
+        const audioMatch = parsed.content.match(/^\[AUDIO:(\d+):(.+)\]$/);
+        if (audioMatch) {
+          const fileId = audioMatch[1];
+          const url = audioMatch[2];
+          
+          const audioDiv = document.createElement("div");
+          audioDiv.className = "audio-msg";
+          audioDiv.textContent = `${parsed.username}: `;
+          
+          const audio = document.createElement("audio");
+          audio.className = "audio-player";
+          audio.src = url;
+          audio.controls = true;
+          audio.preload = "metadata";
+          
+          audioDiv.appendChild(audio);
+          mainContent.appendChild(audioDiv);
+        }
+      }
+      // Проверяем VIDEO сообщение [VIDEO:file_id:url]
+      else if (parsed.content.startsWith("[VIDEO:")) {
         const videoMatch = parsed.content.match(/^\[VIDEO:(\d+):(.+)\]$/);
         if (videoMatch) {
           const fileId = videoMatch[1];
@@ -667,7 +711,7 @@
           mainContent.appendChild(videoDiv);
         }
       }
-      // Проверяем, это ли PHOTO сообщение [PHOTO:file_id:url]
+      // Проверяем PHOTO сообщение [PHOTO:file_id:url]
       else if (parsed.content.startsWith("[PHOTO:")) {
         const photoMatch = parsed.content.match(/^\[PHOTO:(\d+):(.+)\]$/);
         if (photoMatch) {
@@ -691,7 +735,7 @@
           mainContent.appendChild(photoDiv);
         }
       }
-      // Проверяем, это ли FILE сообщение [FILE:file_id:category:filename:url]
+      // Проверяем FILE сообщение [FILE:file_id:category:filename:url]
       else if (parsed.content.startsWith("[FILE:")) {
         const fileMatch = parsed.content.match(/^\[FILE:(\d+):([^:]+):(.+?):(.+)\]$/);
         if (fileMatch) {
