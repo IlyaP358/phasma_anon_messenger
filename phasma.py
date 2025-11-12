@@ -1049,8 +1049,6 @@ def verify_token(token: str, strict_ip_check: bool = False) -> str or None:
     """
     Проверяет токен аутентификации и возвращает username или None
     
-    strict_ip_check: если False (по умолчанию), пропускаем строгую проверку IP
-    ИСПРАВЛЕНИЕ: IP проверка теперь мягче
     """
     if not token:
         return None
@@ -1079,9 +1077,12 @@ def verify_token(token: str, strict_ip_check: bool = False) -> str or None:
         # Мягкая проверка - только логируем изменения
         if current_subnet != "local" and stored_subnet != "local" and stored_subnet != current_subnet:
             print(f"[INFO] IP changed for {username}: {stored_subnet} → {current_subnet}")
-            # Обновляем IP в токене
+            # Обновляем IP в токене, но не отзываем его
             new_token_data = f"{username}|{current_subnet}"
-            r.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, new_token_data.encode("utf-8"))
+            # Получаем оставшееся время жизни токена
+            ttl = r.ttl(f"auth_token:{token}")
+            if ttl > 0:
+                r.setex(f"auth_token:{token}", ttl, new_token_data.encode("utf-8"))
     
     return username
 
@@ -1118,9 +1119,6 @@ def generate_group_code() -> str:
 def verify_group_session(token: str) -> dict or None:
     """
     Проверяет групповую сессию и возвращает {username, group_id, ip_subnet} или None
-    
-    ИСПРАВЛЕНИЕ: Убрана жёсткая проверка IP (она блокировала легальные запросы)
-    Вместо этого логируем изменения IP но не отклоняем запрос
     """
     if not token:
         print(f"[WARN] Empty token in verify_group_session")
@@ -1142,12 +1140,21 @@ def verify_group_session(token: str) -> dict or None:
     stored_subnet = session_data.get('ip_subnet')
     
     if stored_subnet and stored_subnet != current_subnet:
-        # Это может быть просто мобильный пользователь с меняющимся IP
-        # Логируем, но НЕ отклоняем
         print(f"[INFO] IP changed for {session_data.get('username')}: {stored_subnet} → {current_subnet}")
-        # Обновляем IP в сессии для следующей проверки
+        # Обновляем IP в сессии
         session_data['ip_subnet'] = current_subnet
-        r.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(session_data).encode("utf-8"))
+        session_data['last_activity'] = int(time.time())
+        
+        # Получаем оставшееся время жизни
+        ttl = r.ttl(f"group_session:{token}")
+        if ttl > 0:
+            r.setex(f"group_session:{token}", ttl, json.dumps(session_data).encode("utf-8"))
+    else:
+        # Просто обновляем time activity
+        session_data['last_activity'] = int(time.time())
+        ttl = r.ttl(f"group_session:{token}")
+        if ttl > 0:
+            r.setex(f"group_session:{token}", ttl, json.dumps(session_data).encode("utf-8"))
     
     return session_data
 
@@ -2600,10 +2607,21 @@ def group_chat(group_id: int):
     
     print(f"[OK] User {username} entering group {group_id} chat")
     
+    # Mark user online in this group
+    mark_user_online_in_group(username, group_id)
+    mark_user_online_global(username)
+    
     group = Group.query.filter_by(id=group_id).first()
     group_name = group.name if group else "Unknown Group"
     
-    group_session_token = generate_group_session_token(username, group_id)
+    existing_session_bytes = r.get(f"user_group_session:{username}:{group_id}")
+    if existing_session_bytes:
+        # Используем существующую сессию
+        group_session_token = existing_session_bytes.decode("utf-8")
+        print(f"[OK] Reusing existing group session for {username} in group {group_id}")
+    else:
+        # Создаем новую сессию
+        group_session_token = generate_group_session_token(username, group_id)
     
     nonce = generate_nonce()
     request._csp_nonce = nonce
@@ -2618,7 +2636,7 @@ def group_chat(group_id: int):
 @app.route("/api/groups/<int:group_id>/members", methods=["GET"])
 @limiter.limit("30 per minute")
 def api_get_group_members(group_id: int):
-    """Try to get members group data"""
+    """Get members with correct online status"""
     token = extract_token_from_request()
     session = verify_group_session(token)
     
@@ -2636,17 +2654,11 @@ def api_get_group_members(group_id: int):
     try:
         members = GroupMember.query.filter_by(group_id=group_id).all()
         
-        online_members_bytes = r.smembers(f"group_members:online:{group_id}")
-        online_members = set()
-        for m in online_members_bytes:
-            if isinstance(m, bytes):
-                online_members.add(m.decode("utf-8"))
-            else:
-                online_members.add(m)
-        
         members_list = []
         for member in members:
-            is_online = member.username in online_members
+            # Check if user is online globally
+            is_online = is_user_online_global(member.username)
+            
             members_list.append({
                 'username': member.username,
                 'role': member.role,
@@ -2654,7 +2666,7 @@ def api_get_group_members(group_id: int):
                 'is_online': is_online
             })
         
-        # Сортируем: онлайн вверху, потом creator, потом остальные
+        # Sort: online first, then creator, then by username
         members_list.sort(key=lambda x: (not x['is_online'], x['role'] != 'creator', x['username']))
         
         return jsonify({
@@ -2669,7 +2681,6 @@ def api_get_group_members(group_id: int):
 @app.route("/api/groups/<int:group_id>/members/online", methods=["POST"])
 @limiter.limit("60 per minute")
 def api_set_member_online(group_id: int):
-    """Отметить юзера как онлайн в группе"""
     token = extract_token_from_request()
     session = verify_group_session(token)
 
@@ -2685,13 +2696,31 @@ def api_set_member_online(group_id: int):
         return abort(403)
 
     try:
-        # Добавляем в Redis set онлайн юзеров
-        r.sadd(f"group_members:online:{group_id}", username)
-        r.expire(f"group_members:online:{group_id}", 300)  # 5 минут TTL
+        # Mark online in this group
+        mark_user_online_in_group(username, group_id)
+        # Also mark online globally
+        mark_user_online_global(username)
 
         return jsonify({"success": True}), 200
     except Exception as e:
         print(f"[ERROR] Failed to set member online: {e}")
+        return jsonify({"error": "Failed to update status"}), 500
+
+@app.route("/api/user/online", methods=["POST"])
+@limiter.limit("30 per minute")
+def api_mark_user_online():
+    """Mark user as online (global heartbeat from groups.html)"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    success = mark_user_online_global(username)
+    
+    if success:
+        return jsonify({"success": True}), 200
+    else:
         return jsonify({"error": "Failed to update status"}), 500
 
 # ===============================================================
@@ -2755,6 +2784,65 @@ def event_stream_group(group_id: int):
             except Exception:
                 data = str(data)
         yield f"data: {data}\n\n"
+
+# ===============================================================
+# ---- ONLINE STATUS MANAGEMENT ----
+# ===============================================================
+
+def mark_user_online_global(username: str) -> bool:
+    """Mark user as online globally (heartbeat)"""
+    try:
+        # Set TTL to 60 seconds - if user closes browser, auto-cleanup
+        r.setex(f"online_users:{username}", 60, str(int(time.time())))
+        print(f"[OK] User {username} marked online (global)")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to mark user online: {e}")
+        return False
+
+def mark_user_online_in_group(username: str, group_id: int) -> bool:
+    """Mark user as online in specific group"""
+    try:
+        r.sadd(f"group_members:online:{group_id}", username)
+        r.expire(f"group_members:online:{group_id}", 60)
+        print(f"[OK] User {username} marked online in group {group_id}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to mark user online in group: {e}")
+        return False
+
+def mark_user_offline_global(username: str) -> bool:
+    """Mark user as offline globally"""
+    try:
+        r.delete(f"online_users:{username}")
+        print(f"[OK] User {username} marked offline (global)")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to mark user offline: {e}")
+        return False
+
+def mark_user_offline_from_all_groups(username: str) -> bool:
+    """Remove user from all group online lists"""
+    try:
+        # Get all group IDs user is member of
+        members = GroupMember.query.filter_by(username=username).all()
+        
+        for member in members:
+            r.srem(f"group_members:online:{member.group_id}", username)
+        
+        print(f"[OK] User {username} removed from all group online lists")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to mark user offline from groups: {e}")
+        return False
+
+def is_user_online_global(username: str) -> bool:
+    """Check if user is online globally"""
+    try:
+        return r.exists(f"online_users:{username}") > 0
+    except Exception as e:
+        print(f"[ERROR] Failed to check user online status: {e}")
+        return False
 
 @app.route("/group/<int:group_id>/post", methods=["POST"])
 @limiter.limit("30 per minute")
@@ -3144,9 +3232,25 @@ def get_file(file_token: str):
 @app.route("/logout", methods=["POST"])
 def logout():
     token = extract_token_from_request()
+    
     if token:
+        # Получаем username ДО удаления токена
+        token_data_bytes = r.get(f"auth_token:{token}")
+        if token_data_bytes:
+            token_data = token_data_bytes.decode("utf-8")
+            if '|' in token_data:
+                username = token_data.split('|')[0]
+            else:
+                username = token_data
+            
+            # Mark offline
+            mark_user_offline_global(username)
+            mark_user_offline_from_all_groups(username)
+        
+        # Отзываем токены
         revoke_token(token)
-        revoke_group_session(token) # Также отзываем сессию группы
+        revoke_group_session(token)
+    
     return "", 204
 
 @app.route("/verify-session", methods=["GET"])
@@ -3178,4 +3282,4 @@ if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])
+    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])

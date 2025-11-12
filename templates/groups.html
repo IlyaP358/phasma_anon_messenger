@@ -315,7 +315,6 @@
   </style>
 </head>
 <body>
-  <!-- TOP BAR С ИНФОРМАЦИЕЙ О ПОЛЬЗОВАТЕЛЕ -->
   <div class="top-bar">
     <div class="user-info">
       <div class="user-label">Logged in as:</div>
@@ -404,6 +403,8 @@
   <script nonce="{{ nonce }}">
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
+    let ONLINE_HEARTBEAT_INTERVAL = null;
+    let isUnloading = false;
     
     const createModal = document.getElementById('create-modal');
     const joinModal = document.getElementById('join-modal');
@@ -412,7 +413,6 @@
     function initAuth() {
       console.log('[Auth] Initializing authentication...');
       
-      // Получаем токен из localStorage или cookie
       AUTH_TOKEN = localStorage.getItem('auth_token');
       CURRENT_USER = localStorage.getItem('username');
       
@@ -425,10 +425,8 @@
         return false;
       }
       
-      // Обновляем отображение пользователя
       document.getElementById('current-user').textContent = CURRENT_USER;
       
-      // Проверяем валидность сессии с сервером
       verifySessionWithServer();
       
       return true;
@@ -451,22 +449,22 @@
         }
       }).catch(err => {
         console.warn('[Auth] Could not verify session:', err);
-        // Продолжаем, сервер может быть временно недоступен
       });
     }
 
     function handleSessionExpired() {
+      isUnloading = true;
+      clearInterval(ONLINE_HEARTBEAT_INTERVAL);
       localStorage.removeItem('auth_token');
       localStorage.removeItem('username');
       alert('Your session has expired. Please login again.');
       window.location.href = '/login';
     }
 
-    // ========== ПРОВЕРКА ПОЛЬЗОВАТЕЛЯ ПЕРЕД ДЕЙСТВИЯМИ ==========
     function getCurrentUser() {
       const stored = localStorage.getItem('username');
       if (stored !== CURRENT_USER) {
-        console.error('[Security] User mismatch! Stored:', stored, 'Current:', CURRENT_USER);
+        console.error('[Security] User mismatch!');
         handleSessionExpired();
         return null;
       }
@@ -483,7 +481,29 @@
       return AUTH_TOKEN;
     }
 
-    // ========== МОДАЛКИ ==========
+    // ========== ONLINE STATUS HEARTBEAT ==========
+    function sendOnlineHeartbeat() {
+      const user = getCurrentUser();
+      const token = getAuthToken();
+      
+      if (!user || !token) return;
+
+      fetch('/api/user/online', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(err => {
+        console.warn('[Online] Failed to send heartbeat:', err);
+      });
+    }
+
+    function startOnlineHeartbeat() {
+      console.log('[Online] Starting heartbeat (every 20 seconds)');
+      
+      sendOnlineHeartbeat();
+      ONLINE_HEARTBEAT_INTERVAL = setInterval(sendOnlineHeartbeat, 20000);
+    }
+
+    // ========== МОДАЛИ ==========
     document.getElementById('btn-create').addEventListener('click', () => {
       if (!getCurrentUser()) return;
       createModal.classList.add('active');
@@ -581,7 +601,7 @@
           max_members: maxMembers
         }),
         success: function(response) {
-          console.log('[Groups] Group created by', user, ':', response.group_code);
+          console.log('[Groups] Group created:', response.group_code);
           errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
           setTimeout(() => {
             createModal.classList.remove('active');
@@ -639,12 +659,11 @@
           password: password
         }),
         success: function(response) {
-          console.log('[Groups] User', user, 'joined group:', code);
+          console.log('[Groups] Joined group:', code);
           errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
           
           if (response.session_token) {
             localStorage.setItem(`group_session_${response.group_id}`, response.session_token);
-            console.log('[Groups] Saved session token for group', response.group_id);
           }
           
           setTimeout(() => {
@@ -722,8 +741,7 @@
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           const groupId = btn.getAttribute('data-group-id');
-          const groupCode = btn.getAttribute('data-group-code');
-          enterGroup(groupId, groupCode);
+          enterGroup(groupId);
         });
       });
 
@@ -737,17 +755,11 @@
     }
 
     // ========== ВХОД В ЧАТ ГРУППЫ ==========
-    function enterGroup(groupId, groupCode) {
+    function enterGroup(groupId) {
       const user = getCurrentUser();
       if (!user) return;
 
-      console.log('[Groups] User', user, 'entering group', groupId);
-      
-      // Сохраняем username при входе в группу
-      localStorage.setItem(`group_user_${groupId}`, user);
-      localStorage.setItem('current_group_id', groupId);
-      localStorage.setItem('current_group_user', user);
-      
+      console.log('[Groups] User entering group', groupId);
       window.location.href = `/group/${groupId}/chat`;
     }
 
@@ -769,7 +781,7 @@
           root_password: rootPassword
         }),
         success: function(response) {
-          console.log('[Groups] Group deleted by', user);
+          console.log('[Groups] Group deleted');
           alert('✓ ' + response.message);
           loadGroups();
         },
@@ -800,22 +812,23 @@
         return;
       }
 
+      isUnloading = true;
+      clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+
       $.ajax({
         url: '/logout',
         type: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         complete: function() {
-          console.log('[Auth] User', user, 'logged out');
+          console.log('[Auth] User logged out');
           localStorage.removeItem('auth_token');
           localStorage.removeItem('username');
-          localStorage.removeItem('current_group_token');
-          localStorage.removeItem('current_group_id');
-          localStorage.removeItem('current_group_user');
           
           Object.keys(localStorage).forEach(key => {
             if (key.startsWith('group_token_') || 
                 key.startsWith('group_session_') ||
-                key.startsWith('group_user_')) {
+                key.startsWith('group_user_') ||
+                key.startsWith('current_group')) {
               localStorage.removeItem(key);
             }
           });
@@ -838,10 +851,19 @@
       }
     });
 
+    // Cleanup on page unload - НЕ вызываем logout при обновлении
+    window.addEventListener('beforeunload', function () {
+      if (!isUnloading) {
+        // При обновлении просто очищаем интервалы, но НЕ отзываем токен
+        clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+      }
+    });
+
     // ========== INIT ==========
     console.log('[Init] Starting groups page...');
     if (initAuth()) {
       loadGroups();
+      startOnlineHeartbeat();
       setInterval(loadGroups, 10000);
       setInterval(verifySessionWithServer, 30000);
     }

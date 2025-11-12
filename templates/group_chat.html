@@ -342,13 +342,7 @@
     .file-download-btn:hover {
       background: #0aa;
     }
-    
-    .file-loading, .photo-loading {
-      color: #888;
-      font-style: italic;
-    }
 
-    /* ===== SIDEBAR с участниками ===== */
     .members-sidebar {
       width: 220px;
       background: #0a1a0a;
@@ -446,7 +440,6 @@
       font-style: italic;
     }
 
-    /* Скролл для sidebar */
     #members-list::-webkit-scrollbar {
       width: 6px;
     }
@@ -464,7 +457,6 @@
       background: #0f0;
     }
 
-    /* Скролл для чата */
     #out::-webkit-scrollbar {
       width: 6px;
     }
@@ -511,7 +503,6 @@
       </div>
     </div>
 
-    <!-- SIDEBAR с участниками -->
     <div class="members-sidebar">
       <div class="members-header">
         Members <span class="members-count" id="members-count">(0)</span>
@@ -529,6 +520,9 @@
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
     let GROUP_SESSION_TOKEN = null;
+    let MEMBERS_UPDATE_INTERVAL = null;
+    let ONLINE_HEARTBEAT_INTERVAL = null;
+    let isUnloading = false;
     
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
     
@@ -569,13 +563,16 @@
       document.getElementById('group-name').textContent = GROUP_NAME;
       
       loadMembers();
-      setInterval(loadMembers, 3000);
+      MEMBERS_UPDATE_INTERVAL = setInterval(loadMembers, 3000);
       
-      markUserOnline();
-      setInterval(markUserOnline, 30000);
+      sendOnlineHeartbeat();
+      ONLINE_HEARTBEAT_INTERVAL = setInterval(sendOnlineHeartbeat, 20000);
     }
 
     function handleSessionExpired() {
+      isUnloading = true;
+      clearInterval(MEMBERS_UPDATE_INTERVAL);
+      clearInterval(ONLINE_HEARTBEAT_INTERVAL);
       alert('Your session has expired. Please login again.');
       localStorage.removeItem('auth_token');
       localStorage.removeItem('username');
@@ -660,7 +657,8 @@
       membersList.innerHTML = html;
     }
 
-    function markUserOnline() {
+    // ========== ONLINE HEARTBEAT ==========
+    function sendOnlineHeartbeat() {
       const user = getCurrentUser();
       if (!user) return;
 
@@ -669,7 +667,7 @@
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
       })
       .catch(err => {
-        console.warn('[Members] Failed to mark online:', err);
+        console.warn('[Online] Failed to send heartbeat:', err);
       });
     }
 
@@ -679,7 +677,7 @@
       return div.innerHTML;
     }
 
-    // ========== ФУНКЦИИ ДЛЯ ВРЕМЕНИ ==========
+    // ========== ФУНКЦИИ ДЛЯ СООБЩЕНИЙ ==========
     function formatLocalTime(timestamp) {
       try {
         const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
@@ -1131,29 +1129,35 @@
 
     document.getElementById("leave-btn").addEventListener('click', function() {
       if (confirm("Warning: If you leave this group, it will be removed from your personal account. Are you sure?")) {
+        isUnloading = true;
         fetch(`/api/groups/${GROUP_ID}/leave`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
         }).then(response => {
           if (response.ok) {
+            clearInterval(MEMBERS_UPDATE_INTERVAL);
+            clearInterval(ONLINE_HEARTBEAT_INTERVAL);
             alert("You have left the group.");
             window.location.href = "/groups";
           } else {
             alert("Failed to leave group.");
+            isUnloading = false;
           }
         }).catch(err => {
           console.error("Leave group error:", err);
           alert("An error occurred.");
+          isUnloading = false;
         });
       }
     });
 
+    // ВАЖНО: Обновление страницы - НЕ вызываем logout, только очищаем интервалы
     window.addEventListener('beforeunload', function () {
-      fetch('/logout', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-        keepalive: true
-      });
+      if (!isUnloading) {
+        // Просто очищаем интервалы, но НЕ отзываем токен
+        clearInterval(MEMBERS_UPDATE_INTERVAL);
+        clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+      }
     });
 
     if (initChat()) {
