@@ -2614,6 +2614,7 @@ def group_chat(group_id: int):
     group = Group.query.filter_by(id=group_id).first()
     group_name = group.name if group else "Unknown Group"
     
+    # Проверяем, есть ли уже сессия для этого пользователя в этой группе
     existing_session_bytes = r.get(f"user_group_session:{username}:{group_id}")
     if existing_session_bytes:
         # Используем существующую сессию
@@ -2626,12 +2627,33 @@ def group_chat(group_id: int):
     nonce = generate_nonce()
     request._csp_nonce = nonce
     
-    return render_template("group_chat.html", 
-                         auth_token=group_session_token,
-                         user=username, 
-                         group_id=group_id,
-                         group_name=group_name,
-                         nonce=nonce)
+    response = make_response(render_template(
+        "group_chat.html", 
+        auth_token=group_session_token,
+        user=username, 
+        group_id=group_id,
+        group_name=group_name,
+        nonce=nonce
+    ))
+    
+    # Устанавливаем правильный CSP с nonce
+    response.headers['Content-Security-Policy'] = (
+        f"default-src 'self'; "
+        f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
+        f"style-src 'self' 'unsafe-inline'; "
+        f"img-src 'self' data: https:; "
+        f"media-src 'self'; "
+        f"connect-src 'self';"
+    )
+    
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    
+    if is_production:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    
+    return response
     
 @app.route("/api/groups/<int:group_id>/members", methods=["GET"])
 @limiter.limit("30 per minute")
