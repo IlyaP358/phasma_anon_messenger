@@ -400,14 +400,40 @@
     </div>
   </div>
 
+  <!-- Delete Group Modal (НОВЫЙ) -->
+  <div id="delete-modal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" id="close-delete">&times;</button>
+      <div class="modal-header">Delete Group</div>
+      
+      <div id="delete-error"></div>
+      
+      <p style="color: #ccc; margin-bottom: 1.5em;">
+        ⚠️ This action cannot be undone. All messages and files will be permanently deleted.
+      </p>
+      
+      <div class="form-group">
+        <label>Root Password</label>
+        <input type="password" id="delete-password" placeholder="Enter root password" />
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-danger" id="btn-confirm-delete">Delete Group</button>
+        <button class="btn btn-secondary" id="btn-cancel-delete">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script nonce="{{ nonce }}">
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
     let ONLINE_HEARTBEAT_INTERVAL = null;
     let isUnloading = false;
+    let currentDeleteGroupId = null;
     
     const createModal = document.getElementById('create-modal');
     const joinModal = document.getElementById('join-modal');
+    const deleteModal = document.getElementById('delete-modal');
 
     // ========== ИНИЦИАЛИЗАЦИЯ И ПРОВЕРКА СЕССИИ ==========
     function initAuth() {
@@ -538,12 +564,30 @@
       joinModal.classList.remove('active');
     });
 
+    // Delete modal handlers (НОВОЕ)
+    document.getElementById('close-delete').addEventListener('click', () => {
+      deleteModal.classList.remove('active');
+      currentDeleteGroupId = null;
+    });
+
+    document.getElementById('btn-cancel-delete').addEventListener('click', () => {
+      deleteModal.classList.remove('active');
+      currentDeleteGroupId = null;
+    });
+
     createModal.addEventListener('click', (e) => {
       if (e.target === createModal) createModal.classList.remove('active');
     });
 
     joinModal.addEventListener('click', (e) => {
       if (e.target === joinModal) joinModal.classList.remove('active');
+    });
+
+    deleteModal.addEventListener('click', (e) => {
+      if (e.target === deleteModal) {
+        deleteModal.classList.remove('active');
+        currentDeleteGroupId = null;
+      }
     });
 
     // ========== СОЗДАНИЕ ГРУППЫ ==========
@@ -749,7 +793,7 @@
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           const groupId = btn.getAttribute('data-group-id');
-          deleteGroup(groupId);
+          openDeleteModal(groupId);
         });
       });
     }
@@ -763,38 +807,78 @@
       window.location.href = `/group/${groupId}/chat`;
     }
 
-    // ========== УДАЛЕНИЕ ГРУППЫ ==========
-    function deleteGroup(groupId) {
+    // ========== УДАЛЕНИЕ ГРУППЫ (ИСПРАВЛЕНО) ==========
+    function openDeleteModal(groupId) {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      currentDeleteGroupId = groupId;
+      deleteModal.classList.add('active');
+      document.getElementById('delete-error').innerHTML = '';
+      document.getElementById('delete-password').value = '';
+    }
+
+    document.getElementById('btn-confirm-delete').addEventListener('click', confirmDeleteGroup);
+
+    function confirmDeleteGroup() {
       const user = getCurrentUser();
       const token = getAuthToken();
-      if (!user || !token) return;
+      if (!user || !token || !currentDeleteGroupId) return;
 
-      const rootPassword = prompt('Enter root password to delete this group:');
-      if (!rootPassword) return;
+      const password = document.getElementById('delete-password').value;
+      const errorDiv = document.getElementById('delete-error');
+      
+      errorDiv.innerHTML = '';
 
+      if (!password) {
+        errorDiv.innerHTML = '<div class="error">Please enter root password</div>';
+        return;
+      }
+
+      errorDiv.innerHTML = '<div class="loading">Deleting group...</div>';
+
+      // ИСПРАВЛЕНИЕ: Теперь используем основной auth token
       $.ajax({
-        url: `/api/groups/${groupId}/delete`,
+        url: `/api/groups/${currentDeleteGroupId}/delete`,
         type: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         contentType: 'application/json',
         data: JSON.stringify({
-          root_password: rootPassword
+          root_password: password
         }),
         success: function(response) {
           console.log('[Groups] Group deleted');
-          alert('✓ ' + response.message);
-          loadGroups();
+          errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
+          setTimeout(() => {
+            deleteModal.classList.remove('active');
+            currentDeleteGroupId = null;
+            loadGroups();
+          }, 1500);
         },
         error: function(xhr) {
+          console.log('[Delete] Response status:', xhr.status);
+          
+          // ИСПРАВЛЕНИЕ: Точная проверка кода ошибки
           if (xhr.status === 401) {
             handleSessionExpired();
             return;
           }
+          
+          if (xhr.status === 403) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              errorDiv.innerHTML = '<div class="error">✗ ' + response.error + '</div>';
+            } catch (e) {
+              errorDiv.innerHTML = '<div class="error">✗ Access denied</div>';
+            }
+            return;
+          }
+          
           try {
             const response = JSON.parse(xhr.responseText);
-            alert('✗ ' + response.error);
+            errorDiv.innerHTML = '<div class="error">✗ ' + response.error + '</div>';
           } catch (e) {
-            alert('✗ Failed to delete group');
+            errorDiv.innerHTML = '<div class="error">✗ Failed to delete group</div>';
           }
         }
       });
@@ -848,13 +932,14 @@
       if (e.key === 'Escape') {
         createModal.classList.remove('active');
         joinModal.classList.remove('active');
+        deleteModal.classList.remove('active');
+        currentDeleteGroupId = null;
       }
     });
 
-    // Cleanup on page unload - НЕ вызываем logout при обновлении
+    // Cleanup on page unload
     window.addEventListener('beforeunload', function () {
       if (!isUnloading) {
-        // При обновлении просто очищаем интервалы, но НЕ отзываем токен
         clearInterval(ONLINE_HEARTBEAT_INTERVAL);
       }
     });

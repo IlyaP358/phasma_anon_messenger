@@ -1341,42 +1341,92 @@ def get_group_info(group_id: int, include_members: bool = False) -> dict or None
         return None
 
 def delete_group(group_id: int) -> bool:
-    """Удаляет группу и ВСЕ её сообщения и участников"""
+    """Удаляет группу и ВСЕ её сообщения, участников и файлы"""
     try:
         group = Group.query.filter_by(id=group_id).first()
         if not group:
             return False
         
-        # Удаляешь всех участников
+        group_name = group.name
+        group_code = group.group_code
+        
+        print(f"[INFO] Starting deletion of group {group_id} ({group_name}#{group_code})")
+        
+        print(f"[INFO] Finding files to delete...")
+        messages = Message.query.filter_by(group_id=group_id).all()
+        file_ids_to_delete = []
+        
+        for msg in messages:
+            if msg.message_type in ('photo', 'file'):
+                try:
+                    plain = msg.get_plain()
+                    if isinstance(plain, dict) and 'file_id' in plain:
+                        file_ids_to_delete.append(plain['file_id'])
+                except Exception as e:
+                    print(f"[WARN] Could not parse file_id from message {msg.id}: {e}")
+        
+        # ШАГ 2: Удаляем файлы с диска
+        if file_ids_to_delete:
+            print(f"[INFO] Deleting {len(file_ids_to_delete)} files from disk...")
+            files = File.query.filter(File.id.in_(file_ids_to_delete)).all()
+            for file_record in files:
+                file_path = os.path.join(UPLOAD_FOLDER, file_record.filename)
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"[OK] Deleted file: {file_path}")
+                    except Exception as e:
+                        print(f"[WARN] Failed to delete file {file_path}: {e}")
+            
+            # Удаляем записи файлов из БД
+            File.query.filter(File.id.in_(file_ids_to_delete)).delete(synchronize_session=False)
+            db.session.flush()
+            print(f"[OK] File records deleted from DB")
+        
+        # ШАГ 3: Удаляем все сообщения группы
+        print(f"[INFO] Deleting messages for group {group_id}...")
+        Message.query.filter_by(group_id=group_id).delete(synchronize_session=False)
+        db.session.flush()
+        print(f"[OK] Messages deleted")
+        
+        # ШАГ 4: Удаляем всех участников группы
+        print(f"[INFO] Deleting members for group {group_id}...")
         members = GroupMember.query.filter_by(group_id=group_id).all()
         for member in members:
-            # Отзываешь их сессии
+            # Отзываем их сессии
             session_token_bytes = r.get(f"user_group_session:{member.username}:{group_id}")
             if session_token_bytes:
                 revoke_group_session(session_token_bytes.decode("utf-8"))
-            # Удаляешь из БД
-            db.session.delete(member)
         
-        # Удаляешь все сообщения группы
-        messages = Message.query.filter_by(group_id=group_id).all()
-        for message in messages:
-            db.session.delete(message)
+        # Удаляем всех членов одним запросом
+        GroupMember.query.filter_by(group_id=group_id).delete(synchronize_session=False)
+        db.session.flush()
+        print(f"[OK] Members deleted")
         
-        # Удаляешь саму группу
-        db.session.delete(group)
+        # ШАГ 5: Удаляем саму группу
+        print(f"[INFO] Deleting group {group_id}...")
+        Group.query.filter_by(id=group_id).delete(synchronize_session=False)
+        db.session.flush()
+        print(f"[OK] Group row deleted")
+        
+        # ШАГ 6: Коммитим все изменения
         db.session.commit()
+        print(f"[OK] Transaction committed")
         
-        # Удаляешь из Redis
+        # ШАГ 7: Удаляем из Redis
         r.delete(f"group_members:{group_id}")
         r.delete(f"group_members:online:{group_id}")
         r.delete(f"chat:group:{group_id}")
         
-        print(f"[OK] Group {group_id} deleted completely")
+        print(f"[OK] Group {group_id} deleted completely with all messages, members and files")
         return True
     except Exception as e:
         db.session.rollback()
         print(f"[ERROR] Failed to delete group: {e}")
+        import traceback
+        traceback.print_exc()
         return False
+
 # ===============================================================
 # ---- КОНЕЦ ДОБАВЛЕНИЯ HELPER ФУНКЦИЙ ----
 # ===============================================================
@@ -2545,11 +2595,12 @@ def api_leave_group(group_id: int):
 @app.route("/api/groups/<int:group_id>/delete", methods=["POST"])
 @limiter.limit("5 per hour")
 def api_delete_group(group_id: int):
-    """Удаление группы (только для создателя с рут-паролем)"""
+    # Используем основной auth токен, не групповой
     token = extract_token_from_request()
     username = verify_token(token)
     
     if not username:
+        print(f"[WARN] Delete attempt without valid auth token")
         return jsonify({"error": "Unauthorized"}), 401
     
     data = request.get_json()
@@ -2567,24 +2618,31 @@ def api_delete_group(group_id: int):
         if not group:
             return jsonify({"error": "Group not found"}), 404
         
-        # Проверяешь что это создатель
+        # Сохраняем информацию о группе ДО удаления
+        group_name = group.name
+        group_code = group.group_code
+        
+        # Проверяем, что это создатель группы
         if group.creator != username:
             print(f"[SECURITY] Unauthorized delete attempt by {username} on group {group_id} (creator: {group.creator})")
             return jsonify({"error": "Only creator can delete group"}), 403
         
-        # Проверяешь рут-пароль
+        # Проверяем root-пароль
         try:
             argon2Hasher.verify(group.root_password_hash, root_password)
         except VerifyMismatchError:
             print(f"[SECURITY] Invalid root password attempt on group {group_id} by {username}")
-            return jsonify({"error": "Invalid root password"}), 401
+            return jsonify({"error": "Invalid root password"}), 403
         
-        # Удаляешь группу
-        delete_group(group_id)
+        # Удаляем группу
+        success = delete_group(group_id)
+        
+        if not success:
+            return jsonify({"error": "Failed to delete group"}), 500
         
         return jsonify({
             "success": True,
-            "message": f"Group '{group.name}#{group.group_code}' deleted successfully"
+            "message": f"Group '{group_name}#{group_code}' deleted successfully"
         }), 200
         
     except Exception as e:
