@@ -183,6 +183,8 @@ URL_PREVIEW_MAX_DESCRIPTION_LENGTH = 500
 MAX_URLS_PER_MESSAGE = 10
 URL_PARSE_RATE_LIMIT = 10  # URLs per minute per user
 
+MAX_PREVIEW_SIZE = 10 * 1024 * 1024  # 10 MB
+
 YOUTUBE_PATTERN = r'(?:https?://)?(?:www\.)?(?:youtube\.com|youtu\.be)/'
 YOUTUBE_ID_PATTERN = r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/|youtube\.com/live/)([a-zA-Z0-9_-]{11})'
 
@@ -1618,10 +1620,10 @@ def save_file(username: str, file_obj) -> tuple or None:
         if not validation_result:
             return None
         
-        # Изменено: распаковка
+        # Распаковка результата валидации
         category, mime_type, safe_filename, ext, image_format = validation_result
         
-        # ---- METADATA STRIPPING (Логика из old_script) ----
+        # ---- METADATA STRIPPING ----
         print(f"[INFO] Stripping metadata for {original_filename} ({category})")
         clean_data = strip_file_metadata(file_data, category, ext, image_format)
         if clean_data is None:
@@ -1635,7 +1637,7 @@ def save_file(username: str, file_obj) -> tuple or None:
         file_token = secrets.token_urlsafe(24)
         file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
         
-        # Encrypt and save (Изменено: clean_data)
+        # Encrypt and save
         encrypted_data = encrypt_file(clean_data)
         with open(file_path, 'wb') as f:
             f.write(encrypted_data)
@@ -1647,7 +1649,7 @@ def save_file(username: str, file_obj) -> tuple or None:
             file_token=file_token,
             original_filename=safe_filename,
             file_category=category,
-            filesize=len(clean_data), # Изменено: len(clean_data)
+            filesize=len(clean_data),
             mime_type=mime_type
         )
         db.session.add(file_record)
@@ -1668,7 +1670,6 @@ def save_file(username: str, file_obj) -> tuple or None:
             content=encrypted_content,
             message_type=message_type,
             created_at=file_record.created_at
-            # group_id будет добавлен в route /upload_to_group
         )
         db.session.add(message)
         db.session.commit()

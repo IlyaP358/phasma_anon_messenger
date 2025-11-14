@@ -107,37 +107,158 @@
       padding: 1em;
       border-top: 1px solid #333;
       background: #111;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
     }
-    
-    input[type="text"] {
-      width: 95%;
-      padding: 0.5em;
+
+    #file-preview-container {
+      display: none;
+      background: #0a1a0a;
+      border: 1px solid #0ff;
+      border-radius: 4px;
+      padding: 0.8em;
+      gap: 0.8em;
+      align-items: flex-start;
+    }
+
+    #file-preview-container.active {
+      display: flex;
+    }
+
+    .preview-thumbnail {
+      flex-shrink: 0;
+      width: 80px;
+      height: 80px;
+      background: #222;
+      border: 1px solid #0ff;
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .preview-thumbnail img,
+    .preview-thumbnail video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .preview-thumbnail .file-icon {
+      width: 50px;
+      height: 50px;
+      opacity: 0.6;
+    }
+
+    .preview-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.3em;
+    }
+
+    .preview-filename {
+      color: #0ff;
+      font-size: 13px;
+      font-weight: bold;
+      word-break: break-word;
+    }
+
+    .preview-filesize {
+      color: #888;
+      font-size: 11px;
+    }
+
+    .preview-actions {
+      flex-shrink: 0;
+      display: flex;
+      gap: 0.5em;
+    }
+
+    .preview-btn {
+      background: #0a1a0a;
+      color: #0ff;
+      border: 1px solid #0ff;
+      padding: 0.3em 0.6em;
+      font: inherit;
+      cursor: pointer;
+      font-size: 11px;
+      border-radius: 2px;
+      transition: all 0.2s;
+    }
+
+    .preview-btn:hover {
+      background: #0ff;
+      color: #000;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 0.5em;
+      align-items: center;
+    }
+
+    #in {
+      flex: 1;
+      padding: 0.7em;
       font: inherit;
       background: #222;
       color: #fff;
-      border: none;
+      border: 1px solid #333;
       outline: none;
+      border-radius: 4px;
+    }
+
+    #in:focus {
+      border-color: #0ff;
+      box-shadow: 0 0 5px rgba(0, 255, 255, 0.3);
     }
     
-    input[type="text"]:focus {
+    .input-button {
+      background: #222;
+      color: #fff;
+      border: 1px solid #333;
+      padding: 0.7em 1em;
+      font: inherit;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.3em;
+      font-size: 14px;
+    }
+
+    .input-button:hover {
       background: #333;
+      border-color: #0ff;
+    }
+
+    #send-btn {
+      background: #0f0;
+      color: #000;
+      border-color: #0f0;
+      font-weight: bold;
+      padding: 0.7em 1.2em;
+    }
+
+    #send-btn:hover {
+      background: #0d0;
+    }
+
+    #send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     
     #upload-btn {
-      width: 10%;
-      margin-top: 0.5em;
-      background: #222;
-      color: #fff;
-      border: none;
-      padding: 0.5em;
-      font: inherit;
-      cursor: pointer;
+      padding: 0.7em 1em;
     }
-    
-    #upload-btn:hover {
-      background: #333;
-    }
-    
+
     #file-input {
       display: none;
     }
@@ -473,6 +594,33 @@
     #out::-webkit-scrollbar-thumb:hover {
       background: #0f0;
     }
+
+    @media (max-width: 768px) {
+      .chat-wrapper {
+        flex-direction: column;
+      }
+
+      .members-sidebar {
+        width: 100%;
+        height: 150px;
+        border-left: none;
+        border-top: 1px solid #0f0;
+      }
+
+      #leave-btn {
+        right: auto;
+        left: 0;
+      }
+
+      #file-preview-container {
+        flex-wrap: wrap;
+      }
+
+      .preview-thumbnail {
+        width: 60px;
+        height: 60px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -483,7 +631,7 @@
       <div class="chat-header">
         <div class="chat-header-left">
           <h3 id="group-name">Loading...</h3>
-          <div class="chat-user-badge">🔤 <span id="chat-user">...</span></div>
+          <div class="chat-user-badge">Logged as: <span id="chat-user">...</span></div>
         </div>
       </div>
 
@@ -495,9 +643,26 @@
       </div>
 
       <div id="input-container">
-        <b>Sending as: <span id="input-user">...</span></b><br>
-        Message: <input type="text" id="in" autocomplete="off" />
-        <button id="upload-btn">+ upload file</button>
+        <div id="file-preview-container">
+          <div class="preview-thumbnail" id="preview-thumbnail">
+            <img id="preview-img" style="display: none;" />
+            <video id="preview-video" style="display: none;"></video>
+            <img id="preview-file-icon" class="file-icon" style="display: none;" src="/static/phasma_file.png" />
+          </div>
+          <div class="preview-info">
+            <div class="preview-filename" id="preview-filename"></div>
+            <div class="preview-filesize" id="preview-filesize"></div>
+          </div>
+          <div class="preview-actions">
+            <button type="button" class="preview-btn" id="preview-remove-btn">✕ Remove</button>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <input type="text" id="in" autocomplete="off" placeholder="Type a message..." />
+          <button type="button" class="input-button" id="upload-btn">+ File</button>
+          <button type="button" class="input-button" id="send-btn">⇒</button>
+        </div>
         
         <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
       </div>
@@ -523,11 +688,152 @@
     let MEMBERS_UPDATE_INTERVAL = null;
     let ONLINE_HEARTBEAT_INTERVAL = null;
     let isUnloading = false;
+    let selectedFile = null;
     
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
     
-    // ========== ИНИЦИАЛИЗАЦИЯ ==========
-    function initChat() {
+    // ========== File Preview Management ==========
+    function showFilePreview(file) {
+      selectedFile = file;
+      const container = document.getElementById('file-preview-container');
+      const thumbnail = document.getElementById('preview-thumbnail');
+      const filename = document.getElementById('preview-filename');
+      const filesize = document.getElementById('preview-filesize');
+      const previewImg = document.getElementById('preview-img');
+      const previewVideo = document.getElementById('preview-video');
+      const previewIcon = document.getElementById('preview-file-icon');
+
+      previewImg.style.display = 'none';
+      previewVideo.style.display = 'none';
+      previewIcon.style.display = 'none';
+
+      filename.textContent = file.name;
+      filesize.textContent = formatFileSize(file.size);
+
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          previewImg.src = e.target.result;
+          previewImg.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type.startsWith('video/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          previewVideo.src = e.target.result;
+          previewVideo.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      } else {
+        previewIcon.style.display = 'block';
+      }
+
+      container.classList.add('active');
+    }
+
+    function hideFilePreview() {
+      selectedFile = null;
+      const container = document.getElementById('file-preview-container');
+      container.classList.remove('active');
+      document.getElementById('file-input').value = '';
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    // ========== File Input Handler ==========
+    document.getElementById('file-input').addEventListener('change', function() {
+      if (this.files.length > 0) {
+        showFilePreview(this.files[0]);
+      }
+    });
+
+    document.getElementById('preview-remove-btn').addEventListener('click', hideFilePreview);
+
+    document.getElementById('upload-btn').addEventListener('click', function() {
+      document.getElementById('file-input').click();
+    });
+
+    // ========== Send File ==========
+    function sendFile() {
+      if (!selectedFile) return;
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      $.ajax({
+        url: `/group/${GROUP_ID}/upload`,
+        type: 'POST',
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(response) {
+          console.log('[Upload] File sent successfully');
+          hideFilePreview();
+        },
+        error: function(xhr) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            alert('Upload failed: ' + (response.message || xhr.responseText));
+          } catch(e) {
+            alert('Upload failed: ' + xhr.responseText);
+          }
+        }
+      });
+    }
+
+    // ========== Send Message or File ==========
+    function sendMessageOrFile() {
+      if (selectedFile) {
+        sendFile();
+        return;
+      }
+
+      const text = document.getElementById('in').value;
+      if (!text.trim()) return;
+      
+      $.ajax({
+        url: `/group/${GROUP_ID}/post`,
+        type: 'POST',
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        data: { message: text },
+        error: function(xhr) {
+          if (xhr.status === 429) {
+            alert('You are sending requests too quickly. Please try again later.');
+          } else if (xhr.status === 401) {
+            handleSessionExpired();
+          } else if (xhr.status === 400) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              if (response.error === 'Message too long') {
+                alert(`Message too long! Maximum length is ${response.max_length} characters.`);
+              }
+            } catch(e) {
+              alert('Invalid request.');
+            }
+          }
+        }
+      });
+      document.getElementById('in').value = '';
+    }
+
+    // ========== Event Listeners ==========
+    document.getElementById('send-btn').addEventListener('click', sendMessageOrFile);
+
+    document.getElementById('in').addEventListener('keyup', function(e) {
+      if (e.keyCode === 13) {
+        sendMessageOrFile();
+      }
+    });
+
+    // ========== INITIALIZATION ==========
+    function initAuth() {
       AUTH_TOKEN = localStorage.getItem('auth_token');
       CURRENT_USER = localStorage.getItem('username');
       
@@ -559,7 +865,6 @@
 
     function setupChat() {
       document.getElementById('chat-user').textContent = CURRENT_USER;
-      document.getElementById('input-user').textContent = CURRENT_USER;
       document.getElementById('group-name').textContent = GROUP_NAME;
       
       loadMembers();
@@ -589,7 +894,6 @@
       return CURRENT_USER;
     }
 
-    // ========== ФУНКЦИИ ДЛЯ УЧАСТНИКОВ ==========
     function loadMembers() {
       const user = getCurrentUser();
       if (!user) return;
@@ -657,7 +961,6 @@
       membersList.innerHTML = html;
     }
 
-    // ========== ONLINE HEARTBEAT ==========
     function sendOnlineHeartbeat() {
       const user = getCurrentUser();
       if (!user) return;
@@ -677,7 +980,6 @@
       return div.innerHTML;
     }
 
-    // ========== ФУНКЦИИ ДЛЯ СООБЩЕНИЙ ==========
     function formatLocalTime(timestamp) {
       try {
         const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
@@ -1063,70 +1365,6 @@
       });
     }
 
-    document.getElementById("in").addEventListener('keyup', function (e) {
-      if (e.keyCode === 13) {
-        const text = this.value;
-        if (!text.trim()) return;
-        
-        $.ajax({
-          url: `/group/${GROUP_ID}/post`,
-          type: "POST",
-          headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-          data: { message: text },
-          error: function(xhr) {
-            if (xhr.status === 429) {
-              alert("You are sending requests too quickly. Please try again later.");
-            } else if (xhr.status === 401) {
-              handleSessionExpired();
-            } else if (xhr.status === 400) {
-              try {
-                const response = JSON.parse(xhr.responseText);
-                if (response.error === "Message too long") {
-                  alert(`Message too long! Maximum length is ${response.max_length} characters.`);
-                }
-              } catch(e) {
-                alert("Invalid request.");
-              }
-            }
-          }
-        });
-        this.value = "";
-      }
-    });
-
-    document.getElementById("upload-btn").addEventListener('click', function () {
-      document.getElementById("file-input").click();
-    });
-
-    document.getElementById("file-input").addEventListener('change', function () {
-      const file = this.files[0];
-      if (!file) return;
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      $.ajax({
-        url: `/group/${GROUP_ID}/upload`,
-        type: "POST",
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-        data: formData,
-        processData: false,
-        contentType: false,
-        success: function (response) {
-          document.getElementById("file-input").value = "";
-        },
-        error: function (xhr) {
-          try {
-            const response = JSON.parse(xhr.responseText);
-            alert("Upload failed: " + (response.message || xhr.responseText));
-          } catch(e) {
-            alert("Upload failed: " + xhr.responseText);
-          }
-          document.getElementById("file-input").value = "";
-        }
-      });
-    });
-
     document.getElementById("leave-btn").addEventListener('click', function() {
       if (confirm("Warning: If you leave this group, it will be removed from your personal account. Are you sure?")) {
         isUnloading = true;
@@ -1151,16 +1389,14 @@
       }
     });
 
-    // ВАЖНО: Обновление страницы - НЕ вызываем logout, только очищаем интервалы
-    window.addEventListener('beforeunload', function () {
+    window.addEventListener('beforeunload', function() {
       if (!isUnloading) {
-        // Просто очищаем интервалы, но НЕ отзываем токен
         clearInterval(MEMBERS_UPDATE_INTERVAL);
         clearInterval(ONLINE_HEARTBEAT_INTERVAL);
       }
     });
 
-    if (initChat()) {
+    if (initAuth()) {
       loadHistory();
     }
   </script>
