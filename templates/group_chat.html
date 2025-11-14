@@ -173,6 +173,13 @@
       font-size: 11px;
     }
 
+    .preview-source {
+      color: #0f0;
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+
     .preview-actions {
       flex-shrink: 0;
       display: flex;
@@ -211,6 +218,8 @@
       border: 1px solid #333;
       outline: none;
       border-radius: 4px;
+      resize: none;
+      max-height: 100px;
     }
 
     #in:focus {
@@ -261,6 +270,13 @@
 
     #file-input {
       display: none;
+    }
+
+    .paste-hint {
+      font-size: 11px;
+      color: #888;
+      font-style: italic;
+      margin-top: 0.3em;
     }
     
     #leave-btn {
@@ -631,7 +647,7 @@
       <div class="chat-header">
         <div class="chat-header-left">
           <h3 id="group-name">Loading...</h3>
-          <div class="chat-user-badge">Logged as: <span id="chat-user">...</span></div>
+          <div class="chat-user-badge">📤 <span id="chat-user">...</span></div>
         </div>
       </div>
 
@@ -650,6 +666,7 @@
             <img id="preview-file-icon" class="file-icon" style="display: none;" src="/static/phasma_file.png" />
           </div>
           <div class="preview-info">
+            <div class="preview-source" id="preview-source"></div>
             <div class="preview-filename" id="preview-filename"></div>
             <div class="preview-filesize" id="preview-filesize"></div>
           </div>
@@ -659,7 +676,7 @@
         </div>
 
         <div class="input-row">
-          <input type="text" id="in" autocomplete="off" placeholder="Type a message..." />
+          <input type="text" id="in" autocomplete="off" placeholder="Type a message" />
           <button type="button" class="input-button" id="upload-btn">+ File</button>
           <button type="button" class="input-button" id="send-btn">⇒</button>
         </div>
@@ -693,12 +710,12 @@
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
     
     // ========== File Preview Management ==========
-    function showFilePreview(file) {
+    function showFilePreview(file, source = 'upload') {
       selectedFile = file;
       const container = document.getElementById('file-preview-container');
-      const thumbnail = document.getElementById('preview-thumbnail');
       const filename = document.getElementById('preview-filename');
       const filesize = document.getElementById('preview-filesize');
+      const sourceLabel = document.getElementById('preview-source');
       const previewImg = document.getElementById('preview-img');
       const previewVideo = document.getElementById('preview-video');
       const previewIcon = document.getElementById('preview-file-icon');
@@ -707,6 +724,7 @@
       previewVideo.style.display = 'none';
       previewIcon.style.display = 'none';
 
+      sourceLabel.textContent = source === 'paste' ? '📋 Pasted' : '📁 From PC';
       filename.textContent = file.name;
       filesize.textContent = formatFileSize(file.size);
 
@@ -746,15 +764,63 @@
       return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
 
+    // ========== Paste Handler ==========
+    document.getElementById('in').addEventListener('paste', function(e) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            
+            const fileName = file.name || `pasted_file_${Date.now()}`;
+            const ext = fileName.split('.').pop().toLowerCase();
+            
+            const allowedExts = [
+              'jpg', 'jpeg', 'png', 'gif', 'webp',
+              'mp4', 'mov', 'webm',
+              'mp3', 'm4a', 'ogg', 'wav',
+              'pdf', 'txt'
+            ];
+
+            if (!allowedExts.includes(ext)) {
+              alert(`⚠️ File format not allowed. Allowed: ${allowedExts.join(', ')}`);
+              return;
+            }
+
+            const maxSizes = {
+              'jpg': 10, 'jpeg': 10, 'png': 10, 'gif': 10, 'webp': 10,
+              'mp4': 100, 'mov': 100, 'webm': 100,
+              'mp3': 50, 'm4a': 50, 'ogg': 50, 'wav': 50,
+              'pdf': 25, 'txt': 25
+            };
+
+            const maxSize = (maxSizes[ext] || 10) * 1024 * 1024;
+            if (file.size > maxSize) {
+              alert(`⚠️ File too large. Maximum size: ${formatFileSize(maxSize)}`);
+              return;
+            }
+
+            console.log('[Paste] File detected:', fileName, formatFileSize(file.size));
+            showFilePreview(file, 'paste');
+            break;
+          }
+        }
+      }
+    });
+
     // ========== File Input Handler ==========
     document.getElementById('file-input').addEventListener('change', function() {
       if (this.files.length > 0) {
-        showFilePreview(this.files[0]);
+        showFilePreview(this.files[0], 'upload');
       }
     });
 
     document.getElementById('preview-remove-btn').addEventListener('click', hideFilePreview);
-
     document.getElementById('upload-btn').addEventListener('click', function() {
       document.getElementById('file-input').click();
     });
@@ -762,7 +828,6 @@
     // ========== Send File ==========
     function sendFile() {
       if (!selectedFile) return;
-
       const formData = new FormData();
       formData.append('file', selectedFile);
 
@@ -825,9 +890,8 @@
 
     // ========== Event Listeners ==========
     document.getElementById('send-btn').addEventListener('click', sendMessageOrFile);
-
     document.getElementById('in').addEventListener('keyup', function(e) {
-      if (e.keyCode === 13) {
+      if (e.keyCode === 13 && !e.shiftKey) {
         sendMessageOrFile();
       }
     });
@@ -845,7 +909,6 @@
       
       if (TEMPLATE_USER && TEMPLATE_USER !== CURRENT_USER) {
         alert('SECURITY ERROR: User verification failed. Logging you out.');
-        logout();
         return false;
       }
       
@@ -866,10 +929,8 @@
     function setupChat() {
       document.getElementById('chat-user').textContent = CURRENT_USER;
       document.getElementById('group-name').textContent = GROUP_NAME;
-      
       loadMembers();
       MEMBERS_UPDATE_INTERVAL = setInterval(loadMembers, 3000);
-      
       sendOnlineHeartbeat();
       ONLINE_HEARTBEAT_INTERVAL = setInterval(sendOnlineHeartbeat, 20000);
     }
@@ -897,7 +958,6 @@
     function loadMembers() {
       const user = getCurrentUser();
       if (!user) return;
-
       fetch(`/api/groups/${GROUP_ID}/members`, {
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
       })
@@ -912,15 +972,12 @@
         if (!data) return;
         renderMembers(data.members, data.total);
       })
-      .catch(err => {
-        console.error('[Members] Failed to load members:', err);
-      });
+      .catch(err => console.error('[Members] Failed:', err));
     }
 
     function renderMembers(members, total) {
       const membersList = document.getElementById('members-list');
       const membersCount = document.getElementById('members-count');
-
       membersCount.textContent = `(${total})`;
 
       if (!members || members.length === 0) {
@@ -935,14 +992,8 @@
         const isCurrentUser = member.username === CURRENT_USER;
         
         let className = 'member-item ';
-        if (isCreator) {
-          className += 'creator ';
-        }
-        if (isOnline) {
-          className += 'online';
-        } else {
-          className += 'offline';
-        }
+        if (isCreator) className += 'creator ';
+        className += isOnline ? 'online' : 'offline';
 
         const dot = isOnline 
           ? '<span class="member-online-dot"></span>' 
@@ -957,21 +1008,16 @@
           </div>
         `;
       });
-
       membersList.innerHTML = html;
     }
 
     function sendOnlineHeartbeat() {
       const user = getCurrentUser();
       if (!user) return;
-
       fetch(`/api/groups/${GROUP_ID}/members/online`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
-      })
-      .catch(err => {
-        console.warn('[Online] Failed to send heartbeat:', err);
-      });
+      }).catch(err => console.warn('[Online] Failed:', err));
     }
 
     function escapeHtml(text) {
@@ -1157,10 +1203,13 @@
           const photoDiv = document.createElement("div");
           photoDiv.className = "photo-msg";
           photoDiv.textContent = `${parsed.username}: `;
+          
+          // Используем img для всех изображений (включая GIF - они анимируются в img)
           const img = document.createElement("img");
           img.src = photoMatch[2];
           img.alt = "Photo";
           img.loading = "lazy";
+          img.style.cursor = "pointer";
           img.onclick = () => window.open(photoMatch[2], '_blank');
           photoDiv.appendChild(img);
           mainContent.appendChild(photoDiv);
@@ -1244,9 +1293,7 @@
         if (data.messages.length === 0) {
           hasMoreHistory = false;
           loadMoreBtn.textContent = "No more messages";
-          setTimeout(() => {
-            loadMoreContainer.style.display = "none";
-          }, 2000);
+          setTimeout(() => loadMoreContainer.style.display = "none", 2000);
           return;
         }
 
@@ -1271,9 +1318,7 @@
             messagesContainer.insertBefore(messageElements[i].element, messagesContainer.firstChild);
           }
         } else {
-          messageElements.forEach(item => {
-            messagesContainer.appendChild(item.element);
-          });
+          messageElements.forEach(item => messagesContainer.appendChild(item.element));
         }
 
         if (initialLoadDone) {
@@ -1287,9 +1332,7 @@
         
         if (!hasMoreHistory) {
           loadMoreBtn.textContent = "No more messages";
-          setTimeout(() => {
-            loadMoreContainer.style.display = "none";
-          }, 2000);
+          setTimeout(() => loadMoreContainer.style.display = "none", 2000);
         } else {
           loadMoreBtn.textContent = "↓ Load older messages";
         }
@@ -1360,9 +1403,7 @@
           });
         }
         read();
-      }).catch(err => {
-        console.error("[SSE] Failed to connect:", err);
-      });
+      }).catch(err => console.error("[SSE] Failed:", err));
     }
 
     document.getElementById("leave-btn").addEventListener('click', function() {
