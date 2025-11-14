@@ -611,6 +611,63 @@
       background: #0f0;
     }
 
+    /* DRAG & DROP STYLES */
+    #drag-drop-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(2px);
+    }
+
+    #drag-drop-overlay.active {
+      display: flex;
+    }
+
+    .drag-drop-box {
+      border: 4px dashed #0f0;
+      padding: 3em;
+      text-align: center;
+      background: rgba(0, 20, 0, 0.8);
+      border-radius: 8px;
+      box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+      animation: dragPulse 0.6s ease-in-out infinite;
+    }
+
+    @keyframes dragPulse {
+      0%, 100% {
+        box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        border-color: #0f0;
+      }
+      50% {
+        box-shadow: 0 0 40px rgba(0, 255, 0, 0.6);
+        border-color: #0ff;
+      }
+    }
+
+    .drag-drop-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 1em;
+      object-fit: contain;
+      filter: drop-shadow(0 0 8px rgba(0, 255, 0, 0.5));
+    }
+
+    .drag-drop-text {
+      color: #0f0;
+      font-size: 24px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin: 0;
+    }
+
     @media (max-width: 768px) {
       .chat-wrapper {
         flex-direction: column;
@@ -636,24 +693,44 @@
         width: 60px;
         height: 60px;
       }
+
+      .drag-drop-box {
+        padding: 2em;
+      }
+
+      .drag-drop-icon {
+        width: 60px;
+        height: 60px;
+      }
+
+      .drag-drop-text {
+        font-size: 18px;
+      }
     }
   </style>
 </head>
 <body>
-  <button id="leave-btn">↤ Leave Group</button>
+  <div id="drag-drop-overlay">
+    <div class="drag-drop-box">
+      <img src="/static/phasma_file.png" alt="Upload" class="drag-drop-icon" />
+      <p class="drag-drop-text">Upload File</p>
+    </div>
+  </div>
+
+  <button id="leave-btn">← Leave Group</button>
   
   <div class="chat-wrapper">
     <div class="chat-main">
       <div class="chat-header">
         <div class="chat-header-left">
           <h3 id="group-name">Loading...</h3>
-          <div class="chat-user-badge">📤 <span id="chat-user">...</span></div>
+          <div class="chat-user-badge">Logged as: <span id="chat-user">...</span></div>
         </div>
       </div>
 
       <div id="out">
         <div id="load-more-container">
-          <button id="load-more-btn">↓ Load older messages</button>
+          <button id="load-more-btn">↑ Load older messages</button>
         </div>
         <div id="messages-container"></div>
       </div>
@@ -678,7 +755,7 @@
         <div class="input-row">
           <input type="text" id="in" autocomplete="off" placeholder="Type a message" />
           <button type="button" class="input-button" id="upload-btn">+ File</button>
-          <button type="button" class="input-button" id="send-btn">⇒</button>
+          <button type="button" class="input-button" id="send-btn">↳</button>
         </div>
         
         <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
@@ -709,6 +786,84 @@
     
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
     
+    // ========== DRAG & DROP SETUP ==========
+    const dragDropOverlay = document.getElementById('drag-drop-overlay');
+    const dragDropBox = document.querySelector('.drag-drop-box');
+    let dragCounter = 0;
+
+    document.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter++;
+      dragDropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter--;
+      if (dragCounter === 0) {
+        dragDropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter = 0;
+      dragDropOverlay.classList.remove('active');
+      
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+
+      const file = files[0];
+      const fileName = file.name || `dropped_file_${Date.now()}`;
+      const ext = fileName.split('.').pop().toLowerCase();
+      
+      const allowedExts = [
+        'jpg', 'jpeg', 'png', 'gif', 'webp',
+        'mp4', 'mov', 'webm',
+        'mp3', 'm4a', 'ogg', 'wav',
+        'pdf', 'txt'
+      ];
+
+      if (!allowedExts.includes(ext)) {
+        alert(`⚠️ File format not allowed. Allowed: ${allowedExts.join(', ')}`);
+        return;
+      }
+
+      const maxSizes = {
+        'jpg': 10, 'jpeg': 10, 'png': 10, 'gif': 10, 'webp': 10,
+        'mp4': 100, 'mov': 100, 'webm': 100,
+        'mp3': 50, 'm4a': 50, 'ogg': 50, 'wav': 50,
+        'pdf': 25, 'txt': 25
+      };
+
+      const maxSize = (maxSizes[ext] || 10) * 1024 * 1024;
+      if (file.size > maxSize) {
+        alert(`⚠️ File too large. Maximum size: ${formatFileSize(maxSize)}`);
+        return;
+      }
+
+      console.log('[Drop] File detected:', fileName, formatFileSize(file.size));
+      showFilePreview(file, 'drag-drop');
+    });
+
+    dragDropBox.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    dragDropBox.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
     // ========== File Preview Management ==========
     function showFilePreview(file, source = 'upload') {
       selectedFile = file;
@@ -724,7 +879,14 @@
       previewVideo.style.display = 'none';
       previewIcon.style.display = 'none';
 
-      sourceLabel.textContent = source === 'paste' ? '📋 Pasted' : '📁 From PC';
+      if (source === 'drag-drop') {
+        sourceLabel.textContent = '📥 Dropped';
+      } else if (source === 'paste') {
+        sourceLabel.textContent = '📋 Pasted';
+      } else {
+        sourceLabel.textContent = '📁 From PC';
+      }
+      
       filename.textContent = file.name;
       filesize.textContent = formatFileSize(file.size);
 
@@ -930,7 +1092,7 @@
       document.getElementById('chat-user').textContent = CURRENT_USER;
       document.getElementById('group-name').textContent = GROUP_NAME;
       loadMembers();
-      MEMBERS_UPDATE_INTERVAL = setInterval(loadMembers, 3000);
+      MEMBERS_UPDATE_INTERVAL = setInterval(loadMembers, 10000);
       sendOnlineHeartbeat();
       ONLINE_HEARTBEAT_INTERVAL = setInterval(sendOnlineHeartbeat, 20000);
     }
@@ -1203,8 +1365,6 @@
           const photoDiv = document.createElement("div");
           photoDiv.className = "photo-msg";
           photoDiv.textContent = `${parsed.username}: `;
-          
-          // Используем img для всех изображений (включая GIF - они анимируются в img)
           const img = document.createElement("img");
           img.src = photoMatch[2];
           img.alt = "Photo";
@@ -1334,7 +1494,7 @@
           loadMoreBtn.textContent = "No more messages";
           setTimeout(() => loadMoreContainer.style.display = "none", 2000);
         } else {
-          loadMoreBtn.textContent = "↓ Load older messages";
+          loadMoreBtn.textContent = "↑ Load older messages";
         }
 
         if (!initialLoadDone) {
