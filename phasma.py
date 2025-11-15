@@ -1780,7 +1780,7 @@ def auto_rotate_tor(interval=TOR_ROTATION_INTERVAL):
 threading.Thread(target=auto_rotate_tor, daemon=True).start()
 
 # ===============================================================
-# ---- ADD THESE HELPER FUNCTIONS after the Tor helpers section ----
+# ---- HELPER FUNCTIONS after Tor helpers section ----
 # ===============================================================
 
 def extract_youtube_id(url: str) -> str or None:
@@ -1797,9 +1797,6 @@ def extract_youtube_id(url: str) -> str or None:
             return match.group(1)
     return None
 
-# ===============================================================
-# ---- ИЗМЕНЕННАЯ ФУНКЦИЯ ----
-# ===============================================================
 def detect_service_type(url: str) -> str:
     """Detect which service the URL belongs to - IMPROVED"""
     url_lower = url.lower()
@@ -1849,7 +1846,6 @@ def detect_service_type(url: str) -> str:
             return 'image'
     
     return 'unknown'
-# ===============================================================
 
 def get_youtube_thumbnail(video_id: str) -> str or None:
     """Generate YouTube thumbnail URL with fallback chain"""
@@ -1906,7 +1902,6 @@ def get_oembed_preview(url: str, service_type: str) -> dict or None:
     
     return None
 
-# ИЗМЕНЕНИЕ 3: Замена validate_image_url
 def validate_image_url(url: str) -> bool:
     """
     Validate that URL is a real image - AGGRESSIVE approach
@@ -2185,6 +2180,75 @@ def format_message_for_sse(msg: Message) -> str:
                     filename = plain.get('filename', 'file')
                     return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
         return f"[{ts}] {msg.username}: [FILE]"
+
+# ===============================================================
+# ---- DELETE MESSAGE FUNCTION ----
+# ===============================================================
+
+def can_delete_message(username: str, message_id: int) -> bool:
+    """Проверить может ли пользователь удалить сообщение (только автор)"""
+    msg = Message.query.filter_by(id=message_id).first()
+    if not msg:
+        return False
+    
+    # Только автор сообщения может его удалить
+    return msg.username == username
+
+def delete_message_by_id(message_id: int) -> bool:
+    try:
+        msg = Message.query.filter_by(id=message_id).first()
+        
+        if not msg:
+            print(f"[WARN] Message {message_id} not found")
+            return False
+        
+        group_id = msg.group_id
+        
+        # Если это фото или файл - удалить файл с диска
+        if msg.message_type in ('photo', 'file'):
+            try:
+                plain = msg.get_plain()
+                if isinstance(plain, dict) and 'file_id' in plain:
+                    file_id = plain['file_id']
+                    file_record = File.query.filter_by(id=file_id).first()
+                    
+                    if file_record:
+                        file_path = os.path.join(UPLOAD_FOLDER, file_record.filename)
+                        
+                        # Удалить физический файл
+                        if os.path.exists(file_path):
+                            try:
+                                os.remove(file_path)
+                                print(f"[OK] Deleted file from disk: {file_path}")
+                            except Exception as e:
+                                print(f"[WARN] Failed to delete file from disk: {e}")
+                        
+                        # Удалить запись файла из БД
+                        db.session.delete(file_record)
+                        db.session.flush()
+                        print(f"[OK] Deleted file record from DB: {file_id}")
+            except Exception as e:
+                print(f"[WARN] Error processing file deletion: {e}")
+        
+        # Удалить само сообщение из БД
+        db.session.delete(msg)
+        db.session.commit()
+        
+        # ВАЖНО: Публикуем событие удаления с ID сообщения
+        if group_id:
+            delete_notification = f"DELETE_MESSAGE:{message_id}"
+            r.publish(f"chat:group:{group_id}", delete_notification.encode("utf-8"))
+            print(f"[OK] Published delete notification: {delete_notification}")
+        
+        print(f"[OK] Message {message_id} deleted completely (group: {group_id})")
+        return True
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to delete message: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 @app.route("/register", methods=["GET", "POST"])
 @limiter.limit("5 per 15 minutes", methods=["POST"])
@@ -2805,6 +2869,57 @@ def api_mark_user_online():
         return jsonify({"error": "Failed to update status"}), 500
 
 # ===============================================================
+# ---- DELETE MESSAGE API ROUTE ----
+# ===============================================================
+
+@app.route("/group/<int:group_id>/message/<int:message_id>/delete", methods=["POST"])
+@limiter.limit("30 per minute")
+def api_delete_message(group_id: int, message_id: int):
+    """
+    Удалить сообщение (только автор может удалить свое сообщение)
+    """
+    token = extract_token_from_request()
+    
+    if not token:
+        return abort(401)
+    
+    session = verify_group_session(token)
+    
+    if not session:
+        return abort(401)
+    
+    if session['group_id'] != group_id:
+        return abort(403)
+    
+    username = session['username']
+    
+    if not is_user_in_group(username, group_id):
+        return abort(403)
+    
+    # Проверить, может ли пользователь удалить это сообщение
+    if not can_delete_message(username, message_id):
+        print(f"[SECURITY] User {username} tried to delete message {message_id} (not author)")
+        return jsonify({"error": "You can only delete your own messages"}), 403
+    
+    # Удалить сообщение
+    success = delete_message_by_id(message_id)
+    
+    if not success:
+        return jsonify({"error": "Failed to delete message"}), 500
+    
+    # Продлить сессию
+    updated_session_data = session.copy()
+    updated_session_data['last_activity'] = int(time.time())
+    
+    pipe = r.pipeline()
+    pipe.multi()
+    pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(updated_session_data).encode("utf-8"))
+    pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
+    pipe.execute()
+    
+    return jsonify({"success": True, "message": "Message deleted"}), 200
+
+# ===============================================================
 # ---- Chat message routes (для групп) ----
 # ===============================================================
 
@@ -3363,4 +3478,4 @@ if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])
+    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])
