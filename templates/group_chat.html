@@ -638,6 +638,7 @@
       border-radius: 8px;
       box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
       animation: dragPulse 0.6s ease-in-out infinite;
+      pointer-events: none;
     }
 
     @keyframes dragPulse {
@@ -666,6 +667,38 @@
       letter-spacing: 2px;
       text-transform: uppercase;
       margin: 0;
+    }
+
+    #error-notification {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #5a0000;
+      color: #ff4444;
+      padding: 1em;
+      border: 2px solid #a00;
+      border-radius: 4px;
+      max-width: 300px;
+      z-index: 10001;
+      box-shadow: 0 0 10px rgba(255, 0, 0, 0.3);
+      word-break: break-word;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    #error-notification.active {
+      display: block;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
     }
 
     @media (max-width: 768px) {
@@ -717,6 +750,8 @@
     </div>
   </div>
 
+  <div id="error-notification"></div>
+
   <button id="leave-btn">← Leave Group</button>
   
   <div class="chat-wrapper">
@@ -730,7 +765,7 @@
 
       <div id="out">
         <div id="load-more-container">
-          <button id="load-more-btn">↑ Load older messages</button>
+          <button id="load-more-btn">↓ Load older messages</button>
         </div>
         <div id="messages-container"></div>
       </div>
@@ -776,6 +811,20 @@
     const TEMPLATE_GROUP_TOKEN = {{ auth_token|tojson }};
     const GROUP_NAME = {{ group_name|tojson }};
     
+    const ALLOWED_EXTENSIONS = {
+      'jpg': true, 'jpeg': true, 'png': true, 'gif': true, 'webp': true,
+      'mp4': true, 'mov': true, 'webm': true,
+      'mp3': true, 'm4a': true, 'ogg': true, 'wav': true,
+      'pdf': true, 'txt': true
+    };
+
+    const MAX_FILE_SIZES = {
+      'jpg': 10, 'jpeg': 10, 'png': 10, 'gif': 10, 'webp': 10,
+      'mp4': 100, 'mov': 100, 'webm': 100,
+      'mp3': 50, 'm4a': 50, 'ogg': 50, 'wav': 50,
+      'pdf': 25, 'txt': 25
+    };
+    
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
     let GROUP_SESSION_TOKEN = null;
@@ -783,19 +832,30 @@
     let ONLINE_HEARTBEAT_INTERVAL = null;
     let isUnloading = false;
     let selectedFile = null;
+    let isUploadingFile = false;
     
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
     
+    // ========== ERROR NOTIFICATION ==========
+    function showError(message, duration = 5000) {
+      const notification = document.getElementById('error-notification');
+      notification.textContent = message;
+      notification.classList.add('active');
+      
+      setTimeout(() => {
+        notification.classList.remove('active');
+      }, duration);
+    }
+    
     // ========== DRAG & DROP SETUP ==========
     const dragDropOverlay = document.getElementById('drag-drop-overlay');
-    const dragDropBox = document.querySelector('.drag-drop-box');
-    let dragCounter = 0;
+    let isDraggingFile = false;
 
     document.addEventListener('dragenter', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dragCounter++;
-      dragDropOverlay.classList.add('active');
+      if (e.dataTransfer?.types?.includes('Files')) {
+        isDraggingFile = true;
+        dragDropOverlay.classList.add('active');
+      }
     });
 
     document.addEventListener('dragover', (e) => {
@@ -804,10 +864,14 @@
     });
 
     document.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dragCounter--;
-      if (dragCounter === 0) {
+      // Проверяем, вышел ли курсор за пределы окна браузера
+      if (e.clientX === 0 && e.clientY === 0) {
+        isDraggingFile = false;
+        dragDropOverlay.classList.remove('active');
+      }
+      // Для Firefox: проверяем, что target это сам document
+      if (e.target === document || e.target === document.documentElement) {
+        isDraggingFile = false;
         dragDropOverlay.classList.remove('active');
       }
     });
@@ -815,54 +879,65 @@
     document.addEventListener('drop', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      dragCounter = 0;
+      isDraggingFile = false;
       dragDropOverlay.classList.remove('active');
       
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
 
       const file = files[0];
-      const fileName = file.name || `dropped_file_${Date.now()}`;
-      const ext = fileName.split('.').pop().toLowerCase();
+      processFileUpload(file, 'drag-drop');
+    });
+
+    // ========== FILE VALIDATION & PROCESSING ==========
+    function getFileExtension(filename) {
+      if (!filename || !filename.includes('.')) return '';
+      return filename.split('.').pop().toLowerCase();
+    }
+
+    function validateFileExtension(ext) {
+      return ALLOWED_EXTENSIONS[ext] === true;
+    }
+
+    function validateFileSize(file, ext) {
+      const maxSizeMB = MAX_FILE_SIZES[ext] || 10;
+      const maxSizeBytes = maxSizeMB * 1024 * 1024;
+      return file.size <= maxSizeBytes;
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    function processFileUpload(file, source = 'upload') {
+      const ext = getFileExtension(file.name);
       
-      const allowedExts = [
-        'jpg', 'jpeg', 'png', 'gif', 'webp',
-        'mp4', 'mov', 'webm',
-        'mp3', 'm4a', 'ogg', 'wav',
-        'pdf', 'txt'
-      ];
-
-      if (!allowedExts.includes(ext)) {
-        alert(`⚠️ File format not allowed. Allowed: ${allowedExts.join(', ')}`);
+      // Validation 1: Extension
+      if (!validateFileExtension(ext)) {
+        const allowedExts = Object.keys(ALLOWED_EXTENSIONS).join(', ');
+        showError(`❌ File format ".${ext}" not allowed. Allowed: ${allowedExts}`);
         return;
       }
 
-      const maxSizes = {
-        'jpg': 10, 'jpeg': 10, 'png': 10, 'gif': 10, 'webp': 10,
-        'mp4': 100, 'mov': 100, 'webm': 100,
-        'mp3': 50, 'm4a': 50, 'ogg': 50, 'wav': 50,
-        'pdf': 25, 'txt': 25
-      };
-
-      const maxSize = (maxSizes[ext] || 10) * 1024 * 1024;
-      if (file.size > maxSize) {
-        alert(`⚠️ File too large. Maximum size: ${formatFileSize(maxSize)}`);
+      // Validation 2: File size
+      if (!validateFileSize(file, ext)) {
+        const maxSize = MAX_FILE_SIZES[ext] || 10;
+        showError(`❌ File too large. Maximum size: ${maxSize}MB`);
         return;
       }
 
-      console.log('[Drop] File detected:', fileName, formatFileSize(file.size));
-      showFilePreview(file, 'drag-drop');
-    });
+      // Validation 3: Minimum size
+      if (file.size < 100) {
+        showError('❌ File is too small (minimum 100 bytes)');
+        return;
+      }
 
-    dragDropBox.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
-
-    dragDropBox.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
+      showFilePreview(file, source);
+    }
 
     // ========== File Preview Management ==========
     function showFilePreview(file, source = 'upload') {
@@ -890,6 +965,8 @@
       filename.textContent = file.name;
       filesize.textContent = formatFileSize(file.size);
 
+      const ext = getFileExtension(file.name);
+
       if (file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -909,6 +986,7 @@
       }
 
       container.classList.add('active');
+      console.log('[Preview] File selected:', file.name, formatFileSize(file.size));
     }
 
     function hideFilePreview() {
@@ -916,14 +994,6 @@
       const container = document.getElementById('file-preview-container');
       container.classList.remove('active');
       document.getElementById('file-input').value = '';
-    }
-
-    function formatFileSize(bytes) {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
 
     // ========== Paste Handler ==========
@@ -938,37 +1008,7 @@
           const file = item.getAsFile();
           if (file) {
             e.preventDefault();
-            
-            const fileName = file.name || `pasted_file_${Date.now()}`;
-            const ext = fileName.split('.').pop().toLowerCase();
-            
-            const allowedExts = [
-              'jpg', 'jpeg', 'png', 'gif', 'webp',
-              'mp4', 'mov', 'webm',
-              'mp3', 'm4a', 'ogg', 'wav',
-              'pdf', 'txt'
-            ];
-
-            if (!allowedExts.includes(ext)) {
-              alert(`⚠️ File format not allowed. Allowed: ${allowedExts.join(', ')}`);
-              return;
-            }
-
-            const maxSizes = {
-              'jpg': 10, 'jpeg': 10, 'png': 10, 'gif': 10, 'webp': 10,
-              'mp4': 100, 'mov': 100, 'webm': 100,
-              'mp3': 50, 'm4a': 50, 'ogg': 50, 'wav': 50,
-              'pdf': 25, 'txt': 25
-            };
-
-            const maxSize = (maxSizes[ext] || 10) * 1024 * 1024;
-            if (file.size > maxSize) {
-              alert(`⚠️ File too large. Maximum size: ${formatFileSize(maxSize)}`);
-              return;
-            }
-
-            console.log('[Paste] File detected:', fileName, formatFileSize(file.size));
-            showFilePreview(file, 'paste');
+            processFileUpload(file, 'paste');
             break;
           }
         }
@@ -978,7 +1018,7 @@
     // ========== File Input Handler ==========
     document.getElementById('file-input').addEventListener('change', function() {
       if (this.files.length > 0) {
-        showFilePreview(this.files[0], 'upload');
+        processFileUpload(this.files[0], 'upload');
       }
     });
 
@@ -988,8 +1028,12 @@
     });
 
     // ========== Send File ==========
-    function sendFile() {
+    async function sendFile() {
       if (!selectedFile) return;
+      if (isUploadingFile) return;
+      
+      isUploadingFile = true;
+      
       const formData = new FormData();
       formData.append('file', selectedFile);
 
@@ -1003,13 +1047,25 @@
         success: function(response) {
           console.log('[Upload] File sent successfully');
           hideFilePreview();
+          isUploadingFile = false;
         },
         error: function(xhr) {
+          isUploadingFile = false;
           try {
             const response = JSON.parse(xhr.responseText);
-            alert('Upload failed: ' + (response.message || xhr.responseText));
+            const message = response.message || response.error || 'Unknown error';
+            showError(`❌ Upload failed: ${message}`);
           } catch(e) {
-            alert('Upload failed: ' + xhr.responseText);
+            if (xhr.status === 429) {
+              showError('❌ Too many requests. Try again later.');
+            } else if (xhr.status === 401) {
+              showError('❌ Session expired. Please login again.');
+              handleSessionExpired();
+            } else if (xhr.status === 400) {
+              showError('❌ Invalid file. Please check the file and try again.');
+            } else {
+              showError(`❌ Upload failed (${xhr.status})`);
+            }
           }
         }
       });
@@ -1017,6 +1073,11 @@
 
     // ========== Send Message or File ==========
     function sendMessageOrFile() {
+      if (isUploadingFile) {
+        showError('⏳ Upload in progress. Please wait...');
+        return;
+      }
+
       if (selectedFile) {
         sendFile();
         return;
@@ -1030,30 +1091,35 @@
         type: 'POST',
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
         data: { message: text },
+        success: function() {
+          document.getElementById('in').value = '';
+        },
         error: function(xhr) {
           if (xhr.status === 429) {
-            alert('You are sending requests too quickly. Please try again later.');
+            showError('❌ You are sending requests too quickly. Try again later.');
           } else if (xhr.status === 401) {
             handleSessionExpired();
           } else if (xhr.status === 400) {
             try {
               const response = JSON.parse(xhr.responseText);
               if (response.error === 'Message too long') {
-                alert(`Message too long! Maximum length is ${response.max_length} characters.`);
+                showError(`❌ Message too long! Maximum: ${response.max_length} characters.`);
               }
             } catch(e) {
-              alert('Invalid request.');
+              showError('❌ Invalid request.');
             }
+          } else {
+            showError('❌ Failed to send message.');
           }
         }
       });
-      document.getElementById('in').value = '';
     }
 
     // ========== Event Listeners ==========
     document.getElementById('send-btn').addEventListener('click', sendMessageOrFile);
     document.getElementById('in').addEventListener('keyup', function(e) {
       if (e.keyCode === 13 && !e.shiftKey) {
+        e.preventDefault();
         sendMessageOrFile();
       }
     });
@@ -1101,11 +1167,13 @@
       isUnloading = true;
       clearInterval(MEMBERS_UPDATE_INTERVAL);
       clearInterval(ONLINE_HEARTBEAT_INTERVAL);
-      alert('Your session has expired. Please login again.');
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('username');
-      localStorage.removeItem(`group_session_${GROUP_ID}`);
-      window.location.href = '/login';
+      showError('❌ Your session has expired. Redirecting...');
+      setTimeout(() => {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('username');
+        localStorage.removeItem(`group_session_${GROUP_ID}`);
+        window.location.href = '/login';
+      }, 1500);
     }
 
     function getCurrentUser() {
@@ -1396,7 +1464,7 @@
           
           const downloadBtn = document.createElement("button");
           downloadBtn.className = "file-download-btn";
-          downloadBtn.textContent = "↓";
+          downloadBtn.textContent = "⬇";
           downloadBtn.onclick = () => {
             const a = document.createElement('a');
             a.href = fileMatch[4];
@@ -1494,7 +1562,7 @@
           loadMoreBtn.textContent = "No more messages";
           setTimeout(() => loadMoreContainer.style.display = "none", 2000);
         } else {
-          loadMoreBtn.textContent = "↑ Load older messages";
+          loadMoreBtn.textContent = "↓ Load older messages";
         }
 
         if (!initialLoadDone) {
