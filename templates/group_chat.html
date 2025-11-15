@@ -850,9 +850,11 @@
     // ========== DRAG & DROP SETUP ==========
     const dragDropOverlay = document.getElementById('drag-drop-overlay');
     let isDraggingFile = false;
+    let dragLeaveTimeout = null;
 
     document.addEventListener('dragenter', (e) => {
       if (e.dataTransfer?.types?.includes('Files')) {
+        clearTimeout(dragLeaveTimeout);
         isDraggingFile = true;
         dragDropOverlay.classList.add('active');
       }
@@ -861,24 +863,22 @@
     document.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      // Перезапускаем таймер при каждом dragover
+      clearTimeout(dragLeaveTimeout);
     });
 
     document.addEventListener('dragleave', (e) => {
-      // Проверяем, вышел ли курсор за пределы окна браузера
-      if (e.clientX === 0 && e.clientY === 0) {
+      // Используем таймер вместо проверки координат
+      dragLeaveTimeout = setTimeout(() => {
         isDraggingFile = false;
         dragDropOverlay.classList.remove('active');
-      }
-      // Для Firefox: проверяем, что target это сам document
-      if (e.target === document || e.target === document.documentElement) {
-        isDraggingFile = false;
-        dragDropOverlay.classList.remove('active');
-      }
+      }, 50);
     });
 
     document.addEventListener('drop', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      clearTimeout(dragLeaveTimeout);
       isDraggingFile = false;
       dragDropOverlay.classList.remove('active');
       
