@@ -2203,6 +2203,7 @@ def delete_message_by_id(message_id: int) -> bool:
             return False
         
         group_id = msg.group_id
+        print(f"[INFO] Starting deletion of message {message_id} from group {group_id}")
         
         # Если это фото или файл - удалить файл с диска
         if msg.message_type in ('photo', 'file'):
@@ -2224,21 +2225,46 @@ def delete_message_by_id(message_id: int) -> bool:
                                 print(f"[WARN] Failed to delete file from disk: {e}")
                         
                         # Удалить запись файла из БД
-                        db.session.delete(file_record)
-                        db.session.flush()
-                        print(f"[OK] Deleted file record from DB: {file_id}")
+                        try:
+                            db.session.delete(file_record)
+                            db.session.flush()
+                            print(f"[OK] Deleted file record from DB: {file_id}")
+                        except Exception as e:
+                            print(f"[ERROR] Failed to delete file record: {e}")
+                            db.session.rollback()
+                            return False
+                    else:
+                        print(f"[WARN] File record not found: {file_id}")
             except Exception as e:
                 print(f"[WARN] Error processing file deletion: {e}")
         
         # Удалить само сообщение из БД
-        db.session.delete(msg)
-        db.session.commit()
+        try:
+            db.session.delete(msg)
+            db.session.flush()
+            print(f"[OK] Message record deleted from DB")
+        except Exception as e:
+            print(f"[ERROR] Failed to delete message record: {e}")
+            db.session.rollback()
+            return False
         
-        # ВАЖНО: Публикуем событие удаления с ID сообщения
+        # КОММИТИМ все изменения ОДИН раз
+        try:
+            db.session.commit()
+            print(f"[OK] Transaction committed successfully")
+        except Exception as e:
+            print(f"[ERROR] Failed to commit transaction: {e}")
+            db.session.rollback()
+            return False
+        
+        # ПОСЛЕ успешного коммита - публикуем событие удаления
         if group_id:
-            delete_notification = f"DELETE_MESSAGE:{message_id}"
-            r.publish(f"chat:group:{group_id}", delete_notification.encode("utf-8"))
-            print(f"[OK] Published delete notification: {delete_notification}")
+            try:
+                delete_notification = f"DELETE_MESSAGE:{message_id}"
+                r.publish(f"chat:group:{group_id}", delete_notification.encode("utf-8"))
+                print(f"[OK] Published delete notification: {delete_notification}")
+            except Exception as e:
+                print(f"[WARN] Failed to publish delete notification: {e}")
         
         print(f"[OK] Message {message_id} deleted completely (group: {group_id})")
         return True
