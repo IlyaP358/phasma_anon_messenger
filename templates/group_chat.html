@@ -718,14 +718,12 @@
       background: #005a00;
       color: #44ff44;
       border-color: #00a000;
-      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
     }
 
     #error-notification.error {
       background: #5a0000;
       color: #ff4444;
       border-color: #a00;
-      box-shadow: 0 0 10px rgba(255, 0, 0, 0.3);
     }
 
     @keyframes slideIn {
@@ -843,6 +841,165 @@
       background: #0f0;
       color: #000;
     }
+    
+    .emoji-picker-modal {
+      display: none;
+      position: fixed;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #111;
+      border: 2px solid #0f0;
+      border-radius: 8px;
+      box-shadow: 0 0 0px rgba(0, 255, 0, 0.3);
+      z-index: 5000;
+    }
+
+    .emoji-picker-modal.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .emoji-picker-container {
+      display: flex;
+      flex-direction: column;
+      width: 420px;
+      max-height: 520px;
+      background: #0a1a0a;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .emoji-picker-header {
+      display: flex;
+      gap: 0.5em;
+      align-items: center;
+      padding: 0.8em;
+      border-bottom: 1px solid #0f0;
+      background: #0a1a0a;
+      flex-shrink: 0;
+    }
+
+    .emoji-search {
+      flex: 1;
+      padding: 0.6em;
+      background: #222;
+      border: 1px solid #333;
+      color: #fff;
+      font: 13px monospace;
+      border-radius: 4px;
+      outline: none;
+    }
+
+    .emoji-search:focus {
+      border-color: #0ff;
+      box-shadow: 0 0 5px rgba(0, 255, 255, 0.3);
+    }
+
+    .emoji-close-btn {
+      background: none;
+      border: none;
+      color: #0f0;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .emoji-close-btn:hover {
+      color: #f00;
+      transform: rotate(90deg);
+    }
+
+    .emoji-categories-tabs {
+      display: flex;
+      gap: 0.3em;
+      padding: 0.5em;
+      border-bottom: 1px solid #333;
+      background: #111;
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+
+    .emoji-tab {
+      background: #222;
+      border: 1px solid #333;
+      color: #fff;
+      font-size: 16px;
+      padding: 0.4em 0.6em;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s;
+      flex-shrink: 0;
+      min-width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .emoji-tab:hover {
+      background: #333;
+      border-color: #0f0;
+    }
+
+    .emoji-tab.active {
+      background: #0f0;
+      color: #000;
+      border-color: #0f0;
+      font-weight: bold;
+    }
+
+    .emoji-picker-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.8em;
+      background: #111;
+    }
+
+    .emoji-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 0.4em;
+    }
+
+    .emoji-item {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      background: #0a1a0a;
+      border: 1px solid #333;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+
+    .emoji-item:hover {
+      background: #0d2a0d;
+      border-color: #0f0;
+      transform: scale(1.15);
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    }
+
+    .emoji-item:active {
+      transform: scale(0.9);
+    }
+
+    .emoji-no-results {
+      text-align: center;
+      color: #666;
+      padding: 2em 1em;
+      font-style: italic;
+      grid-column: 1 / -1;
+    }
 
     @media (max-width: 768px) {
       .chat-wrapper {
@@ -895,11 +1052,11 @@
 
   <div id="error-notification"></div>
 
-  <!-- ========== CONFIRMATION MODAL ========== -->
   <div id="confirm-modal" class="modal-overlay">
     <div class="modal-dialog">
       <div class="modal-title">⚠️ Delete Message</div>
-      <div class="modal-message">Are you sure you want to delete this message? This action cannot be undone.</div>
+      <div class="modal-message">Are you sure you want to delete this message?
+This action cannot be undone.</div>
       <div class="modal-buttons">
         <button class="modal-btn modal-btn-cancel" id="modal-cancel">Cancel</button>
         <button class="modal-btn modal-btn-confirm" id="modal-confirm">Delete</button>
@@ -914,7 +1071,8 @@
       <div class="chat-header">
         <div class="chat-header-left">
           <h3 id="group-name">Loading...</h3>
-          <div class="chat-user-badge">Logged as: <span id="chat-user">...</span></div>
+          <div class="chat-user-badge">Logged as: 
+<span id="chat-user">...</span></div>
         </div>
       </div>
 
@@ -928,9 +1086,12 @@
       <div id="input-container">
         <div id="file-preview-container">
           <div class="preview-thumbnail" id="preview-thumbnail">
-            <img id="preview-img" style="display: none;" />
+    
+            <img id="preview-img" style="display: none;"
+ />
             <video id="preview-video" style="display: none;"></video>
-            <img id="preview-file-icon" class="file-icon" style="display: none;" src="/static/phasma_file.png" />
+            <img id="preview-file-icon" class="file-icon" style="display: none;"
+ src="/static/phasma_file.png" />
           </div>
           <div class="preview-info">
             <div class="preview-source" id="preview-source"></div>
@@ -938,17 +1099,20 @@
             <div class="preview-filesize" id="preview-filesize"></div>
           </div>
           <div class="preview-actions">
-            <button type="button" class="preview-btn" id="preview-remove-btn">✕ Remove</button>
+            <button type="button" class="preview-btn" 
+ id="preview-remove-btn">✕ Remove</button>
           </div>
         </div>
 
         <div class="input-row">
           <input type="text" id="in" autocomplete="off" placeholder="Type a message" />
           <button type="button" class="input-button" id="upload-btn">+ File</button>
+          <button type="button" class="input-button" id="emoji-btn">😂</button>
           <button type="button" class="input-button" id="send-btn">↳</button>
         </div>
         
-        <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
+        <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" 
+ />
       </div>
     </div>
 
@@ -960,26 +1124,196 @@
     </div>
   </div>
 
+  <div id="emoji-picker-modal" class="emoji-picker-modal">
+    <div class="emoji-picker-container">
+      <div class="emoji-picker-header">
+        <input type="text" id="emoji-search" class="emoji-search" placeholder="Search emoji..." />
+        <button type="button" class="emoji-close-btn" id="emoji-close-btn">x</button>
+      </div>
+
+      <div class="emoji-categories-tabs">
+        <button type="button" class="emoji-tab active" data-category="frequent">⏱️</button>
+        <button type="button" class="emoji-tab" data-category="smileys">:)</button>
+        <button type="button" class="emoji-tab" data-category="people">hi</button>
+        <button type="button" class="emoji-tab" data-category="nature">leaf</button>
+        <button type="button" class="emoji-tab" data-category="food">food</button>
+        <button type="button" class="emoji-tab" data-category="travel">car</button>
+        <button type="button" class="emoji-tab" data-category="objects">bulb</button>
+        <button type="button" class="emoji-tab" data-category="symbols">heart</button>
+      </div>
+
+      <div class="emoji-picker-content">
+        <div id="emoji-grid" class="emoji-grid"></div>
+      </div>
+    </div>
+  </div>
+
   <script nonce="{{ nonce }}" type="module">
     const GROUP_ID = {{ group_id|tojson }};
     const TEMPLATE_USER = {{ user|tojson }};
     const TEMPLATE_GROUP_TOKEN = {{ auth_token|tojson }};
     const GROUP_NAME = {{ group_name|tojson }};
     
+    const EMOJI_DATA = {
+      frequent: [],
+      smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '🥲', '😋', '😛', '😜', '🤪', '😌', '😔', '😑', '😐', '😶', '🤐', '😏', '😒', '🙁', '☹️', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤮', '🤢', '🤮', '🤮', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '🙁', '☹️', '😮', '😯', '😲', '😳', '🥺', '😦', '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣', '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '☠️', '💩', '🤡', '👹', '👺', '👻', '👽', '👾', '🤖', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'],
+      people: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🫰', '🤟', '🤘', '🤙', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🤜', '🤛', '🦾', '🦿', '👂', '👃', '🧠', '🦷', '🦴', '👀', '👁️', '👅', '👄', '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🪱', '🐛', '🦋', '🐌', '🐞', '🐜', '🪰', '🐢', '🐍', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃', '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦉', '🐐', '🦌', '🐕', '🐩', '🦮', '🐈', '🐓', '🦃', '🦚', '🦜', '🦢', '🦗', '🥚', '🍄', '🌱', '🌲', '🌳', '🌴', '🌵', '🌾', '🌿', '☘️', '🍀', '🎍', '🎎', '🎏', '🎐', '🎑', '🍇', '🍈', '🍉', '🍊', '🍋', '🍌', '🍍', '🥭', '🍎', '🍏', '🍐', '🍑', '🍒', '🍓', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🌽', '🍚', '🍙', '🍚', '🍛', '🍜', '🍝', '🍠', '🍢', '🍣', '🍤', '🍥', '🍡', '🍦', '🍧', '🍨', '🍩', '🍪', '🎂', '🍰', '🧁', '🍫', '🍬', '🍭', '🍮', '🍯'],
+      nature: ['🌿', '🍀', '☘️', '🎍', '🎎', '🌲', '🌳', '🌴', '🌱', '🌾', '💐', '🌷', '🌹', '🥀', '🌺', '🌻', '🌞', '🌝', '🌛', '🌜', '🌚', '🌕', '🌖', '🌗', '🌘', '🌑', '🌒', '🌓', '🌔', '⭐', '🌟', '✨', '⚡', '☄️', '💥', '🔥', '🌪️', '🌈', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '🌨️', '❄️', '☃️', '⛄', '🌬️', '💨', '💧', '💦', '☔'],
+      food: ['🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🌽', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈', '🥞', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕', '🥪', '🥙', '🧆', '🌮', '🌯', '🥗', '🥘', '🥫', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🦪', '🍤', '🍙', '🍚', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🍰', '🎂', '🧁', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🍯', '🥛', '🥤', '☕', '🍵', '🍶', '🍾', '🍷', '🍸', '🍹', '🍺', '🍻', '🥂', '🥃'],
+      travel: ['✈️', '🛫', '🛬', '🛩️', '💺', '🛰️', '🚁', '🛶', '⛵', '🚤', '🛳️', '⛴️', '🛥️', '🛩️', '✈️', '🚀', '🛸', '🚂', '🚃', '🚄', '🚅', '🚆', '🚇', '🚈', '🚉', '🚊', '🚝', '🚞', '🚋', '🚌', '🚍', '🚎', '🚐', '🚑', '🚒', '🚓', '🚔', '🚕', '🚖', '🚗', '🚘', '🚙', '🚚', '🚛', '🚜', '🏎️', '🏍️', '🛵', '🦯', '🦽', '🦼', '🛺', '🚲', '🛴', '🛹', '🛼', '🚏', '⛽', '🚨', '🚥', '🚦', '🛑', '🚧', '⚓', '⛵', '🚤', '🛳️', '🛥️', '🛶', '✈️', '🛫', '🛬', '🛩️', '💺', '🛰️', '🚁', '🗼', '🗽', '🗿', '⛩️', '🎡', '🎢', '🎠', '⛲', '⛺', '🏕️', '⛰️', '⛱️', '🏖️', '🏝️', '🏜️', '🌋', '⛰️', '🎓', '🎒'],
+      objects: ['⚽', '⚾', '🥎', '🎾', '🏀', '🏐', '🏈', '🏉', '🎱', '🎳', '🎯', '🎣', '🎽', '🎿', '⛷️', '🛷', '🛸', '🥌', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🎻', '🎲', '📟', '📠', '📺', '📻', '🎙️', '📡', '📢', '📣', '📯', '📻', '📺', '📷', '📸', '📹', '🎥', '📽️', '🎞️', '📾', '📿', '🎀', '🎁', '🎗️', '🎟️', '🎫', '🎖️', '🏆', '🏅', '🥇', '🥈', '🥉', '⭐', '🌟', '✨', '⚡', '☄️', '💥', '🔥', '🌪️', '🌈', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '🌨️', '❄️', '☃️', '⛄', '🌬️', '💨', '💧', '💦', '☔', '🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🍈', '🍒', '🍑'],
+      symbols: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '💌', '💜', '💛', '💚', '💙', '❤️', '🧡', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '💌', '💮', '💯', '✅', '❌', '❎', '✔️', '✖️', '➕', '➖', '➗', '➘', '➙', '➚', '➛', '➜', '➝', '➞', '➟', '➠', '➡️', '➢', '➣', '➤', '➥', '➦', '➧', '➨', '➩', '➪', '➫', '➬', '➭', '➮', '➯', '🔚', '🔙', '🔛', '🔝', '🔜', '✅', '☑️', '🔘', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '🟤', '⚫', '⚪', '🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫']
+    };
+
+    let recentEmojis = [];
+
+    function saveRecentEmoji(emoji) {
+      recentEmojis = [emoji, ...recentEmojis.filter(e => e !== emoji)].slice(0, 10);
+      try {
+        localStorage.setItem('recentEmojis', JSON.stringify(recentEmojis));
+      } catch (e) {
+        console.warn('Could not save recent emojis');
+      }
+    }
+
+    function loadRecentEmojis() {
+      try {
+        const stored = localStorage.getItem('recentEmojis');
+        recentEmojis = stored ? JSON.parse(stored) : [];
+      } catch (e) {
+        recentEmojis = [];
+      }
+      EMOJI_DATA.frequent = recentEmojis.length > 0 ? recentEmojis : ['😊', '😂', '❤️', '👍', '🔥', '💯', '✨', '👌'];
+    }
+
+    loadRecentEmojis();
+
+    const emojiBtn = document.getElementById('emoji-btn');
+    const emojiModal = document.getElementById('emoji-picker-modal');
+    const emojiCloseBtn = document.getElementById('emoji-close-btn');
+    const emojiSearch = document.getElementById('emoji-search');
+    const emojiGrid = document.getElementById('emoji-grid');
+    const emojiTabs = document.querySelectorAll('.emoji-tab');
+
+    let currentCategory = 'frequent';
+
+    emojiBtn.addEventListener('click', () => {
+      emojiModal.classList.add('active');
+      renderEmojiGrid('frequent');
+      emojiSearch.focus();
+    });
+
+    emojiCloseBtn.addEventListener('click', () => {
+      emojiModal.classList.remove('active');
+      emojiSearch.value = '';
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!emojiModal.contains(e.target) && e.target !== emojiBtn) {
+        emojiModal.classList.remove('active');
+      }
+    });
+
+    emojiTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        emojiTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentCategory = tab.dataset.category;
+        emojiSearch.value = '';
+        renderEmojiGrid(currentCategory);
+      });
+    });
+
+    emojiSearch.addEventListener('input', () => {
+      const query = emojiSearch.value.toLowerCase();
+      if (!query) {
+        renderEmojiGrid(currentCategory);
+        return;
+      }
+      emojiTabs.forEach(t => t.classList.remove('active'));
+      renderSearchResults(query);
+    });
+
+    function renderEmojiGrid(category) {
+      const emojis = EMOJI_DATA[category] || [];
+      emojiGrid.innerHTML = '';
+
+      if (emojis.length === 0) {
+        emojiGrid.innerHTML = '<div class="emoji-no-results">No emojis</div>';
+        return;
+      }
+
+      emojis.forEach(emoji => {
+        const item = document.createElement('div');
+        item.className = 'emoji-item';
+        item.textContent = emoji;
+        item.addEventListener('click', () => {
+          insertEmoji(emoji);
+          saveRecentEmoji(emoji);
+          loadRecentEmojis();
+        });
+        emojiGrid.appendChild(item);
+      });
+    }
+
+    function renderSearchResults(query) {
+      emojiGrid.innerHTML = '';
+      const results = [];
+
+      Object.values(EMOJI_DATA).forEach(emojis => {
+        emojis.forEach(emoji => {
+          if (!results.includes(emoji)) {
+            results.push(emoji);
+          }
+        });
+      });
+
+      const filtered = results.slice(0, 100);
+
+      if (filtered.length === 0) {
+        emojiGrid.innerHTML = '<div class="emoji-no-results">No results</div>';
+        return;
+      }
+
+      filtered.forEach(emoji => {
+        const item = document.createElement('div');
+        item.className = 'emoji-item';
+        item.textContent = emoji;
+        item.addEventListener('click', () => {
+          insertEmoji(emoji);
+          saveRecentEmoji(emoji);
+          loadRecentEmojis();
+        });
+        emojiGrid.appendChild(item);
+      });
+    }
+
+    function insertEmoji(emoji) {
+      const input = document.getElementById('in');
+      const start = input.selectionStart;
+      const end = input.selectionEnd;
+      const text = input.value;
+
+      input.value = text.substring(0, start) + emoji + text.substring(end);
+      input.selectionStart = input.selectionEnd = start + emoji.length;
+      input.focus();
+
+      emojiModal.classList.remove('active');
+    }
+
+    renderEmojiGrid('frequent');
     const ALLOWED_EXTENSIONS = {
       'jpg': true, 'jpeg': true, 'png': true, 'gif': true, 'webp': true,
       'mp4': true, 'mov': true, 'webm': true,
       'mp3': true, 'm4a': true, 'ogg': true, 'wav': true,
       'pdf': true, 'txt': true
     };
-
     const MAX_FILE_SIZES = {
       'jpg': 10, 'jpeg': 10, 'png': 10, 'gif': 10, 'webp': 10,
       'mp4': 100, 'mov': 100, 'webm': 100,
       'mp3': 50, 'm4a': 50, 'ogg': 50, 'wav': 50,
       'pdf': 25, 'txt': 25
     };
-    
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
     let GROUP_SESSION_TOKEN = null;
@@ -992,7 +1326,6 @@
     let pendingDeleteMessageId = null;
     
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
-    
     function showError(message, duration = 5000) {
       const notification = document.getElementById('error-notification');
       notification.textContent = message;
@@ -1029,21 +1362,18 @@
     }
 
     document.getElementById('modal-cancel').addEventListener('click', hideDeleteConfirmModal);
-
     document.getElementById('modal-confirm').addEventListener('click', function() {
       if (pendingDeleteMessageId !== null) {
         executeDeleteMessage(pendingDeleteMessageId);
       }
       hideDeleteConfirmModal();
     });
-
     // Close modal when clicking outside
     document.getElementById('confirm-modal').addEventListener('click', function(e) {
       if (e.target === this) {
         hideDeleteConfirmModal();
       }
     });
-
     // Close modal on Escape
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
@@ -1054,7 +1384,7 @@
     const dragDropOverlay = document.getElementById('drag-drop-overlay');
     let isDraggingFile = false;
     let dragLeaveTimeout = null;
-
+    
     document.addEventListener('dragenter', (e) => {
       if (e.dataTransfer?.types?.includes('Files')) {
         clearTimeout(dragLeaveTimeout);
@@ -1062,20 +1392,20 @@
         dragDropOverlay.classList.add('active');
       }
     });
-
+    
     document.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.stopPropagation();
       clearTimeout(dragLeaveTimeout);
     });
-
+    
     document.addEventListener('dragleave', (e) => {
       dragLeaveTimeout = setTimeout(() => {
         isDraggingFile = false;
         dragDropOverlay.classList.remove('active');
       }, 50);
     });
-
+    
     document.addEventListener('drop', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1089,7 +1419,7 @@
       const file = files[0];
       processFileUpload(file, 'drag-drop');
     });
-
+    
     function getFileExtension(filename) {
       if (!filename || !filename.includes('.')) return '';
       return filename.split('.').pop().toLowerCase();
@@ -1149,7 +1479,7 @@
       previewImg.style.display = 'none';
       previewVideo.style.display = 'none';
       previewIcon.style.display = 'none';
-
+      
       if (source === 'drag-drop') {
         sourceLabel.textContent = '📥 Dropped';
       } else if (source === 'paste') {
@@ -1160,7 +1490,7 @@
       
       filename.textContent = file.name;
       filesize.textContent = formatFileSize(file.size);
-
+      
       const ext = getFileExtension(file.name);
 
       if (file.type.startsWith('image/')) {
@@ -1209,18 +1539,18 @@
         }
       }
     });
-
+    
     document.getElementById('file-input').addEventListener('change', function() {
       if (this.files.length > 0) {
         processFileUpload(this.files[0], 'upload');
       }
     });
-
+    
     document.getElementById('preview-remove-btn').addEventListener('click', hideFilePreview);
     document.getElementById('upload-btn').addEventListener('click', function() {
       document.getElementById('file-input').click();
     });
-
+    
     async function sendFile() {
       if (!selectedFile) return;
       if (isUploadingFile) return;
@@ -1288,7 +1618,7 @@
         },
         error: function(xhr) {
           if (xhr.status === 429) {
-            showError('✗ You are sending requests too quickly. Try again later.');
+             showError('✗ You are sending requests too quickly. Try again later.');
           } else if (xhr.status === 401) {
             handleSessionExpired();
           } else if (xhr.status === 400) {
@@ -1314,7 +1644,7 @@
         sendMessageOrFile();
       }
     });
-
+    
     function initAuth() {
       AUTH_TOKEN = localStorage.getItem('auth_token');
       CURRENT_USER = localStorage.getItem('username');
@@ -1389,7 +1719,7 @@
         return response.json();
       })
       .then(data => {
-        if (!data) return;
+         if (!data) return;
         renderMembers(data.members, data.total);
       })
       .catch(err => console.error('[Members] Failed:', err));
@@ -1416,7 +1746,7 @@
         className += isOnline ? 'online' : 'offline';
 
         const dot = isOnline 
-          ? '<span class="member-online-dot"></span>' 
+           ? '<span class="member-online-dot"></span>' 
           : '<span class="member-offline-dot"></span>';
         
         const roleLabel = isCreator ? '<span class="member-role">👑</span>' : '';
@@ -1515,7 +1845,7 @@
           
           if (xhr.status === 403) {
             showError('✗ You can only delete your own messages');
-            return;
+             return;
           }
           
           try {
@@ -1540,7 +1870,7 @@
     const messagesContainer = document.getElementById("messages-container");
     const loadMoreBtn = document.getElementById("load-more-btn");
     const loadMoreContainer = document.getElementById("load-more-container");
-
+    
     function parseMessageData(data) {
       const timeMatch = data.match(/^\[(\d+)\]\s+/);
       if (!timeMatch) return null;
@@ -1761,11 +2091,11 @@
       const scrollContainer = out;
       const oldScrollHeight = scrollContainer.scrollHeight;
       const oldScrollTop = scrollContainer.scrollTop;
-
+      
       const url = oldestMessageId 
         ? `/group/${GROUP_ID}/history?before_id=${oldestMessageId}&limit=50`
         : `/group/${GROUP_ID}/history?limit=50`;
-
+      
       fetch(url, {
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
       })
@@ -1776,7 +2106,7 @@
           loadMoreBtn.textContent = "No more messages";
           setTimeout(() => loadMoreContainer.style.display = "none", 2000);
           return;
-        }
+         }
 
         const messageElements = [];
         data.messages.forEach(msg => {
@@ -1785,14 +2115,14 @@
             const msgElement = createMessageElement(msg.text, msg.id);
             messageElements.push({element: msgElement, id: msg.id});
             
-            if (!oldestMessageId || msg.id < oldestMessageId) {
+             if (!oldestMessageId || msg.id < oldestMessageId) {
               oldestMessageId = msg.id;
             }
             if (!newestMessageId || msg.id > newestMessageId) {
               newestMessageId = msg.id;
             }
           }
-        });
+         });
 
         if (initialLoadDone) {
           for (let i = messageElements.length - 1; i >= 0; i--) {
@@ -1847,7 +2177,7 @@
         loadMoreContainer.style.display = "none";
       }
     });
-
+    
     loadMoreBtn.addEventListener('click', loadHistory);
 
     function startSSE() {
@@ -1860,7 +2190,7 @@
         
         function read() {
           reader.read().then(({ done, value }) => {
-            if (done) return;
+             if (done) return;
             
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
@@ -1873,6 +2203,7 @@
                 const data = line.slice(6).trim();
                 if (!data) return;
                 
+ 
                 // ========== HANDLE DELETE MESSAGES ==========
                 if (data.startsWith('DELETE_MESSAGE:')) {
                   const messageId = parseInt(data.substring(15), 10);
@@ -1923,7 +2254,7 @@
           headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
         }).then(response => {
           if (response.ok) {
-            clearInterval(MEMBERS_UPDATE_INTERVAL);
+             clearInterval(MEMBERS_UPDATE_INTERVAL);
             clearInterval(ONLINE_HEARTBEAT_INTERVAL);
             alert("You have left the group.");
             window.location.href = "/groups";
@@ -1938,14 +2269,14 @@
         });
       }
     });
-
+    
     window.addEventListener('beforeunload', function() {
       if (!isUnloading) {
         clearInterval(MEMBERS_UPDATE_INTERVAL);
         clearInterval(ONLINE_HEARTBEAT_INTERVAL);
       }
     });
-
+    
     if (initAuth()) {
       loadHistory();
     }
