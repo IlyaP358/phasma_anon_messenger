@@ -34,6 +34,7 @@ import hashlib
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3NoHeaderError
 from pikepdf import Pdf
+from user_agents import parse as parse_user_agent
 
 # ===============================================================
 # ---- PRODUCTION vs DEVELOPMENT MODE ----
@@ -150,6 +151,7 @@ EXT_TO_MIME = {
 }
 
 AUTH_TOKEN_TTL = 3600  # seconds = 1 hour
+SESSION_METADATA_TTL = 3600
 
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 32
@@ -1026,25 +1028,42 @@ def get_client_ip_subnet() -> str:
         return "unknown"
 
 def generate_auth_token(username: str) -> tuple:
-    """Генерирует токен аутентификации"""
-    old_token_bytes = r.get(f"user_session:{username}")
-    old_token = old_token_bytes.decode("utf-8") if old_token_bytes else None
+    """Генерирует auth token с метаданными браузера и OS"""
     
+    # Получаем User-Agent
+    user_agent_string = request.headers.get('User-Agent', 'Unknown')
+    browser, os_name = get_browser_info_from_user_agent(user_agent_string)
+    
+    # Проверяем, есть ли уже сессия с таким браузером/OS/IP
+    existing_sessions = get_all_user_sessions(username)
+    old_token = None
+    
+    for session in existing_sessions:
+        if (session.get('browser') == browser and 
+            session.get('os') == os_name and 
+            session.get('ip_subnet') == get_client_ip_subnet()):
+            # Нашли существующую сессию с тем же браузером/OS/IP
+            old_token = session.get('token')
+            break
+    
+    # Генерируем новый токен
     token = str(uuid.uuid4())
+    current_time = int(time.time())
+    
+    # Если есть старая сессия с такой же конфигурацией, завершаем её
+    if old_token:
+        terminate_session(old_token, username)
+        print(f"[INFO] Replaced existing session for {username}")
+    
+    # Сохраняем новые метаданные
+    save_session_metadata(token, username, browser, os_name, current_time)
+    
     ip_subnet = get_client_ip_subnet()
     token_data = f"{username}|{ip_subnet}"
+    r.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, token_data.encode("utf-8"))
+    r.setex(f"user_session:{username}", AUTH_TOKEN_TTL, token.encode("utf-8"))
     
-    pipe = r.pipeline()
-    pipe.multi()
-    
-    if old_token:
-        pipe.delete(f"auth_token:{old_token}")
-    
-    pipe.setex(f"auth_token:{token}", AUTH_TOKEN_TTL, token_data.encode("utf-8"))
-    pipe.setex(f"user_session:{username}", AUTH_TOKEN_TTL, token.encode("utf-8"))
-    pipe.execute()
-    
-    print(f"[OK] Auth token generated for {username} from subnet {ip_subnet}")
+    print(f"[OK] Auth token generated for {username} ({browser} on {os_name})")
     return token, old_token
 
 def verify_token(token: str, strict_ip_check: bool = False) -> str or None:
@@ -1103,6 +1122,172 @@ def revoke_token(token: str):
         pass
     r.delete(f"auth_token:{token}")
     print(f"[OK] Auth token revoked")
+
+# ===============================================================
+# ---- Session Management (с информацией о браузере и OS) ----
+# ===============================================================
+
+def get_browser_info_from_user_agent(user_agent_string: str) -> tuple:
+    """
+    Парсит User-Agent и возвращает (browser, os)
+    Возвращает кортеж: ("Chrome 120", "Windows 10")
+    """
+    try:
+        ua = parse_user_agent(user_agent_string)
+        
+        # Браузер
+        browser_name = ua.browser.family or "Unknown"
+        browser_version = ua.browser.version_string or "0"
+        # Берём только major версию
+        browser_major = browser_version.split('.')[0] if browser_version else "0"
+        browser = f"{browser_name} {browser_major}"
+        
+        # ОС
+        os_name = ua.os.family or "Unknown"
+        os_version = ua.os.version_string or ""
+        os = f"{os_name} {os_version}".strip()
+        
+        return (browser, os)
+    except Exception as e:
+        print(f"[WARN] Failed to parse User-Agent: {e}")
+        return ("Unknown Browser", "Unknown OS")
+
+def save_session_metadata(token: str, username: str, browser: str, os: str, created_at: int):
+    """
+    Сохраняет метаданные сессии в Redis
+    """
+    try:
+        metadata = {
+            'username': username,
+            'browser': browser,
+            'os': os,
+            'created_at': created_at,
+            'last_activity': created_at,
+            'ip_subnet': get_client_ip_subnet()
+        }
+        
+        pipe = r.pipeline()
+        pipe.multi()
+        
+        # Сохраняем метаданные
+        pipe.setex(
+            f"session_metadata:{token}",
+            SESSION_METADATA_TTL,
+            json.dumps(metadata).encode("utf-8")
+        )
+        
+        # Добавляем токен в Set пользователя
+        pipe.sadd(f"user_sessions:{username}", token)
+        
+        pipe.execute()
+        
+        print(f"[OK] Session metadata saved for {username}: {browser} on {os}")
+    except Exception as e:
+        print(f"[ERROR] Failed to save session metadata: {e}")
+
+def get_all_user_sessions(username: str) -> list:
+    """
+    Получает все активные сессии пользователя
+    Возвращает список dict'ов с информацией о каждой сессии
+    """
+    try:
+        tokens = r.smembers(f"user_sessions:{username}")
+        sessions = []
+        
+        for token_bytes in tokens:
+            token = token_bytes.decode("utf-8") if isinstance(token_bytes, bytes) else token_bytes
+            
+            metadata_bytes = r.get(f"session_metadata:{token}")
+            if not metadata_bytes:
+                # Сессия истекла или удалена
+                r.srem(f"user_sessions:{username}", token)
+                continue
+            
+            try:
+                metadata = json.loads(metadata_bytes.decode("utf-8"))
+                metadata['token'] = token
+                sessions.append(metadata)
+            except Exception as e:
+                print(f"[WARN] Failed to parse session metadata for token {token[:20]}: {e}")
+                continue
+        
+        # Сортируем по created_at (новые сверху)
+        sessions.sort(key=lambda x: x['created_at'], reverse=True)
+        
+        return sessions
+    except Exception as e:
+        print(f"[ERROR] Failed to get user sessions: {e}")
+        return []
+
+def terminate_session(token: str, username: str) -> bool:
+    """
+    Завершает конкретную сессию
+    """
+    try:
+        metadata_bytes = r.get(f"session_metadata:{token}")
+        if not metadata_bytes:
+            print(f"[WARN] Session not found: {token}")
+            return False
+        
+        metadata = json.loads(metadata_bytes.decode("utf-8"))
+        token_username = metadata.get('username')
+        
+        if token_username != username:
+            print(f"[SECURITY] User {username} tried to terminate session of {token_username}")
+            return False
+        
+        pipe = r.pipeline()
+        pipe.multi()
+        
+        # Удаляем метаданные
+        pipe.delete(f"session_metadata:{token}")
+        
+        # Удаляем из Set пользователя
+        pipe.srem(f"user_sessions:{username}", token)
+        
+        # Удаляем auth token
+        pipe.delete(f"auth_token:{token}")
+        
+        pipe.execute()
+        
+        print(f"[OK] Session terminated: {token[:20]}... for {username}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to terminate session: {e}")
+        return False
+
+def terminate_all_other_sessions(current_token: str, username: str) -> bool:
+    """
+    Завершает все остальные сессии пользователя (кроме текущей)
+    """
+    try:
+        tokens = r.smembers(f"user_sessions:{username}")
+        
+        pipe = r.pipeline()
+        pipe.multi()
+        
+        for token_bytes in tokens:
+            token = token_bytes.decode("utf-8") if isinstance(token_bytes, bytes) else token_bytes
+            
+            if token == current_token:
+                continue
+            
+            # Удаляем метаданные
+            pipe.delete(f"session_metadata:{token}")
+            
+            # Удаляем auth token
+            pipe.delete(f"auth_token:{token}")
+            
+            # Удаляем из Set
+            pipe.srem(f"user_sessions:{username}", token)
+        
+        pipe.execute()
+        
+        print(f"[OK] All other sessions terminated for {username}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Failed to terminate all sessions: {e}")
+        return False
 
 # ===============================================================
 # ---- ШАГ 2: ДОБАВЛЕНИЕ HELPER ФУНКЦИЙ ДЛЯ ГРУПП ----
@@ -2452,8 +2637,7 @@ def list_groups():
         "groups.html", 
         user=username, 
         groups=user_groups, 
-        nonce=nonce,
-        auth_token=None  # Передаем None, т.к. токен уже в cookie
+        nonce=nonce
     ))
     
     if token:
@@ -2739,6 +2923,105 @@ def api_delete_group(group_id: int):
     except Exception as e:
         print(f"[ERROR] Failed to delete group: {e}")
         return jsonify({"error": "Failed to delete group"}), 500
+
+@app.route("/api/sessions/list", methods=["GET"])
+@limiter.limit("30 per minute")
+def api_list_sessions():
+    """Получить все активные сессии пользователя"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    sessions = get_all_user_sessions(username)
+    
+    # Добавляем информацию о текущей сессии
+    current_token = token
+    
+    for session in sessions:
+        session['is_current'] = (session['token'] == current_token)
+        # Форматируем timestamp'ы
+        session['created_at_formatted'] = datetime.datetime.fromtimestamp(
+            session['created_at'], tz=datetime.timezone.utc
+        ).isoformat() + 'Z'
+        session['last_activity_formatted'] = datetime.datetime.fromtimestamp(
+            session['last_activity'], tz=datetime.timezone.utc
+        ).isoformat() + 'Z'
+    
+    return jsonify({"sessions": sessions}), 200
+
+@app.route("/api/sessions/<session_token>/terminate", methods=["POST"])
+@limiter.limit("30 per minute")
+def api_terminate_session(session_token: str):
+    """Завершить конкретную сессию"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    if session_token == token:
+        # Завершение текущей сессии = выход
+        terminate_session(session_token, username)
+        return jsonify({"success": True, "message": "Session terminated. Logging out..."}), 200
+    else:
+        # Завершение другой сессии
+        success = terminate_session(session_token, username)
+        
+        if not success:
+            return jsonify({"error": "Session not found or not yours"}), 403
+        
+        return jsonify({"success": True, "message": "Session terminated"}), 200
+
+@app.route("/api/sessions/terminate-all", methods=["POST"])
+@limiter.limit("10 per hour")
+def api_terminate_all_sessions():
+    """Завершить все остальные сессии"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    success = terminate_all_other_sessions(token, username)
+    
+    if success:
+        return jsonify({"success": True, "message": "All other sessions terminated"}), 200
+    else:
+        return jsonify({"error": "Failed to terminate sessions"}), 500
+
+@app.route("/api/sessions/<session_token>/update-activity", methods=["POST"])
+@limiter.limit("60 per minute")
+def api_update_session_activity(session_token: str):
+    """Обновить время последней активности сессии"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    if token != session_token:
+        return jsonify({"error": "Token mismatch"}), 403
+    
+    try:
+        metadata_bytes = r.get(f"session_metadata:{token}")
+        if not metadata_bytes:
+            return jsonify({"error": "Session not found"}), 404
+        
+        metadata = json.loads(metadata_bytes.decode("utf-8"))
+        metadata['last_activity'] = int(time.time())
+        
+        r.setex(
+            f"session_metadata:{token}",
+            SESSION_METADATA_TTL,
+            json.dumps(metadata).encode("utf-8")
+        )
+        
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        print(f"[ERROR] Failed to update session activity: {e}")
+        return jsonify({"error": "Failed to update"}), 500
 
 @app.route("/group/<int:group_id>/chat")
 @limiter.limit("100 per minute")
@@ -3071,10 +3354,7 @@ def is_user_online_global(username: str) -> bool:
 def post_to_group(group_id: int):
     """
     Отправить сообщение в группу
-    ИСПРАВЛЕНИЯ:
-    - Лучше обработка ошибок сессии
-    - Автоматическое продление сессии
-    - Понятные ошибки
+    Обновляет последнюю активность сессии
     """
     token = extract_token_from_request()
     
@@ -3088,7 +3368,6 @@ def post_to_group(group_id: int):
         print(f"[WARN] Invalid group session: {token[:20] if token else 'NONE'}...")
         return abort(401)
     
-    # Проверяем, что это правильная группа
     if session['group_id'] != group_id:
         print(f"[SECURITY] User {session.get('username')} tried wrong group")
         return abort(403)
@@ -3110,7 +3389,7 @@ def post_to_group(group_id: int):
     if not msg:
         return ("", 204)
     
-    # ИСПРАВЛЕНИЕ: Продляем групповую сессию при успешном действии
+    # Обновляем групповую сессию
     pipe = r.pipeline()
     pipe.multi()
     
@@ -3120,6 +3399,21 @@ def post_to_group(group_id: int):
     pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(updated_session_data).encode("utf-8"))
     pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
     pipe.execute()
+    
+    # Обновляем метаданные основной сессии (для панели сессий)
+    try:
+        metadata_bytes = r.get(f"session_metadata:{token}")
+        if metadata_bytes:
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
+            metadata['last_activity'] = int(time.time())
+            r.setex(
+                f"session_metadata:{token}",
+                SESSION_METADATA_TTL,
+                json.dumps(metadata).encode("utf-8")
+            )
+            print(f"[OK] Updated session metadata for {username}")
+    except Exception as e:
+        print(f"[WARN] Failed to update session metadata: {e}")
     
     return ("", 204)
 
@@ -3298,6 +3592,7 @@ def history_group(group_id: int):
 def upload_to_group(group_id: int):
     """
     Загрузить файл в группу
+    Обновляет последнюю активность сессии
     """
     token = extract_token_from_request()
     
@@ -3343,15 +3638,31 @@ def upload_to_group(group_id: int):
     message_text = format_message_for_sse(message)
     r.publish(f"chat:group:{group_id}", message_text.encode("utf-8"))
     
-    # Продляем сессию после успешной загрузки
+    # Обновляем групповую сессию
+    pipe = r.pipeline()
+    pipe.multi()
+    
     updated_session_data = session.copy()
     updated_session_data['last_activity'] = int(time.time())
     
-    pipe = r.pipeline()
-    pipe.multi()
     pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(updated_session_data).encode("utf-8"))
     pipe.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, token.encode("utf-8"))
     pipe.execute()
+    
+    # Обновляем метаданные основной сессии (для панели сессий)
+    try:
+        metadata_bytes = r.get(f"session_metadata:{token}")
+        if metadata_bytes:
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
+            metadata['last_activity'] = int(time.time())
+            r.setex(
+                f"session_metadata:{token}",
+                SESSION_METADATA_TTL,
+                json.dumps(metadata).encode("utf-8")
+            )
+            print(f"[OK] Updated session metadata for {username}")
+    except Exception as e:
+        print(f"[WARN] Failed to update session metadata: {e}")
     
     increment_message_count()
     

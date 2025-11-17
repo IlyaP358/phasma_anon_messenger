@@ -17,3 +17,4 @@ gunicorn
 gevent
 mutagen
 pikepdf
+user-agents

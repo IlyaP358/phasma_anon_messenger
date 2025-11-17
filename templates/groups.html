@@ -5,14 +5,189 @@
   <link rel="icon" type="image/png" href="/static/icon.png">
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
   <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
-      max-width: 600px;
-      margin: auto;
-      padding: 2em;
       background: black;
       color: #fff;
       font: 14px/1.6 menlo, monospace;
       min-height: 100vh;
+      display: flex;
+    }
+
+    .main-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      max-width: 800px;
+      margin: auto;
+      padding: 2em;
+      padding-right: 280px;
+    }
+
+    .sessions-sidebar {
+      position: fixed;
+      right: 0;
+      top: 0;
+      width: 260px;
+      height: 100vh;
+      background: #0a1a0a;
+      border-left: 1px solid #0f0;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+    }
+
+    .sessions-header {
+      background: #0a1a0a;
+      border-bottom: 1px solid #0f0;
+      padding: 1em;
+      color: #0f0;
+      font-size: 12px;
+      font-weight: bold;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
+    .sessions-header-title {
+      margin-bottom: 0.5em;
+    }
+
+    .sessions-count {
+      color: #0ff;
+      font-size: 11px;
+    }
+
+    #sessions-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5em;
+    }
+
+    .session-item {
+      padding: 0.8em;
+      margin-bottom: 0.5em;
+      background: #111;
+      border-left: 3px solid #333;
+      border-radius: 2px;
+      cursor: default;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .session-item.current {
+      border-left-color: #0f0;
+      background: #0a1a0a;
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+    }
+
+    .session-item.current::before {
+      content: "●";
+      position: absolute;
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #0f0;
+      font-size: 10px;
+    }
+
+    .session-item.current .session-browser {
+      color: #0f0;
+      font-weight: bold;
+    }
+
+    .session-browser {
+      color: #0ff;
+      font-size: 12px;
+      font-weight: bold;
+      margin-bottom: 0.3em;
+    }
+
+    .session-os {
+      color: #888;
+      font-size: 11px;
+      margin-bottom: 0.3em;
+    }
+
+    .session-created {
+      color: #666;
+      font-size: 10px;
+      margin-bottom: 0.5em;
+    }
+
+    .session-last-activity {
+      color: #666;
+      font-size: 10px;
+      margin-bottom: 0.5em;
+    }
+
+    .session-button {
+      background: #a00;
+      color: #fff;
+      border: none;
+      padding: 0.3em 0.6em;
+      font-size: 10px;
+      cursor: pointer;
+      border-radius: 2px;
+      font: inherit;
+      transition: all 0.2s;
+      width: 100%;
+    }
+
+    .session-button:hover {
+      background: #f00;
+    }
+
+    .session-button.current-badge {
+      background: #0f0;
+      color: #000;
+      font-weight: bold;
+      margin-bottom: 0.3em;
+    }
+
+    .session-button.current-badge:hover {
+      background: #0d0;
+    }
+
+    .session-actions {
+      display: flex;
+      gap: 0.3em;
+      margin-top: 0.5em;
+    }
+
+    .session-actions button {
+      flex: 1;
+      padding: 0.3em;
+      font-size: 9px;
+    }
+
+    .sessions-footer {
+      border-top: 1px solid #0f0;
+      padding: 0.8em;
+      background: #111;
+      flex-shrink: 0;
+    }
+
+    .btn-terminate-all {
+      width: 100%;
+      background: #500;
+      color: #fff;
+      border: 1px solid #a00;
+      padding: 0.5em;
+      font: inherit;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.2s;
+      font-size: 11px;
+      font-weight: bold;
+    }
+
+    .btn-terminate-all:hover {
+      background: #a00;
     }
 
     .top-bar {
@@ -77,6 +252,7 @@
       margin-bottom: 0.8em;
       cursor: pointer;
       transition: all 0.2s;
+      border-radius: 2px;
     }
 
     .group-item:hover {
@@ -119,6 +295,7 @@
       cursor: pointer;
       transition: all 0.2s;
       font: inherit;
+      border-radius: 2px;
     }
 
     .btn:hover {
@@ -160,6 +337,7 @@
       font: inherit;
       box-sizing: border-box;
       margin-bottom: 0.5em;
+      border-radius: 2px;
     }
 
     input[type="text"]:focus,
@@ -295,8 +473,35 @@
       flex: 1;
     }
 
+    #sessions-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #sessions-list::-webkit-scrollbar-track {
+      background: #000;
+    }
+
+    #sessions-list::-webkit-scrollbar-thumb {
+      background: #333;
+      border-radius: 3px;
+    }
+
+    #sessions-list::-webkit-scrollbar-thumb:hover {
+      background: #0f0;
+    }
+
+    @media (max-width: 1200px) {
+      .sessions-sidebar {
+        display: none;
+      }
+
+      .main-container {
+        padding-right: 2em;
+      }
+    }
+
     @media (max-width: 600px) {
-      body {
+      .main-container {
         padding: 1em;
       }
 
@@ -311,31 +516,49 @@
       .group-item {
         padding: 0.8em;
       }
+
+      .sessions-sidebar {
+        width: 200px;
+      }
     }
   </style>
 </head>
-<body>
-  <div class="top-bar">
-    <div class="user-info">
-      <div class="user-label">Logged in as:</div>
-      <div class="user-name" id="current-user">Loading...</div>
+<body data-username="{{ user }}">
+  <div class="sessions-sidebar">
+    <div class="sessions-header">
+      <div class="sessions-header-title">Active Sessions</div>
+      <div class="sessions-count"><span id="sessions-total">0</span> active</div>
     </div>
-    <button class="btn btn-secondary" id="btn-logout" style="flex: 0; padding: 0.4em 1em;">Exit</button>
+
+    <div id="sessions-list"></div>
+
+    <div class="sessions-footer">
+      <button class="btn-terminate-all" id="btn-terminate-all">Terminate All Others</button>
+    </div>
   </div>
 
-  <h1>💬 phasma groups</h1>
+  <div class="main-container">
+    <div class="top-bar">
+      <div class="user-info">
+        <div class="user-label">Logged in as:</div>
+        <div class="user-name" id="current-user">Loading...</div>
+      </div>
+      <button class="btn btn-secondary" id="btn-logout" style="flex: 0; padding: 0.4em 1em;">Exit</button>
+    </div>
 
-  <div class="header-actions">
-    <button class="btn btn-primary" id="btn-create">+ Create Group</button>
-    <button class="btn btn-secondary" id="btn-join">Join Group</button>
+    <h1>💬 phasma groups</h1>
+
+    <div class="header-actions">
+      <button class="btn btn-primary" id="btn-create">+ Create Group</button>
+      <button class="btn btn-secondary" id="btn-join">Join Group</button>
+    </div>
+
+    <div class="section">
+      <h2>Your Groups</h2>
+      <div id="groups-list"></div>
+    </div>
   </div>
 
-  <div class="section">
-    <h2>Your Groups</h2>
-    <div id="groups-list"></div>
-  </div>
-
-  <!-- Create Group Modal -->
   <div id="create-modal" class="modal">
     <div class="modal-content">
       <button class="modal-close" id="close-create">&times;</button>
@@ -374,7 +597,6 @@
     </div>
   </div>
 
-  <!-- Join Group Modal -->
   <div id="join-modal" class="modal">
     <div class="modal-content">
       <button class="modal-close" id="close-join">&times;</button>
@@ -385,7 +607,7 @@
       <div class="form-group">
         <label>Group Code</label>
         <input type="text" id="join-code" placeholder="e.g., ABC123XY" maxlength="8" style="text-transform: uppercase;" />
-        <div style="color: #666; font-size: 11px;">8 character code (e.g., Secret#ABC123XY)</div>
+        <div style="color: #666; font-size: 11px;">8 character code</div>
       </div>
 
       <div class="form-group">
@@ -400,7 +622,6 @@
     </div>
   </div>
 
-  <!-- Delete Group Modal (НОВЫЙ) -->
   <div id="delete-modal" class="modal">
     <div class="modal-content">
       <button class="modal-close" id="close-delete">&times;</button>
@@ -428,6 +649,7 @@
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
     let ONLINE_HEARTBEAT_INTERVAL = null;
+    let SESSIONS_UPDATE_INTERVAL = null;
     let isUnloading = false;
     let currentDeleteGroupId = null;
     
@@ -435,12 +657,15 @@
     const joinModal = document.getElementById('join-modal');
     const deleteModal = document.getElementById('delete-modal');
 
-    // ========== ИНИЦИАЛИЗАЦИЯ И ПРОВЕРКА СЕССИИ ==========
+    // ========== AUTHENTICATION & SESSION ==========
     function initAuth() {
       console.log('[Auth] Initializing authentication...');
       
-      AUTH_TOKEN = localStorage.getItem('auth_token');
-      CURRENT_USER = localStorage.getItem('username');
+      AUTH_TOKEN = getCookie('auth_token');
+      
+      // Получаем username из скрытого элемента (нужно добавить в template)
+      const userElement = document.querySelector('[data-username]');
+      CURRENT_USER = userElement ? userElement.getAttribute('data-username') : null;
       
       console.log('[Auth] Found token:', AUTH_TOKEN ? AUTH_TOKEN.substring(0, 20) + '...' : 'NONE');
       console.log('[Auth] Found user:', CURRENT_USER);
@@ -456,6 +681,18 @@
       verifySessionWithServer();
       
       return true;
+    }
+
+    function getCookie(name) {
+      const nameEQ = name + "=";
+      const cookies = document.cookie.split(';');
+      for(let i = 0; i < cookies.length; i++) {
+        let c = cookies[i].trim();
+        if (c.indexOf(nameEQ) === 0) {
+          return c.substring(nameEQ.length);
+        }
+      }
+      return null;
     }
 
     function verifySessionWithServer() {
@@ -481,33 +718,201 @@
     function handleSessionExpired() {
       isUnloading = true;
       clearInterval(ONLINE_HEARTBEAT_INTERVAL);
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('username');
+      clearInterval(SESSIONS_UPDATE_INTERVAL);
       alert('Your session has expired. Please login again.');
       window.location.href = '/login';
     }
 
     function getCurrentUser() {
-      const stored = localStorage.getItem('username');
-      if (stored !== CURRENT_USER) {
-        console.error('[Security] User mismatch!');
-        handleSessionExpired();
-        return null;
-      }
       return CURRENT_USER;
     }
 
     function getAuthToken() {
-      const stored = localStorage.getItem('auth_token');
-      if (stored !== AUTH_TOKEN) {
-        console.error('[Security] Token mismatch!');
-        handleSessionExpired();
-        return null;
-      }
       return AUTH_TOKEN;
     }
 
-    // ========== ONLINE STATUS HEARTBEAT ==========
+    // ========== SESSIONS MANAGEMENT ==========
+    function formatTime(timestamp) {
+      try {
+        const date = new Date(timestamp * 1000);
+        const now = new Date();
+        const diff = now - date;
+        
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(diff / 3600000);
+        const days = Math.floor(diff / 86400000);
+        
+        if (minutes < 1) return "just now";
+        if (minutes < 60) return minutes + "m ago";
+        if (hours < 24) return hours + "h ago";
+        if (days < 7) return days + "d ago";
+        
+        return date.toLocaleDateString();
+      } catch (e) {
+        return "unknown";
+      }
+    }
+
+    function formatDate(timestamp) {
+      try {
+        const date = new Date(timestamp * 1000);
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return date.toLocaleDateString() + " " + hours + ":" + minutes;
+      } catch (e) {
+        return "unknown";
+      }
+    }
+
+    function loadSessions() {
+      const user = getCurrentUser();
+      const token = getAuthToken();
+      if (!user || !token) return;
+
+      fetch('/api/sessions/list', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      })
+      .then(response => {
+        if (response.status === 401) {
+          handleSessionExpired();
+          return null;
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (!data) return;
+        renderSessions(data.sessions, token);
+      })
+      .catch(err => {
+        console.error('[Sessions] Failed to load:', err);
+      });
+    }
+
+    function renderSessions(sessions, currentToken) {
+      const list = document.getElementById('sessions-list');
+      const count = document.getElementById('sessions-total');
+      
+      count.textContent = sessions.length;
+
+      if (!sessions || sessions.length === 0) {
+        list.innerHTML = '<div class="empty-state">No sessions</div>';
+        return;
+      }
+
+      let html = '';
+      sessions.forEach(session => {
+        const isCurrent = session.is_current;
+        const browserIcon = session.browser.includes('Chrome') ? '🔷' :
+                            session.browser.includes('Firefox') ? '🦊' :
+                            session.browser.includes('Safari') ? '🧭' : '🌐';
+        
+        const createdTime = formatDate(session.created_at);
+        const lastActivityTime = formatTime(session.last_activity);
+        
+        const className = isCurrent ? 'session-item current' : 'session-item';
+        
+        html += `
+        <div class="${className}" data-token="${session.token}">
+          ${isCurrent ? '<div class="session-button current-badge">This Device</div>' : ''}
+          <div class="session-browser">${browserIcon} ${session.browser}</div>
+          <div class="session-os">${session.os}</div>
+          <div class="session-created">Created: ${createdTime}</div>
+          <div class="session-last-activity">Active: ${lastActivityTime}</div>
+          <div class="session-actions">
+            <button class="session-button btn-terminate" data-token="${session.token}">
+              ${isCurrent ? 'Exit' : 'Terminate'}
+            </button>
+          </div>
+        </div>
+        `;
+      });
+
+      list.innerHTML = html;
+
+      document.querySelectorAll('.btn-terminate').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const token = btn.getAttribute('data-token');
+          terminateSession(token);
+        });
+      });
+    }
+
+    function terminateSession(sessionToken) {
+      const user = getCurrentUser();
+      const token = getAuthToken();
+      if (!user || !token) return;
+
+      const isCurrent = sessionToken === token;
+      const confirmMsg = isCurrent 
+        ? 'Exit this session? You will be logged out.'
+        : 'Terminate this session?';
+
+      if (!confirm(confirmMsg)) return;
+
+      fetch('/api/sessions/' + sessionToken + '/terminate', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token }
+      })
+      .then(response => {
+        if (response.status === 401) {
+          handleSessionExpired();
+          return;
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (!data) return;
+        console.log('[Sessions] Session terminated');
+        
+        if (isCurrent) {
+          isUnloading = true;
+          clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+          clearInterval(SESSIONS_UPDATE_INTERVAL);
+          alert('You have been logged out.');
+          window.location.href = '/login';
+        } else {
+          loadSessions();
+        }
+      })
+      .catch(err => {
+        console.error('[Sessions] Failed:', err);
+        alert('Failed to terminate session');
+      });
+    }
+
+    function terminateAllOtherSessions() {
+      const user = getCurrentUser();
+      const token = getAuthToken();
+      if (!user || !token) return;
+
+      if (!confirm('Terminate all other sessions? You will remain logged in on this device.')) return;
+
+      fetch('/api/sessions/terminate-all', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token }
+      })
+      .then(response => {
+        if (response.status === 401) {
+          handleSessionExpired();
+          return;
+        }
+        return response.json();
+      })
+      .then(data => {
+        console.log('[Sessions] All other sessions terminated');
+        loadSessions();
+        alert('✓ All other sessions have been terminated');
+      })
+      .catch(err => {
+        console.error('[Sessions] Failed:', err);
+        alert('Failed to terminate sessions');
+      });
+    }
+
+    document.getElementById('btn-terminate-all').addEventListener('click', terminateAllOtherSessions);
+
+    // ========== ONLINE HEARTBEAT ==========
     function sendOnlineHeartbeat() {
       const user = getCurrentUser();
       const token = getAuthToken();
@@ -516,7 +921,7 @@
 
       fetch('/api/user/online', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': 'Bearer ' + token }
       }).catch(err => {
         console.warn('[Online] Failed to send heartbeat:', err);
       });
@@ -524,12 +929,11 @@
 
     function startOnlineHeartbeat() {
       console.log('[Online] Starting heartbeat (every 20 seconds)');
-      
       sendOnlineHeartbeat();
       ONLINE_HEARTBEAT_INTERVAL = setInterval(sendOnlineHeartbeat, 20000);
     }
 
-    // ========== МОДАЛИ ==========
+    // ========== MODALS ==========
     document.getElementById('btn-create').addEventListener('click', () => {
       if (!getCurrentUser()) return;
       createModal.classList.add('active');
@@ -564,7 +968,6 @@
       joinModal.classList.remove('active');
     });
 
-    // Delete modal handlers (НОВОЕ)
     document.getElementById('close-delete').addEventListener('click', () => {
       deleteModal.classList.remove('active');
       currentDeleteGroupId = null;
@@ -590,7 +993,7 @@
       }
     });
 
-    // ========== СОЗДАНИЕ ГРУППЫ ==========
+    // ========== CREATE GROUP ==========
     document.getElementById('btn-submit-create').addEventListener('click', createGroup);
 
     function createGroup() {
@@ -633,41 +1036,42 @@
 
       errorDiv.innerHTML = '<div class="loading">Creating group...</div>';
 
-      $.ajax({
-        url: '/api/groups/create',
-        type: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        contentType: 'application/json',
-        data: JSON.stringify({
+      fetch('/api/groups/create', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           name: name,
           password: password,
           root_password: rootPassword,
           max_members: maxMembers
-        }),
-        success: function(response) {
-          console.log('[Groups] Group created:', response.group_code);
-          errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
-          setTimeout(() => {
-            createModal.classList.remove('active');
-            loadGroups();
-          }, 1000);
-        },
-        error: function(xhr) {
-          if (xhr.status === 401) {
-            handleSessionExpired();
-            return;
-          }
-          try {
-            const response = JSON.parse(xhr.responseText);
-            errorDiv.innerHTML = '<div class="error">✗ ' + response.error + '</div>';
-          } catch (e) {
-            errorDiv.innerHTML = '<div class="error">✗ Failed to create group</div>';
-          }
+        })
+      })
+      .then(response => {
+        if (response.status === 401) {
+          handleSessionExpired();
+          return;
         }
+        return response.json();
+      })
+      .then(data => {
+        if (!data) return;
+        console.log('[Groups] Group created:', data.group_code);
+        errorDiv.innerHTML = '<div class="success">✓ ' + data.message + '</div>';
+        setTimeout(() => {
+          createModal.classList.remove('active');
+          loadGroups();
+        }, 1000);
+      })
+      .catch(err => {
+        console.error('[Groups] Failed:', err);
+        errorDiv.innerHTML = '<div class="error">✗ Failed to create group</div>';
       });
     }
 
-    // ========== ПРИСОЕДИНЕНИЕ К ГРУППЕ ==========
+    // ========== JOIN GROUP ==========
     document.getElementById('btn-submit-join').addEventListener('click', joinGroup);
 
     function joinGroup() {
@@ -693,61 +1097,61 @@
 
       errorDiv.innerHTML = '<div class="loading">Joining group...</div>';
 
-      $.ajax({
-        url: '/api/groups/join',
-        type: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        contentType: 'application/json',
-        data: JSON.stringify({
+      fetch('/api/groups/join', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           group_code: code,
           password: password
-        }),
-        success: function(response) {
-          console.log('[Groups] Joined group:', code);
-          errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
-          
-          if (response.session_token) {
-            localStorage.setItem(`group_session_${response.group_id}`, response.session_token);
-          }
-          
-          setTimeout(() => {
-            joinModal.classList.remove('active');
-            loadGroups();
-          }, 1000);
-        },
-        error: function(xhr) {
-          if (xhr.status === 401) {
-            handleSessionExpired();
-            return;
-          }
-          try {
-            const response = JSON.parse(xhr.responseText);
-            errorDiv.innerHTML = '<div class="error">✗ ' + response.error + '</div>';
-          } catch (e) {
-            errorDiv.innerHTML = '<div class="error">✗ Failed to join group</div>';
-          }
+        })
+      })
+      .then(response => {
+        if (response.status === 401) {
+          handleSessionExpired();
+          return;
         }
+        return response.json();
+      })
+      .then(data => {
+        if (!data) return;
+        console.log('[Groups] Joined group:', code);
+        errorDiv.innerHTML = '<div class="success">✓ ' + data.message + '</div>';
+        setTimeout(() => {
+          joinModal.classList.remove('active');
+          loadGroups();
+        }, 1000);
+      })
+      .catch(err => {
+        console.error('[Groups] Failed:', err);
+        errorDiv.innerHTML = '<div class="error">✗ Failed to join group</div>';
       });
     }
 
-    // ========== ЗАГРУЗКА И ОТОБРАЖЕНИЕ ГРУПП ==========
+    // ========== LOAD & RENDER GROUPS ==========
     function loadGroups() {
       const user = getCurrentUser();
       const token = getAuthToken();
       if (!user || !token) return;
 
-      $.ajax({
-        url: '/api/groups/list',
-        type: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
-        success: function(response) {
-          renderGroups(response.groups);
-        },
-        error: function(xhr) {
-          if (xhr.status === 401) {
-            handleSessionExpired();
-          }
+      fetch('/api/groups/list', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      })
+      .then(response => {
+        if (response.status === 401) {
+          handleSessionExpired();
+          return;
         }
+        return response.json();
+      })
+      .then(data => {
+        if (!data) return;
+        renderGroups(data.groups);
+      })
+      .catch(err => {
+        console.error('[Groups] Failed to load:', err);
       });
     }
 
@@ -764,18 +1168,18 @@
         const isCreator = group.role === 'creator';
         
         html += `
-          <div class="group-item">
-            <div class="group-name">${escapeHtml(group.name)}</div>
-            <div class="group-code">#${group.code}</div>
-            <div class="group-info">
-              👤 ${isCreator ? '(Creator)' : '(Member)'} 
-              · Joined: ${new Date(group.joined_at * 1000).toLocaleDateString()}
-            </div>
-            <div class="group-buttons">
-              <button class="btn btn-enter" data-group-id="${group.id}" data-group-code="${group.code}">Enter</button>
-              ${isCreator ? `<button class="btn btn-danger btn-delete" data-group-id="${group.id}">Delete</button>` : ''}
-            </div>
+        <div class="group-item">
+          <div class="group-name">${escapeHtml(group.name)}</div>
+          <div class="group-code">#${group.code}</div>
+          <div class="group-info">
+            👤 ${isCreator ? '(Creator)' : '(Member)'}
+            · Joined: ${new Date(group.joined_at * 1000).toLocaleDateString()}
           </div>
+          <div class="group-buttons">
+            <button class="btn btn-enter" data-group-id="${group.id}">Enter</button>
+            ${isCreator ? '<button class="btn btn-danger btn-delete" data-group-id="' + group.id + '">Delete</button>' : ''}
+          </div>
+        </div>
         `;
       });
 
@@ -798,16 +1202,14 @@
       });
     }
 
-    // ========== ВХОД В ЧАТ ГРУППЫ ==========
     function enterGroup(groupId) {
       const user = getCurrentUser();
       if (!user) return;
 
       console.log('[Groups] User entering group', groupId);
-      window.location.href = `/group/${groupId}/chat`;
+      window.location.href = '/group/' + groupId + '/chat';
     }
 
-    // ========== УДАЛЕНИЕ ГРУППЫ (ИСПРАВЛЕНО) ==========
     function openDeleteModal(groupId) {
       const user = getCurrentUser();
       if (!user) return;
@@ -837,54 +1239,40 @@
 
       errorDiv.innerHTML = '<div class="loading">Deleting group...</div>';
 
-      // ИСПРАВЛЕНИЕ: Теперь используем основной auth token
-      $.ajax({
-        url: `/api/groups/${currentDeleteGroupId}/delete`,
-        type: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        contentType: 'application/json',
-        data: JSON.stringify({
-          root_password: password
-        }),
-        success: function(response) {
-          console.log('[Groups] Group deleted');
-          errorDiv.innerHTML = '<div class="success">✓ ' + response.message + '</div>';
-          setTimeout(() => {
-            deleteModal.classList.remove('active');
-            currentDeleteGroupId = null;
-            loadGroups();
-          }, 1500);
+      fetch('/api/groups/' + currentDeleteGroupId + '/delete', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
         },
-        error: function(xhr) {
-          console.log('[Delete] Response status:', xhr.status);
-          
-          // ИСПРАВЛЕНИЕ: Точная проверка кода ошибки
-          if (xhr.status === 401) {
-            handleSessionExpired();
-            return;
-          }
-          
-          if (xhr.status === 403) {
-            try {
-              const response = JSON.parse(xhr.responseText);
-              errorDiv.innerHTML = '<div class="error">✗ ' + response.error + '</div>';
-            } catch (e) {
-              errorDiv.innerHTML = '<div class="error">✗ Access denied</div>';
-            }
-            return;
-          }
-          
-          try {
-            const response = JSON.parse(xhr.responseText);
-            errorDiv.innerHTML = '<div class="error">✗ ' + response.error + '</div>';
-          } catch (e) {
-            errorDiv.innerHTML = '<div class="error">✗ Failed to delete group</div>';
-          }
+        body: JSON.stringify({
+          root_password: password
+        })
+      })
+      .then(response => {
+        if (response.status === 401) {
+          handleSessionExpired();
+          return;
         }
+        return response.json();
+      })
+      .then(data => {
+        if (!data) return;
+        console.log('[Groups] Group deleted');
+        errorDiv.innerHTML = '<div class="success">✓ ' + data.message + '</div>';
+        setTimeout(() => {
+          deleteModal.classList.remove('active');
+          currentDeleteGroupId = null;
+          loadGroups();
+        }, 1500);
+      })
+      .catch(err => {
+        console.error('[Delete] Failed:', err);
+        errorDiv.innerHTML = '<div class="error">✗ Failed to delete group</div>';
       });
     }
 
-    // ========== ВЫХОД ==========
+    // ========== LOGOUT ==========
     document.getElementById('btn-logout').addEventListener('click', logout);
 
     function logout() {
@@ -898,27 +1286,15 @@
 
       isUnloading = true;
       clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+      clearInterval(SESSIONS_UPDATE_INTERVAL);
 
-      $.ajax({
-        url: '/logout',
-        type: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        complete: function() {
-          console.log('[Auth] User logged out');
-          localStorage.removeItem('auth_token');
-          localStorage.removeItem('username');
-          
-          Object.keys(localStorage).forEach(key => {
-            if (key.startsWith('group_token_') || 
-                key.startsWith('group_session_') ||
-                key.startsWith('group_user_') ||
-                key.startsWith('current_group')) {
-              localStorage.removeItem(key);
-            }
-          });
-          
-          window.location.href = '/login';
-        }
+      fetch('/logout', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token }
+      })
+      .finally(() => {
+        console.log('[Auth] User logged out');
+        window.location.href = '/login';
       });
     }
 
@@ -937,10 +1313,10 @@
       }
     });
 
-    // Cleanup on page unload
     window.addEventListener('beforeunload', function () {
       if (!isUnloading) {
         clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+        clearInterval(SESSIONS_UPDATE_INTERVAL);
       }
     });
 
@@ -948,8 +1324,11 @@
     console.log('[Init] Starting groups page...');
     if (initAuth()) {
       loadGroups();
+      loadSessions();
       startOnlineHeartbeat();
+      
       setInterval(loadGroups, 10000);
+      setInterval(loadSessions, 5000);
       setInterval(verifySessionWithServer, 30000);
     }
   </script>
