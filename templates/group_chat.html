@@ -1154,6 +1154,7 @@ This action cannot be undone.</div>
     const TEMPLATE_GROUP_TOKEN = {{ auth_token|tojson }};
     const GROUP_NAME = {{ group_name|tojson }};
     
+    // ========== EMOJI LOGIC STARTS HERE ==========
     const EMOJI_DATA = {
       frequent: [],
       smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '🥲', '😋', '😛', '😜', '🤪', '😌', '😔', '😑', '😐', '😶', '🤐', '😏', '😒', '🙁', '☹️', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤮', '🤢', '🤮', '🤮', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '🙁', '☹️', '😮', '😯', '😲', '😳', '🥺', '😦', '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣', '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '☠️', '💩', '🤡', '👹', '👺', '👻', '👽', '👾', '🤖', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'],
@@ -1302,18 +1303,9 @@ This action cannot be undone.</div>
     }
 
     renderEmojiGrid('frequent');
-    const ALLOWED_EXTENSIONS = {
-      'jpg': true, 'jpeg': true, 'png': true, 'gif': true, 'webp': true,
-      'mp4': true, 'mov': true, 'webm': true,
-      'mp3': true, 'm4a': true, 'ogg': true, 'wav': true,
-      'pdf': true, 'txt': true
-    };
-    const MAX_FILE_SIZES = {
-      'jpg': 10, 'jpeg': 10, 'png': 10, 'gif': 10, 'webp': 10,
-      'mp4': 100, 'mov': 100, 'webm': 100,
-      'mp3': 50, 'm4a': 50, 'ogg': 50, 'wav': 50,
-      'pdf': 25, 'txt': 25
-    };
+    // ========== EMOJI LOGIC ENDS HERE ==========
+
+    // ========== CORE CHAT VARIABLES ==========
     let AUTH_TOKEN = null;
     let CURRENT_USER = null;
     let GROUP_SESSION_TOKEN = null;
@@ -1326,12 +1318,12 @@ This action cannot be undone.</div>
     let pendingDeleteMessageId = null;
     
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
+    
     function showError(message, duration = 5000) {
       const notification = document.getElementById('error-notification');
       notification.textContent = message;
       notification.classList.add('active');
       notification.classList.remove('success');
-      
       setTimeout(() => {
         notification.classList.remove('active');
       }, duration);
@@ -1368,306 +1360,51 @@ This action cannot be undone.</div>
       }
       hideDeleteConfirmModal();
     });
-    // Close modal when clicking outside
     document.getElementById('confirm-modal').addEventListener('click', function(e) {
       if (e.target === this) {
         hideDeleteConfirmModal();
       }
     });
-    // Close modal on Escape
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
         hideDeleteConfirmModal();
       }
     });
-    
-    const dragDropOverlay = document.getElementById('drag-drop-overlay');
-    let isDraggingFile = false;
-    let dragLeaveTimeout = null;
-    
-    document.addEventListener('dragenter', (e) => {
-      if (e.dataTransfer?.types?.includes('Files')) {
-        clearTimeout(dragLeaveTimeout);
-        isDraggingFile = true;
-        dragDropOverlay.classList.add('active');
-      }
-    });
-    
-    document.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      clearTimeout(dragLeaveTimeout);
-    });
-    
-    document.addEventListener('dragleave', (e) => {
-      dragLeaveTimeout = setTimeout(() => {
-        isDraggingFile = false;
-        dragDropOverlay.classList.remove('active');
-      }, 50);
-    });
-    
-    document.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      clearTimeout(dragLeaveTimeout);
-      isDraggingFile = false;
-      dragDropOverlay.classList.remove('active');
-      
-      const files = e.dataTransfer?.files;
-      if (!files || files.length === 0) return;
 
-      const file = files[0];
-      processFileUpload(file, 'drag-drop');
-    });
-    
-    function getFileExtension(filename) {
-      if (!filename || !filename.includes('.')) return '';
-      return filename.split('.').pop().toLowerCase();
-    }
-
-    function validateFileExtension(ext) {
-      return ALLOWED_EXTENSIONS[ext] === true;
-    }
-
-    function validateFileSize(file, ext) {
-      const maxSizeMB = MAX_FILE_SIZES[ext] || 10;
-      const maxSizeBytes = maxSizeMB * 1024 * 1024;
-      return file.size <= maxSizeBytes;
-    }
-
-    function formatFileSize(bytes) {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
-
-    function processFileUpload(file, source = 'upload') {
-      const ext = getFileExtension(file.name);
-      
-      if (!validateFileExtension(ext)) {
-        const allowedExts = Object.keys(ALLOWED_EXTENSIONS).join(', ');
-        showError(`✗ File format ".${ext}" not allowed. Allowed: ${allowedExts}`);
-        return;
-      }
-
-      if (!validateFileSize(file, ext)) {
-        const maxSize = MAX_FILE_SIZES[ext] || 10;
-        showError(`✗ File too large. Maximum size: ${maxSize}MB`);
-        return;
-      }
-
-      if (file.size < 100) {
-        showError('✗ File is too small (minimum 100 bytes)');
-        return;
-      }
-
-      showFilePreview(file, source);
-    }
-
-    function showFilePreview(file, source = 'upload') {
-      selectedFile = file;
-      const container = document.getElementById('file-preview-container');
-      const filename = document.getElementById('preview-filename');
-      const filesize = document.getElementById('preview-filesize');
-      const sourceLabel = document.getElementById('preview-source');
-      const previewImg = document.getElementById('preview-img');
-      const previewVideo = document.getElementById('preview-video');
-      const previewIcon = document.getElementById('preview-file-icon');
-
-      previewImg.style.display = 'none';
-      previewVideo.style.display = 'none';
-      previewIcon.style.display = 'none';
-      
-      if (source === 'drag-drop') {
-        sourceLabel.textContent = '📥 Dropped';
-      } else if (source === 'paste') {
-        sourceLabel.textContent = '📋 Pasted';
-      } else {
-        sourceLabel.textContent = '📁 From PC';
-      }
-      
-      filename.textContent = file.name;
-      filesize.textContent = formatFileSize(file.size);
-      
-      const ext = getFileExtension(file.name);
-
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          previewImg.src = e.target.result;
-          previewImg.style.display = 'block';
-        };
-        reader.readAsDataURL(file);
-      } else if (file.type.startsWith('video/')) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          previewVideo.src = e.target.result;
-          previewVideo.style.display = 'block';
-        };
-        reader.readAsDataURL(file);
-      } else {
-        previewIcon.style.display = 'block';
-      }
-
-      container.classList.add('active');
-      console.log('[Preview] File selected:', file.name, formatFileSize(file.size));
-    }
-
-    function hideFilePreview() {
-      selectedFile = null;
-      const container = document.getElementById('file-preview-container');
-      container.classList.remove('active');
-      document.getElementById('file-input').value = '';
-    }
-
-    document.getElementById('in').addEventListener('paste', function(e) {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        
-        if (item.kind === 'file') {
-          const file = item.getAsFile();
-          if (file) {
-            e.preventDefault();
-            processFileUpload(file, 'paste');
-            break;
-          }
-        }
-      }
-    });
-    
-    document.getElementById('file-input').addEventListener('change', function() {
-      if (this.files.length > 0) {
-        processFileUpload(this.files[0], 'upload');
-      }
-    });
-    
-    document.getElementById('preview-remove-btn').addEventListener('click', hideFilePreview);
-    document.getElementById('upload-btn').addEventListener('click', function() {
-      document.getElementById('file-input').click();
-    });
-    
-    async function sendFile() {
-      if (!selectedFile) return;
-      if (isUploadingFile) return;
-      
-      isUploadingFile = true;
-      
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      $.ajax({
-        url: `/group/${GROUP_ID}/upload`,
-        type: 'POST',
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-        data: formData,
-        processData: false,
-        contentType: false,
-        success: function(response) {
-          console.log('[Upload] File sent successfully');
-          hideFilePreview();
-          isUploadingFile = false;
-        },
-        error: function(xhr) {
-          isUploadingFile = false;
-          try {
-            const response = JSON.parse(xhr.responseText);
-            const message = response.message || response.error || 'Unknown error';
-            showError(`✗ Upload failed: ${message}`);
-          } catch(e) {
-            if (xhr.status === 429) {
-              showError('✗ Too many requests. Try again later.');
-            } else if (xhr.status === 401) {
-              showError('✗ Session expired. Please login again.');
-              handleSessionExpired();
-            } else if (xhr.status === 400) {
-              showError('✗ Invalid file. Please check the file and try again.');
-            } else {
-              showError(`✗ Upload failed (${xhr.status})`);
-            }
-          }
-        }
-      });
-    }
-
-    function sendMessageOrFile() {
-      if (isUploadingFile) {
-        showError('⏳ Upload in progress. Please wait...');
-        return;
-      }
-
-      if (selectedFile) {
-        sendFile();
-        return;
-      }
-
-      const text = document.getElementById('in').value;
-      if (!text.trim()) return;
-      
-      $.ajax({
-        url: `/group/${GROUP_ID}/post`,
-        type: 'POST',
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-        data: { message: text },
-        success: function() {
-          document.getElementById('in').value = '';
-        },
-        error: function(xhr) {
-          if (xhr.status === 429) {
-             showError('✗ You are sending requests too quickly. Try again later.');
-          } else if (xhr.status === 401) {
-            handleSessionExpired();
-          } else if (xhr.status === 400) {
-            try {
-              const response = JSON.parse(xhr.responseText);
-              if (response.error === 'Message too long') {
-                showError(`✗ Message too long! Maximum: ${response.max_length} characters.`);
-              }
-            } catch(e) {
-              showError('✗ Invalid request.');
-            }
-          } else {
-            showError('✗ Failed to send message.');
-          }
-        }
-      });
-    }
-
-    document.getElementById('send-btn').addEventListener('click', sendMessageOrFile);
-    document.getElementById('in').addEventListener('keyup', function(e) {
-      if (e.keyCode === 13 && !e.shiftKey) {
-        e.preventDefault();
-        sendMessageOrFile();
-      }
-    });
-    
+    // ========== ИНИЦИАЛИЗАЦИЯ АУТЕНТИФИКАЦИИ ==========
     function initAuth() {
-      AUTH_TOKEN = localStorage.getItem('auth_token');
+      console.log('[Init] Initializing authentication...');
+      // ✅ Получаем username из localStorage (его сохраняли при логине)
       CURRENT_USER = localStorage.getItem('username');
+      console.log('[Auth] Current user:', CURRENT_USER);
+      console.log('[Auth] Template user:', TEMPLATE_USER);
       
-      if (!AUTH_TOKEN || !CURRENT_USER) {
+      if (!CURRENT_USER) {
+        console.error('[Auth] No username in localStorage - redirecting to login');
         alert('Session lost. Please login again.');
         window.location.href = '/login';
         return false;
       }
       
+      // ✅ Проверяем что username совпадает с переданным от сервера
       if (TEMPLATE_USER && TEMPLATE_USER !== CURRENT_USER) {
+        console.error('[Auth] User mismatch! Template:', TEMPLATE_USER, 'Local:', CURRENT_USER);
         alert('SECURITY ERROR: User verification failed. Logging you out.');
+        localStorage.removeItem('username');
+        window.location.href = '/login';
         return false;
       }
       
+      // ✅ Используем group token, переданный сервером в шаблоне
+      // HttpOnly cookie будет отправляться автоматически с credentials: 'include'
       if (TEMPLATE_GROUP_TOKEN) {
         GROUP_SESSION_TOKEN = TEMPLATE_GROUP_TOKEN;
-        localStorage.setItem(`group_session_${GROUP_ID}`, GROUP_SESSION_TOKEN);
+        console.log('[Auth] Using group session token from template');
       } else {
-        GROUP_SESSION_TOKEN = localStorage.getItem(`group_session_${GROUP_ID}`);
-        if (!GROUP_SESSION_TOKEN) {
-          return false;
-        }
+        console.error('[Auth] No group session token from server');
+        alert('Session lost. Please login again.');
+        window.location.href = '/login';
+        return false;
       }
       
       setupChat();
@@ -1675,6 +1412,7 @@ This action cannot be undone.</div>
     }
 
     function setupChat() {
+      console.log('[Chat] Setting up chat interface...');
       document.getElementById('chat-user').textContent = CURRENT_USER;
       document.getElementById('group-name').textContent = GROUP_NAME;
       loadMembers();
@@ -1684,14 +1422,13 @@ This action cannot be undone.</div>
     }
 
     function handleSessionExpired() {
+      console.error('[Auth] Session expired');
       isUnloading = true;
       clearInterval(MEMBERS_UPDATE_INTERVAL);
       clearInterval(ONLINE_HEARTBEAT_INTERVAL);
       showError('✗ Your session has expired. Redirecting...');
       setTimeout(() => {
-        localStorage.removeItem('auth_token');
         localStorage.removeItem('username');
-        localStorage.removeItem(`group_session_${GROUP_ID}`);
         window.location.href = '/login';
       }, 1500);
     }
@@ -1699,27 +1436,32 @@ This action cannot be undone.</div>
     function getCurrentUser() {
       const stored = localStorage.getItem('username');
       if (!stored || stored !== CURRENT_USER) {
+        console.error('[Auth] User mismatch in getCurrentUser()');
         handleSessionExpired();
         return null;
       }
       return CURRENT_USER;
     }
 
+    // ========== MEMBERS MANAGEMENT ==========
     function loadMembers() {
       const user = getCurrentUser();
       if (!user) return;
+      
       fetch(`/api/groups/${GROUP_ID}/members`, {
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        credentials: 'include'  // ✅ HttpOnly cookie отправляется
       })
       .then(response => {
         if (response.status === 401) {
+          console.error('[Members] 401 - Session expired');
           handleSessionExpired();
           return null;
         }
         return response.json();
       })
       .then(data => {
-         if (!data) return;
+        if (!data) return;
         renderMembers(data.members, data.total);
       })
       .catch(err => console.error('[Members] Failed:', err));
@@ -1746,7 +1488,7 @@ This action cannot be undone.</div>
         className += isOnline ? 'online' : 'offline';
 
         const dot = isOnline 
-           ? '<span class="member-online-dot"></span>' 
+          ? '<span class="member-online-dot"></span>' 
           : '<span class="member-offline-dot"></span>';
         
         const roleLabel = isCreator ? '<span class="member-role">👑</span>' : '';
@@ -1764,9 +1506,11 @@ This action cannot be undone.</div>
     function sendOnlineHeartbeat() {
       const user = getCurrentUser();
       if (!user) return;
+      
       fetch(`/api/groups/${GROUP_ID}/members/online`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        credentials: 'include'  // ✅ HttpOnly cookie отправляется
       }).catch(err => console.warn('[Online] Failed:', err));
     }
 
@@ -1776,9 +1520,11 @@ This action cannot be undone.</div>
       return div.innerHTML;
     }
 
+    // ========== TIME FORMATTING ==========
     function formatLocalTime(timestamp) {
       try {
-        const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
+        const ts = typeof timestamp === 'string' ?
+          parseInt(timestamp, 10) : timestamp;
         const date = new Date(ts * 1000);
         if (isNaN(date.getTime())) return "??:??:??";
         const hours = String(date.getHours()).padStart(2, '0');
@@ -1800,7 +1546,8 @@ This action cannot be undone.</div>
 
     function formatDateFromTimestamp(timestamp) {
       try {
-        const ts = typeof timestamp === 'string' ? parseInt(timestamp, 10) : timestamp;
+        const ts = typeof timestamp === 'string' ?
+          parseInt(timestamp, 10) : timestamp;
         const date = new Date(ts * 1000);
         if (isNaN(date.getTime())) return formatLocalDate();
         const year = date.getFullYear();
@@ -1812,13 +1559,11 @@ This action cannot be undone.</div>
       }
     }
 
-    // ========== EXECUTE DELETE MESSAGE ==========
+    // ========== DELETE MESSAGE ==========
     function executeDeleteMessage(messageId) {
       const user = getCurrentUser();
       if (!user) return;
 
-      const token = localStorage.getItem('auth_token');
-      
       $.ajax({
         url: `/group/${GROUP_ID}/message/${messageId}/delete`,
         type: 'POST',
@@ -1845,7 +1590,7 @@ This action cannot be undone.</div>
           
           if (xhr.status === 403) {
             showError('✗ You can only delete your own messages');
-             return;
+            return;
           }
           
           try {
@@ -1858,19 +1603,7 @@ This action cannot be undone.</div>
       });
     }
 
-    let loadedMessageIds = new Set();
-    let oldestMessageId = null;
-    let newestMessageId = null;
-    let isLoadingHistory = false;
-    let hasMoreHistory = true;
-    let initialLoadDone = false;
-    let sseStarted = false;
-
-    const out = document.getElementById("out");
-    const messagesContainer = document.getElementById("messages-container");
-    const loadMoreBtn = document.getElementById("load-more-btn");
-    const loadMoreContainer = document.getElementById("load-more-container");
-    
+    // ========== MESSAGE PARSING & RENDERING ==========
     function parseMessageData(data) {
       const timeMatch = data.match(/^\[(\d+)\]\s+/);
       if (!timeMatch) return null;
@@ -1901,7 +1634,6 @@ This action cannot be undone.</div>
     function createURLPreviewCard(url, preview) {
       const card = document.createElement("div");
       card.className = "url-preview-card";
-      
       const serviceDiv = document.createElement("div");
       serviceDiv.className = "url-preview-service";
       serviceDiv.textContent = preview.service_type || 'LINK';
@@ -1912,7 +1644,6 @@ This action cannot be undone.</div>
       urlDiv.style.cursor = 'pointer';
       urlDiv.textContent = url.substring(0, 60) + (url.length > 60 ? '...' : '');
       card.appendChild(urlDiv);
-      
       if (preview.title) {
         const titleDiv = document.createElement("div");
         titleDiv.className = "url-preview-title";
@@ -1965,7 +1696,6 @@ This action cannot be undone.</div>
       
       const mainContent = document.createElement("div");
       mainContent.className = "message-content";
-      
       if (parsed.content.startsWith("[AUDIO:")) {
         const audioMatch = parsed.content.match(/^\[AUDIO:(\d+):(.+)\]$/);
         if (audioMatch) {
@@ -2021,14 +1751,12 @@ This action cannot be undone.</div>
           const fileIcon = document.createElement("img");
           fileIcon.className = "file-icon";
           fileIcon.src = "/static/phasma_file.png";
-          
           const fileInfo = document.createElement("div");
           fileInfo.className = "file-info";
           const fileName = document.createElement("div");
           fileName.className = "file-name";
           fileName.textContent = `${parsed.username}: ${fileMatch[3]}`;
           fileInfo.appendChild(fileName);
-          
           const downloadBtn = document.createElement("button");
           downloadBtn.className = "file-download-btn";
           downloadBtn.textContent = "⬇";
@@ -2063,8 +1791,7 @@ This action cannot be undone.</div>
       }
       
       msgWrapper.appendChild(mainContent);
-      
-      // ========== ADD DELETE BUTTON (ИСПРАВЛЕНО) ==========
+      // ✅ DELETE BUTTON - показываем только для своих сообщений
       const isOwnMessage = parsed.username === CURRENT_USER;
       if (isOwnMessage) {
         const deleteBtn = document.createElement("button");
@@ -2082,6 +1809,19 @@ This action cannot be undone.</div>
       return msgWrapper;
     }
 
+    // ========== CHAT HISTORY & STREAMING ==========
+    let loadedMessageIds = new Set();
+    let oldestMessageId = null;
+    let newestMessageId = null;
+    let isLoadingHistory = false;
+    let hasMoreHistory = true;
+    let initialLoadDone = false;
+    let sseStarted = false;
+
+    const out = document.getElementById("out");
+    const messagesContainer = document.getElementById("messages-container");
+    const loadMoreBtn = document.getElementById("load-more-btn");
+    const loadMoreContainer = document.getElementById("load-more-container");
     function loadHistory() {
       if (isLoadingHistory || !hasMoreHistory) return;
       isLoadingHistory = true;
@@ -2091,22 +1831,29 @@ This action cannot be undone.</div>
       const scrollContainer = out;
       const oldScrollHeight = scrollContainer.scrollHeight;
       const oldScrollTop = scrollContainer.scrollTop;
-      
       const url = oldestMessageId 
-        ? `/group/${GROUP_ID}/history?before_id=${oldestMessageId}&limit=50`
+        ?
+        `/group/${GROUP_ID}/history?before_id=${oldestMessageId}&limit=50`
         : `/group/${GROUP_ID}/history?limit=50`;
-      
       fetch(url, {
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        credentials: 'include'  // ✅ HttpOnly cookie отправляется
       })
-      .then(response => response.json())
+      .then(response => {
+        if (response.status === 401) {
+          handleSessionExpired();
+          return null;
+        }
+        return response.json();
+      })
       .then(data => {
+        if (!data) return;
         if (data.messages.length === 0) {
           hasMoreHistory = false;
           loadMoreBtn.textContent = "No more messages";
           setTimeout(() => loadMoreContainer.style.display = "none", 2000);
           return;
-         }
+        }
 
         const messageElements = [];
         data.messages.forEach(msg => {
@@ -2115,15 +1862,14 @@ This action cannot be undone.</div>
             const msgElement = createMessageElement(msg.text, msg.id);
             messageElements.push({element: msgElement, id: msg.id});
             
-             if (!oldestMessageId || msg.id < oldestMessageId) {
+            if (!oldestMessageId || msg.id < oldestMessageId) {
               oldestMessageId = msg.id;
             }
             if (!newestMessageId || msg.id > newestMessageId) {
               newestMessageId = msg.id;
             }
           }
-         });
-
+        });
         if (initialLoadDone) {
           for (let i = messageElements.length - 1; i >= 0; i--) {
             messagesContainer.insertBefore(messageElements[i].element, messagesContainer.firstChild);
@@ -2140,12 +1886,11 @@ This action cannot be undone.</div>
         }
 
         hasMoreHistory = data.has_more;
-        
         if (!hasMoreHistory) {
           loadMoreBtn.textContent = "No more messages";
           setTimeout(() => loadMoreContainer.style.display = "none", 2000);
         } else {
-          loadMoreBtn.textContent = "↓ Load older messages";
+          loadMoreBtn.textContent = "↑ Load older messages";
         }
 
         if (!initialLoadDone) {
@@ -2177,12 +1922,12 @@ This action cannot be undone.</div>
         loadMoreContainer.style.display = "none";
       }
     });
-    
     loadMoreBtn.addEventListener('click', loadHistory);
 
     function startSSE() {
       fetch(`/group/${GROUP_ID}/stream`, {
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        credentials: 'include'  // ✅ HttpOnly cookie отправляется
       }).then(response => {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -2190,35 +1935,31 @@ This action cannot be undone.</div>
         
         function read() {
           reader.read().then(({ done, value }) => {
-             if (done) return;
+            if (done) return;
             
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             
-            // Оставляем последнюю неполную строку в буфере
-            buffer = lines.pop() || '';
+            buffer = lines.pop() 
+              || '';
             
             lines.forEach(line => {
               if (line.startsWith('data: ')) {
                 const data = line.slice(6).trim();
                 if (!data) return;
                 
- 
-                // ========== HANDLE DELETE MESSAGES ==========
+                // ✅ HANDLE DELETE MESSAGES
                 if (data.startsWith('DELETE_MESSAGE:')) {
                   const messageId = parseInt(data.substring(15), 10);
                   console.log('[SSE] Message deleted:', messageId);
                   
-                  // Находим элемент по data-message-id атрибуту
                   const msgElement = document.querySelector(`[data-message-id="${messageId}"]`);
                   if (msgElement) {
-                    // Плавно удаляем элемент
                     msgElement.style.transition = 'all 0.3s ease-out';
                     msgElement.style.opacity = '0';
                     msgElement.style.height = '0';
                     msgElement.style.margin = '0';
                     msgElement.style.overflow = 'hidden';
-                    
                     setTimeout(() => {
                       msgElement.remove();
                       messageIdToElementMap.delete(messageId);
@@ -2227,7 +1968,6 @@ This action cannot be undone.</div>
                   return;
                 }
                 
-                // Для новых сообщений используем msg.id из history
                 const msgElement = createMessageElement(data, Date.now() + Math.random());
                 messagesContainer.appendChild(msgElement);
                 
@@ -2246,15 +1986,283 @@ This action cannot be undone.</div>
       }).catch(err => console.error("[SSE] Failed:", err));
     }
 
+    // ========== SENDING MESSAGES & FILES ==========
+    function sendMessageOrFile() {
+      if (isUploadingFile) {
+        showError('⏳ Upload in progress. Please wait...');
+        return;
+      }
+
+      if (selectedFile) {
+        sendFile();
+        return;
+      }
+
+      const text = document.getElementById('in').value;
+      if (!text.trim()) return;
+      $.ajax({
+        url: `/group/${GROUP_ID}/post`,
+        type: 'POST',
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        data: { message: text },
+        success: function() {
+          document.getElementById('in').value = '';
+        },
+        error: function(xhr) {
+          if (xhr.status === 429) {
+             showError('✗ You are sending requests too quickly. Try again later.');
+          } else if (xhr.status === 401) {
+            handleSessionExpired();
+          } else if (xhr.status === 400) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              if (response.error === 'Message too long') {
+                showError(`✗ Message too long! Maximum: ${response.max_length} characters.`);
+              }
+            } catch(e) {
+              showError('✗ Invalid request.');
+            }
+          } else {
+            showError('✗ Failed to send message.');
+          }
+        }
+      });
+    }
+
+    async function sendFile() {
+      if (!selectedFile) return;
+      if (isUploadingFile) return;
+      isUploadingFile = true;
+      
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      $.ajax({
+        url: `/group/${GROUP_ID}/upload`,
+        type: 'POST',
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(response) {
+          console.log('[Upload] File sent successfully');
+          hideFilePreview();
+          isUploadingFile = false;
+        },
+        error: function(xhr) {
+          isUploadingFile = false;
+          try {
+            const response = JSON.parse(xhr.responseText);
+            const message = response.message || response.error || 'Unknown error';
+            showError(`✗ Upload failed: ${message}`);
+          } catch(e) {
+            if (xhr.status === 429) {
+              showError('✗ Too many requests. Try again later.');
+            } else if (xhr.status === 401) {
+              showError('✗ Session expired. Please login again.');
+              handleSessionExpired();
+            } else if (xhr.status === 400) {
+              showError('✗ Invalid file. Please check the file and try again.');
+            } else {
+              showError(`✗ Upload failed (${xhr.status})`);
+            }
+          }
+        }
+      });
+    }
+
+    document.getElementById('send-btn').addEventListener('click', sendMessageOrFile);
+    document.getElementById('in').addEventListener('keyup', function(e) {
+      if (e.keyCode === 13 && !e.shiftKey) {
+        e.preventDefault();
+        sendMessageOrFile();
+      }
+    });
+    // ========== FILE HANDLING ==========
+    const ALLOWED_EXTENSIONS = {
+      'jpg': true, 'jpeg': true, 'png': true, 'gif': true, 'webp': true,
+      'mp4': true, 'mov': true, 'webm': true,
+      'mp3': true, 'm4a': true, 'ogg': true, 'wav': true,
+      'pdf': true, 'txt': true
+    };
+    const MAX_FILE_SIZES = {
+      'jpg': 10, 'jpeg': 10, 'png': 10, 'gif': 10, 'webp': 10,
+      'mp4': 100, 'mov': 100, 'webm': 100,
+      'mp3': 50, 'm4a': 50, 'ogg': 50, 'wav': 50,
+      'pdf': 25, 'txt': 25
+    };
+    function getFileExtension(filename) {
+      if (!filename || !filename.includes('.')) return '';
+      return filename.split('.').pop().toLowerCase();
+    }
+
+    function validateFileExtension(ext) {
+      return ALLOWED_EXTENSIONS[ext] === true;
+    }
+
+    function validateFileSize(file, ext) {
+      const maxSizeMB = MAX_FILE_SIZES[ext] || 10;
+      const maxSizeBytes = maxSizeMB * 1024 * 1024;
+      return file.size <= maxSizeBytes;
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    function processFileUpload(file, source = 'upload') {
+      const ext = getFileExtension(file.name);
+      if (!validateFileExtension(ext)) {
+        const allowedExts = Object.keys(ALLOWED_EXTENSIONS).join(', ');
+        showError(`✗ File format ".${ext}" not allowed. Allowed: ${allowedExts}`);
+        return;
+      }
+
+      if (!validateFileSize(file, ext)) {
+        const maxSize = MAX_FILE_SIZES[ext] ||
+          10;
+        showError(`✗ File too large. Maximum size: ${maxSize}MB`);
+        return;
+      }
+
+      if (file.size < 100) {
+        showError('✗ File is too small (minimum 100 bytes)');
+        return;
+      }
+
+      showFilePreview(file, source);
+    }
+
+    function showFilePreview(file, source = 'upload') {
+      selectedFile = file;
+      const container = document.getElementById('file-preview-container');
+      const filename = document.getElementById('preview-filename');
+      const filesize = document.getElementById('preview-filesize');
+      const sourceLabel = document.getElementById('preview-source');
+      const previewImg = document.getElementById('preview-img');
+      const previewVideo = document.getElementById('preview-video');
+      const previewIcon = document.getElementById('preview-file-icon');
+
+      previewImg.style.display = 'none';
+      previewVideo.style.display = 'none';
+      previewIcon.style.display = 'none';
+      if (source === 'drag-drop') {
+        sourceLabel.textContent = '📥 Dropped';
+      } else if (source === 'paste') {
+        sourceLabel.textContent = '📋 Pasted';
+      } else {
+        sourceLabel.textContent = '📄 From PC';
+      }
+      
+      filename.textContent = file.name;
+      filesize.textContent = formatFileSize(file.size);
+      const ext = getFileExtension(file.name);
+
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          previewImg.src = e.target.result;
+          previewImg.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type.startsWith('video/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          previewVideo.src = e.target.result;
+          previewVideo.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      } else {
+        previewIcon.style.display = 'block';
+      }
+
+      container.classList.add('active');
+      console.log('[Preview] File selected:', file.name, formatFileSize(file.size));
+    }
+
+    function hideFilePreview() {
+      selectedFile = null;
+      const container = document.getElementById('file-preview-container');
+      container.classList.remove('active');
+      document.getElementById('file-input').value = '';
+    }
+
+    document.getElementById('in').addEventListener('paste', function(e) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+             e.preventDefault();
+            processFileUpload(file, 'paste');
+            break;
+          }
+        }
+      }
+    });
+    document.getElementById('file-input').addEventListener('change', function() {
+      if (this.files.length > 0) {
+        processFileUpload(this.files[0], 'upload');
+      }
+    });
+    document.getElementById('preview-remove-btn').addEventListener('click', hideFilePreview);
+    document.getElementById('upload-btn').addEventListener('click', function() {
+      document.getElementById('file-input').click();
+    });
+    // ========== DRAG & DROP ==========
+    const dragDropOverlay = document.getElementById('drag-drop-overlay');
+    let isDraggingFile = false;
+    let dragLeaveTimeout = null;
+    
+    document.addEventListener('dragenter', (e) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        clearTimeout(dragLeaveTimeout);
+        isDraggingFile = true;
+        dragDropOverlay.classList.add('active');
+      }
+    });
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(dragLeaveTimeout);
+    });
+    document.addEventListener('dragleave', (e) => {
+      dragLeaveTimeout = setTimeout(() => {
+        isDraggingFile = false;
+        dragDropOverlay.classList.remove('active');
+      }, 50);
+    });
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(dragLeaveTimeout);
+      isDraggingFile = false;
+      dragDropOverlay.classList.remove('active');
+      
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+
+      const file = files[0];
+      processFileUpload(file, 'drag-drop');
+    });
+    // ========== LEAVE GROUP ==========
     document.getElementById("leave-btn").addEventListener('click', function() {
       if (confirm("Warning: If you leave this group, it will be removed from your personal account. Are you sure?")) {
         isUnloading = true;
         fetch(`/api/groups/${GROUP_ID}/leave`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` }
+          headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+          credentials: 'include'  // ✅ HttpOnly cookie отправляется
         }).then(response => {
           if (response.ok) {
-             clearInterval(MEMBERS_UPDATE_INTERVAL);
+            clearInterval(MEMBERS_UPDATE_INTERVAL);
             clearInterval(ONLINE_HEARTBEAT_INTERVAL);
             alert("You have left the group.");
             window.location.href = "/groups";
@@ -2276,9 +2284,13 @@ This action cannot be undone.</div>
         clearInterval(ONLINE_HEARTBEAT_INTERVAL);
       }
     });
-    
+    // ========== INITIALIZATION ==========
+    console.log('[Init] Starting group chat initialization...');
     if (initAuth()) {
+      console.log('[Init] Auth successful, loading history...');
       loadHistory();
+    } else {
+      console.error('[Init] Auth failed');
     }
   </script>
 </body>

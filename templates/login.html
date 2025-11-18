@@ -1,5 +1,5 @@
 <!doctype html>            
-<title>Login</title>       
+<title>Login - phasma</title>       
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   body {
@@ -39,10 +39,19 @@
     margin: 1em 0;
     border-radius: 2px;
   }
+
+  input[type="submit"] {
+    cursor: pointer;
+  }
+
+  input[type="submit"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 </style>
 <body>
   <div>
-    <img src="/static/phisma_title.png" alt="kartinka ERROR" class="logo">
+    <img src="/static/phisma_title.png" alt="logo" class="logo">
   </div>
   <h2>Enter the chat</h2>
   
@@ -58,11 +67,28 @@
   <script nonce="{{ nonce }}">
     console.log('[Init] Login page loaded');
     
-    // Очищаем старые токены
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('username');
-    localStorage.removeItem('current_group_token');
-    localStorage.removeItem('current_group_id');
+    // Проверяем есть ли уже валидная сессия в cookie
+    function verifyExistingSession() {
+      console.log('[Login] Checking for existing session...');
+      
+      fetch("/verify-session", {
+        credentials: 'include'  // Отправляем cookies
+      })
+      .then(response => {
+        if (response.status === 200) {
+          console.log('[Login] Session is valid, redirecting to groups');
+          window.location.href = '/groups';
+        } else {
+          console.log('[Login] Session is invalid or expired');
+        }
+      })
+      .catch(err => {
+        console.warn('[Login] Could not verify session:', err);
+      });
+    }
+
+    // Проверяем сессию при загрузке страницы
+    verifyExistingSession();
     
     document.getElementById('login-form').addEventListener('submit', function(e) {
       e.preventDefault();
@@ -94,7 +120,7 @@
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: formData.toString(),
-        credentials: 'include'  // Включаем cookies
+        credentials: 'include'  // Важно! Браузер сохранит HttpOnly cookie
       })
       .then(response => {
         console.log('[Login] Response status:', response.status);
@@ -108,18 +134,15 @@
         return response.json();
       })
       .then(data => {
-        console.log('[Login] Response data:', data);
+        console.log('[Login] Response received');
         
         if (data.success && data.token) {
-          console.log('[Login] Success! Token received:', data.token.substring(0, 20) + '...');
+          console.log('[Login] Success! HttpOnly cookie set by server');
           
-          // Сохраняем токен и имя пользователя
-          localStorage.setItem('auth_token', data.token);
           localStorage.setItem('username', data.username);
           
-          console.log('[Login] Saved to localStorage:');
-          console.log('  - auth_token:', localStorage.getItem('auth_token').substring(0, 20) + '...');
-          console.log('  - username:', localStorage.getItem('username'));
+          console.log('[Login] Saved username to localStorage:', data.username);
+          console.log('[Login] Token stored in HttpOnly cookie by server (not accessible from JS)');
           
           // Очищаем форму
           document.getElementById('username').value = '';
@@ -127,7 +150,7 @@
           
           errorDiv.innerHTML = '<div class="loading">✓ Login successful! Redirecting...</div>';
           
-          // Переходим на страницу групп через 500ms
+          // Редирект на страницу групп
           console.log('[Login] Redirecting to:', data.redirect || '/groups');
           setTimeout(() => {
             window.location.href = data.redirect || '/groups';

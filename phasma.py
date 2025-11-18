@@ -1619,9 +1619,9 @@ def delete_group(group_id: int) -> bool:
 # ===============================================================
 
 def extract_token_from_request() -> str or None:
-    """Извлекает токен из запроса (заголовок, форма, или cookie)"""
+    """Извлекает токен из запроса (заголовок, форма или HttpOnly cookie)"""
     
-    # 1. Проверяем Authorization заголовок (Bearer)
+    #Проверяем Authorization заголовок (Bearer token)
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
@@ -1629,17 +1629,17 @@ def extract_token_from_request() -> str or None:
             print(f"[DEBUG] Token from Authorization header: {token[:20]}...")
             return token
     
-    # 2. Проверяем форму (для POST запросов)
+    #Проверяем форму (POST параметр)
     if request.method == "POST":
         token = request.form.get("token", "").strip()
         if token:
             print(f"[DEBUG] Token from form: {token[:20]}...")
             return token
     
-    # 3. Проверяем cookie (для прямых переходов и GET запросов)
+    # Проверяем HttpOnly cookie
     token = request.cookies.get("auth_token", "").strip()
     if token:
-        print(f"[DEBUG] Token from cookie: {token[:20]}...")
+        print(f"[DEBUG] Token from HttpOnly cookie: {token[:20]}...")
         return token
     
     print("[DEBUG] No token found in request (header, form, or cookie)")
@@ -2580,7 +2580,6 @@ def login():
             
             print(f"[OK] Login successful for {username}, token: {auth_token[:20]}...")
             
-            # Создаем ответ с установкой cookie и JSON
             response = make_response(jsonify({
                 "success": True,
                 "token": auth_token,
@@ -2588,8 +2587,15 @@ def login():
                 "redirect": "/groups"
             }))
             
-            # Устанавливаем cookie с токеном
-            response.set_cookie('auth_token', auth_token, max_age=AUTH_TOKEN_TTL, httponly=False, secure=is_production)
+            # Устанавливаем HttpOnly cookie для автоматической отправки
+            response.set_cookie(
+                'auth_token',
+                auth_token,
+                max_age=AUTH_TOKEN_TTL,
+                httponly=True,
+                secure=is_production,
+                samesite='Lax'
+            )
             
             return response, 200
             
@@ -2609,16 +2615,15 @@ def login():
 def list_groups():
     token = extract_token_from_request()
     
-    print(f"[DEBUG] Token from extract_token_from_request: {token[:20] if token else 'None'}...")
-    
+    # Если нет - пытаемся из cookie
     if not token:
         token = request.cookies.get('auth_token', '').strip()
-        print(f"[DEBUG] Token from cookies: {token[:20] if token else 'None'}...")
+        print(f"[DEBUG] Token from cookie: {token[:20] if token else 'None'}...")
     
     username = verify_token(token, strict_ip_check=False)
     
     if not username:
-        print(f"[WARN] User not authenticated. Token: {token[:20] if token else 'None'}...")
+        print(f"[WARN] User not authenticated")
         return redirect("/login")
     
     print(f"[OK] User {username} accessing /groups")
@@ -2640,8 +2645,16 @@ def list_groups():
         nonce=nonce
     ))
     
+    # Обновляем cookie чтобы сессия не истекла
     if token:
-        response.set_cookie('auth_token', token, max_age=AUTH_TOKEN_TTL, httponly=False, secure=is_production)
+        response.set_cookie(
+            'auth_token',
+            token,
+            max_age=AUTH_TOKEN_TTL,
+            httponly=True,
+            secure=is_production,
+            samesite='Lax'
+        )
     
     return response
 
@@ -3767,7 +3780,7 @@ def logout():
     token = extract_token_from_request()
     
     if token:
-        # Получаем username ДО удаления токена
+        # Получаем username до удаления токена
         token_data_bytes = r.get(f"auth_token:{token}")
         if token_data_bytes:
             token_data = token_data_bytes.decode("utf-8")
@@ -3784,7 +3797,22 @@ def logout():
         revoke_token(token)
         revoke_group_session(token)
     
-    return "", 204
+    # СОЗДАЕМ ОТВЕТ С УДАЛЕНИЕМ COOKIE
+    response = make_response("", 204)
+    
+    # Удаляем cookie (устанавливаем max_age=0)
+    response.set_cookie(
+        'auth_token',
+        '',
+        max_age=0,
+        httponly=True,
+        secure=is_production,
+        samesite='Lax'
+    )
+    
+    print("[OK] User logged out, cookie cleared")
+    
+    return response
 
 @app.route("/verify-session", methods=["GET"])
 @limiter.limit("10 per minute")

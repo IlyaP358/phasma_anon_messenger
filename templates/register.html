@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<title>Registration</title>
+<title>Registration - phasma</title>
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   body {
@@ -75,7 +75,7 @@
 </style>
 <body>
   <div>
-    <img src="/static/phisma_title.png" alt="kartinka ERROR" class="logo">
+    <img src="/static/phisma_title.png" alt="logo" class="logo">
   </div>
   <h2>Registration</h2>
   
@@ -98,7 +98,7 @@
       <input type="submit" value="Create account" id="submit-btn" />
     </p>
   </form>
-  <p>Already have acc? <a href="/login">Log in</a></p>
+  <p>Already have account? <a href="/login">Log in</a></p>
 
   <script nonce="{{ nonce }}">
     console.log('[Init] Register page loaded');
@@ -206,7 +206,8 @@
         body: JSON.stringify({
           user: username,
           password: password
-        })
+        }),
+        credentials: 'include'  // ✅ Важно для работы с cookies
       })
       .then(response => {
         console.log('[Register] Response status:', response.status);

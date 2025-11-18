@@ -523,7 +523,7 @@
     }
   </style>
 </head>
-<body data-username="{{ user }}">
+<body>
   <div class="sessions-sidebar">
     <div class="sessions-header">
       <div class="sessions-header-title">Active Sessions</div>
@@ -657,60 +657,52 @@
     const joinModal = document.getElementById('join-modal');
     const deleteModal = document.getElementById('delete-modal');
 
-    // ========== AUTHENTICATION & SESSION ==========
+    // ========== AUTHENTICATION ==========
     function initAuth() {
       console.log('[Auth] Initializing authentication...');
       
-      AUTH_TOKEN = getCookie('auth_token');
+      //  Получаем username из localStorage
+      CURRENT_USER = localStorage.getItem('username');
       
-      // Получаем username из скрытого элемента (нужно добавить в template)
-      const userElement = document.querySelector('[data-username]');
-      CURRENT_USER = userElement ? userElement.getAttribute('data-username') : null;
+      console.log('[Auth] Found username:', CURRENT_USER);
       
-      console.log('[Auth] Found token:', AUTH_TOKEN ? AUTH_TOKEN.substring(0, 20) + '...' : 'NONE');
-      console.log('[Auth] Found user:', CURRENT_USER);
-      
-      if (!AUTH_TOKEN || !CURRENT_USER) {
-        console.error('[Auth] No valid session found - redirecting to login');
+      if (!CURRENT_USER) {
+        console.error('[Auth] No username found - redirecting to login');
         window.location.href = '/login';
         return false;
       }
       
       document.getElementById('current-user').textContent = CURRENT_USER;
       
+      //  Токен будет отправляться автоматически в cookies с credentials: 'include'
+      // Нам не нужно его читать из JavaScript!
+      
       verifySessionWithServer();
       
       return true;
     }
 
-    function getCookie(name) {
-      const nameEQ = name + "=";
-      const cookies = document.cookie.split(';');
-      for(let i = 0; i < cookies.length; i++) {
-        let c = cookies[i].trim();
-        if (c.indexOf(nameEQ) === 0) {
-          return c.substring(nameEQ.length);
-        }
-      }
-      return null;
-    }
-
     function verifySessionWithServer() {
       fetch("/verify-session", {
-        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-      }).then(response => {
+        credentials: 'include'  //  Браузер отправляет HttpOnly cookie
+      })
+      .then(response => {
         if (response.status === 401) {
           console.error('[Auth] Session expired on server');
           handleSessionExpired();
           return;
         }
         return response.json();
-      }).then(data => {
+      })
+      .then(data => {
         if (!data || !data.valid) {
           console.error('[Auth] Session invalid on server');
           handleSessionExpired();
+        } else {
+          console.log('[Auth] Session verified successfully');
         }
-      }).catch(err => {
+      })
+      .catch(err => {
         console.warn('[Auth] Could not verify session:', err);
       });
     }
@@ -720,15 +712,12 @@
       clearInterval(ONLINE_HEARTBEAT_INTERVAL);
       clearInterval(SESSIONS_UPDATE_INTERVAL);
       alert('Your session has expired. Please login again.');
+      localStorage.removeItem('username');
       window.location.href = '/login';
     }
 
     function getCurrentUser() {
       return CURRENT_USER;
-    }
-
-    function getAuthToken() {
-      return AUTH_TOKEN;
     }
 
     // ========== SESSIONS MANAGEMENT ==========
@@ -766,11 +755,10 @@
 
     function loadSessions() {
       const user = getCurrentUser();
-      const token = getAuthToken();
-      if (!user || !token) return;
+      if (!user) return;
 
       fetch('/api/sessions/list', {
-        headers: { 'Authorization': 'Bearer ' + token }
+        credentials: 'include'  //  HttpOnly cookie отправляется автоматически
       })
       .then(response => {
         if (response.status === 401) {
@@ -781,14 +769,14 @@
       })
       .then(data => {
         if (!data) return;
-        renderSessions(data.sessions, token);
+        renderSessions(data.sessions);
       })
       .catch(err => {
         console.error('[Sessions] Failed to load:', err);
       });
     }
 
-    function renderSessions(sessions, currentToken) {
+    function renderSessions(sessions) {
       const list = document.getElementById('sessions-list');
       const count = document.getElementById('sessions-total');
       
@@ -840,10 +828,15 @@
 
     function terminateSession(sessionToken) {
       const user = getCurrentUser();
-      const token = getAuthToken();
-      if (!user || !token) return;
+      if (!user) return;
+      
+      // Note: 'sessions' variable isn't directly available here unless we store it globally, 
+      // but for now we rely on data-token.
+      // To check if current, we might need to rely on the DOM or pass it.
+      // Simplified check based on DOM class:
+      const btn = document.querySelector(`button[data-token="${sessionToken}"]`);
+      const isCurrent = btn && btn.closest('.session-item').classList.contains('current');
 
-      const isCurrent = sessionToken === token;
       const confirmMsg = isCurrent 
         ? 'Exit this session? You will be logged out.'
         : 'Terminate this session?';
@@ -852,7 +845,7 @@
 
       fetch('/api/sessions/' + sessionToken + '/terminate', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token }
+        credentials: 'include'  //  HttpOnly cookie отправляется
       })
       .then(response => {
         if (response.status === 401) {
@@ -870,6 +863,7 @@
           clearInterval(ONLINE_HEARTBEAT_INTERVAL);
           clearInterval(SESSIONS_UPDATE_INTERVAL);
           alert('You have been logged out.');
+          localStorage.removeItem('username');
           window.location.href = '/login';
         } else {
           loadSessions();
@@ -883,14 +877,13 @@
 
     function terminateAllOtherSessions() {
       const user = getCurrentUser();
-      const token = getAuthToken();
-      if (!user || !token) return;
+      if (!user) return;
 
       if (!confirm('Terminate all other sessions? You will remain logged in on this device.')) return;
 
       fetch('/api/sessions/terminate-all', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token }
+        credentials: 'include'  //  HttpOnly cookie отправляется
       })
       .then(response => {
         if (response.status === 401) {
@@ -915,13 +908,11 @@
     // ========== ONLINE HEARTBEAT ==========
     function sendOnlineHeartbeat() {
       const user = getCurrentUser();
-      const token = getAuthToken();
-      
-      if (!user || !token) return;
+      if (!user) return;
 
       fetch('/api/user/online', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token }
+        credentials: 'include'  //  HttpOnly cookie отправляется
       }).catch(err => {
         console.warn('[Online] Failed to send heartbeat:', err);
       });
@@ -998,8 +989,7 @@
 
     function createGroup() {
       const user = getCurrentUser();
-      const token = getAuthToken();
-      if (!user || !token) return;
+      if (!user) return;
 
       const name = document.getElementById('create-name').value.trim();
       const password = document.getElementById('create-password').value;
@@ -1039,7 +1029,6 @@
       fetch('/api/groups/create', {
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1047,7 +1036,8 @@
           password: password,
           root_password: rootPassword,
           max_members: maxMembers
-        })
+        }),
+        credentials: 'include'  //  HttpOnly cookie отправляется
       })
       .then(response => {
         if (response.status === 401) {
@@ -1076,8 +1066,7 @@
 
     function joinGroup() {
       const user = getCurrentUser();
-      const token = getAuthToken();
-      if (!user || !token) return;
+      if (!user) return;
 
       const code = document.getElementById('join-code').value.trim().toUpperCase();
       const password = document.getElementById('join-password').value;
@@ -1100,13 +1089,13 @@
       fetch('/api/groups/join', {
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           group_code: code,
           password: password
-        })
+        }),
+        credentials: 'include'  //  HttpOnly cookie отправляется
       })
       .then(response => {
         if (response.status === 401) {
@@ -1133,11 +1122,10 @@
     // ========== LOAD & RENDER GROUPS ==========
     function loadGroups() {
       const user = getCurrentUser();
-      const token = getAuthToken();
-      if (!user || !token) return;
+      if (!user) return;
 
       fetch('/api/groups/list', {
-        headers: { 'Authorization': 'Bearer ' + token }
+        credentials: 'include'  //  HttpOnly cookie отправляется
       })
       .then(response => {
         if (response.status === 401) {
@@ -1224,8 +1212,7 @@
 
     function confirmDeleteGroup() {
       const user = getCurrentUser();
-      const token = getAuthToken();
-      if (!user || !token || !currentDeleteGroupId) return;
+      if (!user || !currentDeleteGroupId) return;
 
       const password = document.getElementById('delete-password').value;
       const errorDiv = document.getElementById('delete-error');
@@ -1242,12 +1229,12 @@
       fetch('/api/groups/' + currentDeleteGroupId + '/delete', {
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           root_password: password
-        })
+        }),
+        credentials: 'include'  //  HttpOnly cookie отправляется
       })
       .then(response => {
         if (response.status === 401) {
@@ -1276,10 +1263,9 @@
     document.getElementById('btn-logout').addEventListener('click', logout);
 
     function logout() {
-      const token = getAuthToken();
       const user = getCurrentUser();
       
-      if (!token || !user) {
+      if (!user) {
         window.location.href = '/login';
         return;
       }
@@ -1290,10 +1276,11 @@
 
       fetch('/logout', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token }
+        credentials: 'include'  //  HttpOnly cookie отправляется
       })
       .finally(() => {
         console.log('[Auth] User logged out');
+        localStorage.removeItem('username');
         window.location.href = '/login';
       });
     }
