@@ -1037,17 +1037,30 @@
           root_password: rootPassword,
           max_members: maxMembers
         }),
-        credentials: 'include'  //  HttpOnly cookie отправляется
+        credentials: 'include'
       })
       .then(response => {
-        if (response.status === 401) {
+        const contentType = response.headers.get('content-type') || '';
+        const isJson = contentType.includes('application/json');
+        
+        if (response.status === 401 && !isJson) {
+          // Истечение сессии - перенаправляем
           handleSessionExpired();
-          return;
+          return null;
         }
+        
+        if (!response.ok) {
+          return response.json().then(data => {
+            const error = new Error(data.error || 'Failed to create group');
+            error.statusCode = response.status;
+            throw error;
+          });
+        }
+        
         return response.json();
       })
       .then(data => {
-        if (!data) return;
+        if (!data) return; // handleSessionExpired уже вызван
         console.log('[Groups] Group created:', data.group_code);
         errorDiv.innerHTML = '<div class="success">✓ ' + data.message + '</div>';
         setTimeout(() => {
@@ -1056,8 +1069,8 @@
         }, 1000);
       })
       .catch(err => {
-        console.error('[Groups] Failed:', err);
-        errorDiv.innerHTML = '<div class="error">✗ Failed to create group</div>';
+        console.error('[Groups] Failed:', err.message);
+        errorDiv.innerHTML = '<div class="error">✗ ' + err.message + '</div>';
       });
     }
 
@@ -1095,17 +1108,57 @@
           group_code: code,
           password: password
         }),
-        credentials: 'include'  //  HttpOnly cookie отправляется
+        credentials: 'include'
       })
       .then(response => {
+        // Проверяем СНАЧАЛА статус и тип контента
+        const contentType = response.headers.get('content-type') || '';
+        const isJson = contentType.includes('application/json');
+        
         if (response.status === 401) {
-          handleSessionExpired();
-          return;
+          if (isJson) {
+            // Это ошибка группы (неверный пароль) - вернет JSON с ошибкой
+            return response.json().then(data => {
+              const error = new Error(data.error || 'Invalid group code or password');
+              error.isGroupError = true;
+              error.statusCode = 401;
+              throw error;
+            });
+          } else {
+            // Это истечение сессии (без JSON)
+            handleSessionExpired();
+            return null;
+          }
         }
+        
+        if (response.status === 403) {
+          return response.json().then(data => {
+            const error = new Error(data.error || 'Group is full');
+            error.statusCode = 403;
+            throw error;
+          });
+        }
+        
+        if (response.status === 429) {
+          return response.json().then(data => {
+            const error = new Error(data.error || 'Too many attempts. Try again later.');
+            error.statusCode = 429;
+            throw error;
+          });
+        }
+        
+        if (!response.ok) {
+          return response.json().then(data => {
+            const error = new Error(data.error || 'Failed to join group');
+            error.statusCode = response.status;
+            throw error;
+          });
+        }
+        
         return response.json();
       })
       .then(data => {
-        if (!data) return;
+        if (!data) return; // handleSessionExpired уже вызван
         console.log('[Groups] Joined group:', code);
         errorDiv.innerHTML = '<div class="success">✓ ' + data.message + '</div>';
         setTimeout(() => {
@@ -1114,8 +1167,8 @@
         }, 1000);
       })
       .catch(err => {
-        console.error('[Groups] Failed:', err);
-        errorDiv.innerHTML = '<div class="error">✗ Failed to join group</div>';
+        console.error('[Groups] Error:', err.message);
+        errorDiv.innerHTML = '<div class="error">✗ ' + err.message + '</div>';
       });
     }
 
