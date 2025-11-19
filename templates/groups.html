@@ -77,6 +77,8 @@
       cursor: default;
       transition: all 0.2s;
       position: relative;
+      /* Правка: выравнивание по центру */
+      text-align: center;
     }
 
     .session-item.current {
@@ -85,15 +87,7 @@
       box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
     }
 
-    .session-item.current::before {
-      content: "●";
-      position: absolute;
-      left: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: #0f0;
-      font-size: 10px;
-    }
+    /* Правка: удален блок .session-item.current::before, который создавал точку */
 
     .session-item.current .session-browser {
       color: #0f0;
