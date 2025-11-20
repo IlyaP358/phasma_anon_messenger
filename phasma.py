@@ -1290,7 +1290,7 @@ def terminate_all_other_sessions(current_token: str, username: str) -> bool:
         return False
 
 # ===============================================================
-# ---- ШАГ 2: ДОБАВЛЕНИЕ HELPER ФУНКЦИЙ ДЛЯ ГРУПП ----
+# ----  2: ДОБАВЛЕНИЕ HELPER ФУНКЦИЙ ДЛЯ ГРУПП ----
 # ===============================================================
 def generate_group_code() -> str:
     """Генерирует уникальный 8-значный код группы (буквы + цифры)"""
@@ -1552,7 +1552,7 @@ def delete_group(group_id: int) -> bool:
                 except Exception as e:
                     print(f"[WARN] Could not parse file_id from message {msg.id}: {e}")
         
-        # ШАГ 2: Удаляем файлы с диска
+        #  2: Удаляем файлы с диска
         if file_ids_to_delete:
             print(f"[INFO] Deleting {len(file_ids_to_delete)} files from disk...")
             files = File.query.filter(File.id.in_(file_ids_to_delete)).all()
@@ -1570,13 +1570,13 @@ def delete_group(group_id: int) -> bool:
             db.session.flush()
             print(f"[OK] File records deleted from DB")
         
-        # ШАГ 3: Удаляем все сообщения группы
+        #  3: Удаляем все сообщения группы
         print(f"[INFO] Deleting messages for group {group_id}...")
         Message.query.filter_by(group_id=group_id).delete(synchronize_session=False)
         db.session.flush()
         print(f"[OK] Messages deleted")
         
-        # ШАГ 4: Удаляем всех участников группы
+        #  4: Удаляем всех участников группы
         print(f"[INFO] Deleting members for group {group_id}...")
         members = GroupMember.query.filter_by(group_id=group_id).all()
         for member in members:
@@ -1590,17 +1590,17 @@ def delete_group(group_id: int) -> bool:
         db.session.flush()
         print(f"[OK] Members deleted")
         
-        # ШАГ 5: Удаляем саму группу
+        #  5: Удаляем саму группу
         print(f"[INFO] Deleting group {group_id}...")
         Group.query.filter_by(id=group_id).delete(synchronize_session=False)
         db.session.flush()
         print(f"[OK] Group row deleted")
         
-        # ШАГ 6: Коммитим все изменения
+        #  6: Коммитим все изменения
         db.session.commit()
         print(f"[OK] Transaction committed")
         
-        # ШАГ 7: Удаляем из Redis
+        #  7: Удаляем из Redis
         r.delete(f"group_members:{group_id}")
         r.delete(f"group_members:online:{group_id}")
         r.delete(f"chat:group:{group_id}")
@@ -1614,9 +1614,106 @@ def delete_group(group_id: int) -> bool:
         traceback.print_exc()
         return False
 
-# ===============================================================
-# ---- КОНЕЦ ДОБАВЛЕНИЯ HELPER ФУНКЦИЙ ----
-# ===============================================================
+def delete_user_account(username: str) -> bool:
+    """
+    Удаляет пользователя и ВСЕ его данные:
+    """
+    try:
+        print(f"[INFO] Starting deletion of account: {username}")
+        
+        #  1: Получаем всех групп, где пользователь - создатель
+        print(f"[INFO] Finding groups created by {username}...")
+        creator_groups = Group.query.filter_by(creator=username).all()
+        
+        for group in creator_groups:
+            print(f"[INFO] Deleting creator group: {group.id} ({group.name})")
+            delete_group(group.id)
+        
+        #  2: Удаляем пользователя из всех групп, где он - член
+        print(f"[INFO] Removing {username} from all groups...")
+        member_records = GroupMember.query.filter_by(username=username).all()
+        
+        for member in member_records:
+            # Отзываем его сессии в этих группах
+            session_token_bytes = r.get(f"user_group_session:{username}:{member.group_id}")
+            if session_token_bytes:
+                revoke_group_session(session_token_bytes.decode("utf-8"))
+            
+            db.session.delete(member)
+        
+        db.session.flush()
+        print(f"[OK] Removed {username} from all groups")
+        
+        #  3: Находим все файлы пользователя
+        print(f"[INFO] Finding files from {username}...")
+        user_files = File.query.filter_by(username=username).all()
+        file_ids_to_delete = [f.id for f in user_files]
+        
+        #  4: Удаляем файлы с диска
+        if user_files:
+            print(f"[INFO] Deleting {len(user_files)} files from disk...")
+            for file_record in user_files:
+                file_path = os.path.join(UPLOAD_FOLDER, file_record.filename)
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"[OK] Deleted file: {file_path}")
+                    except Exception as e:
+                        print(f"[WARN] Failed to delete file {file_path}: {e}")
+            
+            # Удаляем записи файлов из БД
+            File.query.filter(File.id.in_(file_ids_to_delete)).delete(synchronize_session=False)
+            db.session.flush()
+            print(f"[OK] File records deleted from DB")
+        
+        #  5: Удаляем все сообщения пользователя
+        print(f"[INFO] Deleting all messages from {username}...")
+        Message.query.filter_by(username=username).delete(synchronize_session=False)
+        db.session.flush()
+        print(f"[OK] Messages deleted")
+        
+        #  6: Удаляем сам аккаунт
+        print(f"[INFO] Deleting user account: {username}...")
+        user = User.query.filter_by(username=username).first()
+        if user:
+            db.session.delete(user)
+            db.session.flush()
+        
+        #  7: Коммитим все изменения
+        db.session.commit()
+        print(f"[OK] Transaction committed")
+        
+        #  8: Очищаем Redis сессии
+        print(f"[INFO] Cleaning up Redis sessions for {username}...")
+        r.delete(f"user_sessions:{username}")
+        r.delete(f"online_users:{username}")
+        
+        # Удаляем все auth tokens пользователя
+        try:
+            session_keys = r.keys(f"session_metadata:*")
+            for key in session_keys:
+                try:
+                    metadata_bytes = r.get(key)
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        if metadata.get('username') == username:
+                            token = key.decode("utf-8").replace("session_metadata:", "")
+                            r.delete(f"auth_token:{token}")
+                            r.delete(f"session_metadata:{token}")
+                except Exception as e:
+                    pass
+        except Exception as e:
+            print(f"[WARN] Failed to cleanup all session keys: {e}")
+        
+        print(f"[OK] Account {username} deleted completely with all data")
+        return True
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to delete account: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def extract_token_from_request() -> str or None:
     """Извлекает токен из запроса (заголовок, форма или HttpOnly cookie)"""
@@ -3598,7 +3695,6 @@ def history_group(group_id: int):
 
 # ===============================================================
 # ---- File upload and download routes ----
-# (Старый /upload удален, добавлен /group/<id>/upload)
 # ===============================================================
 @app.route("/group/<int:group_id>/upload", methods=["POST"])
 @limiter.limit("10 per minute; 100 per day")
@@ -3774,6 +3870,57 @@ def get_file(file_token: str):
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     
     return response
+
+@app.route("/api/account/delete", methods=["POST"])
+@limiter.limit("5 per hour")
+def api_delete_account():
+    """Удалить аккаунт пользователя после проверки пароля"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    password = data.get("password", "").strip()
+    
+    if not password:
+        return jsonify({"error": "Password required"}), 400
+    
+    try:
+        # Получаем пользователя
+        user = User.query.filter_by(username=username).first()
+        
+        if not user:
+            print(f"[WARN] User not found during deletion: {username}")
+            return jsonify({"error": "User not found"}), 404
+        
+        # Проверяем пароль
+        try:
+            argon2Hasher.verify(user.password_hash, password)
+        except VerifyMismatchError:
+            print(f"[SECURITY] Wrong password attempt for account deletion by {username}")
+            return jsonify({"error": "Invalid password"}), 403
+        
+        # Удаляем аккаунт
+        success = delete_user_account(username)
+        
+        if not success:
+            return jsonify({"error": "Failed to delete account"}), 500
+        
+        print(f"[OK] Account deleted successfully: {username}")
+        
+        return jsonify({
+            "success": True,
+            "message": "Account deleted successfully"
+        }), 200
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to delete account: {e}")
+        return jsonify({"error": "Failed to delete account"}), 500
 
 @app.route("/logout", methods=["POST"])
 def logout():
