@@ -3,15 +3,18 @@
 <link rel="icon" type="image/png" href="/static/icon.png">
 <style>
   body {
-    max-width: 500px;      
-    margin-top: 90px;      
-    margin-left: 700px;    
-    padding: 1em;          
-    background: black;     
+    max-width: 500px;
+    margin-top: 90px;
+    margin-left: 700px;
+    padding: 1em;
+    background: black;
     color: #fff;
     font: 16px/1.6 menlo, monospace;
   }
-  a { color: #0ff; }
+
+  a {
+    color: #0ff;
+  }
 
   .logo {
     position: absolute;
@@ -72,24 +75,110 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+
+  /* Modal styles */
+  .modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.8);
+  }
+
+  .modal-content {
+    background-color: #000;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #0ff;
+    width: 320px;
+    text-align: center;
+    border-radius: 5px;
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+  }
+
+  .close {
+    color: #0ff;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+
+  .close:hover {
+    color: #fff;
+  }
+
+  .captcha-container {
+    margin: 15px 0;
+    background: #fff;
+    /* Captcha images usually have white bg */
+    padding: 5px;
+    border-radius: 3px;
+  }
+
+  .captcha-input {
+    width: 100%;
+    padding: 8px;
+    margin: 10px 0;
+    background: #222;
+    border: 1px solid #444;
+    color: #fff;
+    text-align: center;
+    font-size: 18px;
+    letter-spacing: 2px;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid #666;
+    color: #aaa;
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .btn-secondary:hover {
+    border-color: #fff;
+    color: #fff;
+  }
+
+  .btn-primary {
+    background: #0ff;
+    color: #000;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-weight: bold;
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .btn-primary:hover {
+    background: #fff;
+  }
 </style>
+
 <body>
   <div>
     <img src="/static/phisma_title.png" alt="logo" class="logo">
   </div>
   <h2>Registration</h2>
-  
+
   <div id="message-box"></div>
-  
+
   <form id="register-form">
     <p>
-      Username: 
+      Username:
       <input type="text" name="user" id="username" required autocomplete="username" />
     </p>
     <div id="username-requirements" class="requirements"></div>
 
     <p>
-      Password: 
+      Password:
       <input type="password" name="password" id="password" required autocomplete="new-password" />
     </p>
     <div id="password-requirements" class="requirements"></div>
@@ -99,6 +188,27 @@
     </p>
   </form>
   <p>Already have account? <a href="/login">Log in</a></p>
+
+  <!-- Captcha Modal -->
+  <div id="captchaModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h3 style="margin-top: 0; color: #0ff;">Security Check</h3>
+      <p style="font-size: 12px; color: #888;">Please complete the captcha to continue</p>
+
+      <div id="captcha-box" class="captcha-container">
+        Loading...
+      </div>
+
+      <button type="button" id="refresh-captcha" class="btn-secondary">↻ Change Image</button>
+
+      <input type="text" id="captcha-input" class="captcha-input" placeholder="Enter code" autocomplete="off">
+
+      <div id="modal-error" class="error" style="display: none; padding: 5px; font-size: 12px;"></div>
+
+      <button type="button" id="verify-btn" class="btn-primary">VERIFY & CREATE</button>
+    </div>
+  </div>
 
   <script nonce="{{ nonce }}">
     console.log('[Init] Register page loaded');
@@ -116,7 +226,7 @@
     const passwordReqs = document.getElementById('password-requirements');
 
     // Проверка требований username в реальном времени
-    usernameInput.addEventListener('input', function() {
+    usernameInput.addEventListener('input', function () {
       const username = this.value.trim();
       let html = '';
 
@@ -134,7 +244,7 @@
     });
 
     // Проверка требований password в реальном времени
-    passwordInput.addEventListener('input', function() {
+    passwordInput.addEventListener('input', function () {
       const password = this.value;
       let html = '';
 
@@ -146,7 +256,46 @@
       passwordReqs.innerHTML = html;
     });
 
-    document.getElementById('register-form').addEventListener('submit', function(e) {
+    const modal = document.getElementById('captchaModal');
+    const closeBtn = document.getElementsByClassName("close")[0];
+    const refreshBtn = document.getElementById('refresh-captcha');
+    const verifyBtn = document.getElementById('verify-btn');
+    const captchaBox = document.getElementById('captcha-box');
+    const captchaInput = document.getElementById('captcha-input');
+    const modalError = document.getElementById('modal-error');
+
+    function loadCaptcha() {
+      captchaBox.innerHTML = '<div style="color:#000">Loading...</div>';
+      fetch('/captcha-image')
+        .then(response => response.text())
+        .then(html => {
+          captchaBox.innerHTML = html;
+        })
+        .catch(err => {
+          console.error('Failed to load captcha', err);
+          captchaBox.innerHTML = 'Error loading captcha';
+        });
+    }
+
+    closeBtn.onclick = function () {
+      modal.style.display = "none";
+      submitBtn.disabled = false;
+    }
+
+    window.onclick = function (event) {
+      if (event.target == modal) {
+        modal.style.display = "none";
+        submitBtn.disabled = false;
+      }
+    }
+
+    refreshBtn.onclick = function () {
+      loadCaptcha();
+      captchaInput.value = '';
+      captchaInput.focus();
+    }
+
+    document.getElementById('register-form').addEventListener('submit', function (e) {
       e.preventDefault();
 
       const username = usernameInput.value.trim();
@@ -190,12 +339,30 @@
         return;
       }
 
-      messageBox.innerHTML = '<div class="loading">Creating account...</div>';
-      submitBtn.disabled = true;
+      // Show Modal instead of submitting immediately
+      modal.style.display = "block";
+      loadCaptcha();
+      captchaInput.value = '';
+      modalError.style.display = 'none';
+      captchaInput.focus();
+    });
+
+    verifyBtn.addEventListener('click', function () {
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      const captcha = captchaInput.value.trim();
+
+      if (!captcha) {
+        modalError.textContent = "Please enter the captcha code";
+        modalError.style.display = 'block';
+        return;
+      }
+
+      modalError.style.display = 'none';
+      verifyBtn.disabled = true;
+      verifyBtn.textContent = "Verifying...";
 
       console.log('[Register] Sending POST request to /register');
-      console.log('[Register] Username:', username);
-      console.log('[Register] Password length:', password.length);
 
       fetch('/register', {
         method: 'POST',
@@ -205,43 +372,57 @@
         },
         body: JSON.stringify({
           user: username,
-          password: password
+          password: password,
+          captcha: captcha
         }),
-        credentials: 'include'  // ✅ Важно для работы с cookies
+        credentials: 'include'
       })
-      .then(response => {
-        console.log('[Register] Response status:', response.status);
-        return response.json().then(data => {
-          return { status: response.status, data: data };
-        });
-      })
-      .then(result => {
-        if (result.status === 201 || result.status === 200) {
-          console.log('[Register] Success! Account created for:', username);
-          messageBox.innerHTML = '<div class="success">✓ ' + result.data.message + ' Redirecting to login...</div>';
-          
-          usernameInput.value = '';
-          passwordInput.value = '';
-          usernameReqs.innerHTML = '';
-          passwordReqs.innerHTML = '';
+        .then(response => {
+          console.log('[Register] Response status:', response.status);
+          return response.json().then(data => {
+            return { status: response.status, data: data };
+          });
+        })
+        .then(result => {
+          if (result.status === 201 || result.status === 200) {
+            console.log('[Register] Success! Account created for:', username);
+            modal.style.display = "none";
+            messageBox.innerHTML = '<div class="success">✓ ' + result.data.message + ' Redirecting to login...</div>';
 
-          setTimeout(() => {
-            window.location.href = '/login';
-          }, 1500);
-        } else if (result.status === 400) {
-          console.error('[Register] Server error:', result.data.error);
-          messageBox.innerHTML = `<div class="error">✗ ${result.data.error}</div>`;
+            usernameInput.value = '';
+            passwordInput.value = '';
+            usernameReqs.innerHTML = '';
+            passwordReqs.innerHTML = '';
+
+            setTimeout(() => {
+              window.location.href = '/login';
+            }, 1500);
+          } else {
+            console.error('[Register] Server error:', result.data.error);
+            // If captcha error, show in modal
+            if (result.data.error && result.data.error.toLowerCase().includes('captcha')) {
+              modalError.textContent = result.data.error;
+              modalError.style.display = 'block';
+              verifyBtn.disabled = false;
+              verifyBtn.textContent = "VERIFY & CREATE";
+              loadCaptcha(); // Refresh captcha on failure
+              captchaInput.value = '';
+            } else {
+              // Other errors (username taken etc) - close modal and show on main page
+              modal.style.display = "none";
+              messageBox.innerHTML = `<div class="error">✗ ${result.data.error}</div>`;
+              submitBtn.disabled = false;
+            }
+          }
+        })
+        .catch(error => {
+          console.error('[Register] Error caught:', error.message);
+          modal.style.display = "none";
+          messageBox.innerHTML = '<div class="error">✗ An error occurred. Please try again.</div>';
           submitBtn.disabled = false;
-        } else {
-          throw new Error(`HTTP ${result.status}`);
-        }
-      })
-      .catch(error => {
-        console.error('[Register] Error caught:', error.message);
-        messageBox.innerHTML = '<div class="error">✗ An error occurred. Please try again.</div>';
-        submitBtn.disabled = false;
-      });
+        });
     });
   </script>
 </body>
+
 </html>

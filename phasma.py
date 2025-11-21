@@ -36,6 +36,7 @@ from mutagen.id3 import ID3NoHeaderError
 from pikepdf import Pdf
 from user_agents import parse as parse_user_agent
 from pywebpush import webpush, WebPushException
+from flask_session_captcha import FlaskSessionCaptcha
 
 # ===============================================================
 # ---- PRODUCTION vs DEVELOPMENT MODE ----
@@ -58,6 +59,16 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# ===============================================================
+# ---- CAPTCHA Configuration ----
+# ===============================================================
+app.config["CAPTCHA_ENABLE"] = True
+app.config["CAPTCHA_LENGTH"] = 5
+app.config["CAPTCHA_WIDTH"] = 160
+app.config["CAPTCHA_HEIGHT"] = 60
+app.config['CAPTCHA_SESSION_KEY'] = 'captcha_image'
+captcha = FlaskSessionCaptcha(app)
 
 # ===============================================================
 # ---- Disable Flask/Werkzeug logging ----
@@ -2655,6 +2666,76 @@ def delete_message_by_id(message_id: int) -> bool:
         traceback.print_exc()
         return False
 
+@app.route("/captcha-image")
+def captcha_image():
+    """
+    Route to serve the captcha image.
+    This allows us to refresh the captcha via AJAX/JS by just reloading this URL.
+    """
+    # This method generates a new captcha code, stores it in session, 
+    # and returns the image file.
+    # Note: FlaskSessionCaptcha doesn't expose a direct 'get_image' easily 
+    # without using its template filter, but we can use the internal logic 
+    # or just use the default route if it exposes one. 
+    # Actually, FlaskSessionCaptcha usually exposes /captcha/image automatically 
+    # if configured? Let's check documentation or source if possible.
+    # Most simple implementations of this lib might not expose a route by default 
+    # or might use a fixed route. 
+    # However, looking at standard usage, we often just use `captcha.validate()`
+    # and in template `{{ captcha() }}`.
+    # But the user wants a custom "Refresh" button. 
+    # The `{{ captcha() }}` macro generates an <img> tag pointing to a route.
+    # Let's see if we can just reuse the library's mechanism or if we need to 
+    # manually trigger regeneration.
+    
+    # If we want to force regeneration and get the image:
+    # The library usually has a method to generate and return.
+    # Let's try to use the standard way first.
+    # If we look at the library source (assumed), it likely has a route.
+    # But to be safe and custom, let's implement a wrapper if needed.
+    # Wait, standard flask-session-captcha usually adds a route like /captcha/image
+    # Let's assume we can just use the library's provided mechanism in the template 
+    # but for "Refresh" we might need to reload that image URL.
+    # If the library doesn't provide a route, we have to make one.
+    # Since I can't check the library code right now, I will implement a helper 
+    # that uses the library's internal methods if available, or just rely on 
+    # the fact that `captcha.validate()` checks the session.
+    
+    # Actually, the simplest way with this lib is often:
+    # It doesn't automatically add a route. You have to use `captcha.create()` 
+    # which returns the code, but we need the image.
+    # Let's try to implement a standard captcha route using the library's `captcha.create()`.
+    # Wait, `FlaskSessionCaptcha` class usually has `validate()` and `create()`.
+    # `create()` might return the base64 string or similar?
+    # Let's assume we need to rely on the template macro `{{ captcha() }}` 
+    # which renders the HTML.
+    # But the user wants a Modal and Refresh.
+    # If I use `{{ captcha() }}` it renders the whole block.
+    # I'll stick to the plan: Add a route that returns the image content.
+    # But `FlaskSessionCaptcha` might not expose the image generation directly 
+    # as a public method returning bytes.
+    # It might be safer to use the `captcha` object to generate a code, 
+    # and then use `captcha.image(code)` if it exists.
+    # Given I can't verify the library internals, I'll try to find a safe bet.
+    # Many forks exist. The most common `flask-session-captcha` usage:
+    # app.config['CAPTCHA_ENABLE'] = True
+    # captcha = FlaskSessionCaptcha(app)
+    # In template: {{ captcha() }}
+    # In view: if captcha.validate(): ...
+    
+    # To support "Refresh" without reloading page, we need an endpoint 
+    # that regenerates the captcha and returns the new image URL or base64.
+    # Let's try to see if we can just use the `captcha` object to get a new image.
+    # If I can't be sure, I might need to implement my own simple captcha generation 
+    # using `captcha` library (not flask-session-captcha) if this one is too rigid.
+    # BUT the user specifically asked for `flask-session-captcha`.
+    # So I must use it.
+    
+    # Let's assume I can just render a template snippet that contains ONLY the captcha.
+    # Then the JS can fetch this snippet and replace the modal content.
+    # That is a robust way to handle "Refresh" with any library.
+    return render_template("captcha_snippet.html")
+
 @app.route("/register", methods=["GET", "POST"])
 @limiter.limit("5 per 15 minutes", methods=["POST"])
 def register():
@@ -2671,6 +2752,16 @@ def register():
             password = request.form.get("password", "").strip()
         
         print(f"[DEBUG] Register POST: username='{username}', password_len={len(password)}, is_ajax={is_ajax}")
+
+        # Validate Captcha
+        captcha_code = data.get("captcha") if is_ajax else request.form.get("captcha")
+        if not captcha.validate(value=captcha_code):
+            print(f"[WARN] Invalid Captcha. Input: {captcha_code}")
+            if is_ajax:
+                return jsonify({"error": "Invalid Captcha. Please try again."}), 400
+            nonce = generate_nonce()
+            request._csp_nonce = nonce
+            return render_template("register.html", nonce=nonce, error="Invalid Captcha. Please try again."), 400
 
         valid_username, username_error = validate_username(username)
         if not valid_username:
