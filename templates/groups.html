@@ -518,8 +518,9 @@
     .user-menu-dropdown {
       display: none;
       position: absolute;
-      top: 15.2em;
-      margin-left: 510px;
+      top: 100%;
+      right: 10px;
+      margin-top: 5px;
       background: #111;
       border: 1px solid #0f0;
       border-radius: 4px;
@@ -651,17 +652,18 @@
         <div class="user-name" id="current-user">Loading...</div>
       </div>
       <button class="btn btn-menu" id="btn-menu">⋮</button>
-    </div>
-    <div id="user-menu-dropdown" class="user-menu-dropdown">
-      <button class="menu-item" id="menu-enable-notifications">
-        <span class="menu-icon">🔔</span> Enable Notifications
-      </button>
-      <button class="menu-item menu-exit" id="menu-exit">
-        <span class="menu-icon">🚪</span> Exit
-      </button>
-      <button class="menu-item menu-delete" id="menu-delete">
-        <span class="menu-icon">🗑️</span> Delete Account
-      </button>
+
+      <div id="user-menu-dropdown" class="user-menu-dropdown">
+        <button class="menu-item" id="menu-enable-notifications">
+          <span class="menu-icon">🔔</span> Enable Notifications
+        </button>
+        <button class="menu-item menu-exit" id="menu-exit">
+          <span class="menu-icon">🚪</span> Exit
+        </button>
+        <button class="menu-item menu-delete" id="menu-delete">
+          <span class="menu-icon">🗑️</span> Delete Account
+        </button>
+      </div>
     </div>
 
     <h1>💬 phasma groups</h1>
@@ -973,6 +975,64 @@
 
     document.getElementById('menu-exit').addEventListener('click', () => {
       isUnloading = true; fetch('/logout', { method: 'POST', credentials: 'include' }).finally(() => { localStorage.removeItem('username'); window.location.href = '/login'; });
+    });
+
+    // Account Deletion Logic
+    const deleteAccountModal = document.getElementById('delete-account-modal');
+    const deleteAccountError = document.getElementById('delete-account-error');
+
+    document.getElementById('menu-delete').addEventListener('click', () => {
+      document.getElementById('delete-username-display').textContent = CURRENT_USER;
+      deleteAccountModal.classList.add('active');
+      userMenuDropdown.classList.remove('active');
+    });
+
+    document.getElementById('close-delete-account').addEventListener('click', () => {
+      deleteAccountModal.classList.remove('active');
+      document.getElementById('delete-account-password').value = '';
+      deleteAccountError.textContent = '';
+    });
+
+    document.getElementById('btn-cancel-delete-account').addEventListener('click', () => {
+      deleteAccountModal.classList.remove('active');
+      document.getElementById('delete-account-password').value = '';
+      deleteAccountError.textContent = '';
+    });
+
+    document.getElementById('btn-confirm-delete-account').addEventListener('click', () => {
+      const password = document.getElementById('delete-account-password').value;
+      if (!password) {
+        deleteAccountError.innerHTML = '<div class="error">Please enter your password</div>';
+        return;
+      }
+
+      if (!confirm("FINAL WARNING: Are you absolutely sure? This cannot be undone.")) {
+        return;
+      }
+
+      deleteAccountError.innerHTML = '<div class="loading">Deleting account...</div>';
+
+      fetch('/api/user/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password }),
+        credentials: 'include'
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            isUnloading = true;
+            localStorage.removeItem('username');
+            alert('Account deleted successfully. Goodbye.');
+            window.location.href = '/register';
+          } else {
+            deleteAccountError.innerHTML = `<div class="error">${data.error || 'Failed to delete account'}</div>`;
+          }
+        })
+        .catch(err => {
+          console.error('Error deleting account:', err);
+          deleteAccountError.innerHTML = '<div class="error">Network error. Please try again.</div>';
+        });
     });
 
     // Init

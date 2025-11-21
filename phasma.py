@@ -10,7 +10,7 @@ import json
 import subprocess
 import tempfile
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify, make_response
+from flask import Flask, render_template, request, redirect, Response, abort, send_file, jsonify, make_response, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -2672,68 +2672,6 @@ def captcha_image():
     Route to serve the captcha image.
     This allows us to refresh the captcha via AJAX/JS by just reloading this URL.
     """
-    # This method generates a new captcha code, stores it in session, 
-    # and returns the image file.
-    # Note: FlaskSessionCaptcha doesn't expose a direct 'get_image' easily 
-    # without using its template filter, but we can use the internal logic 
-    # or just use the default route if it exposes one. 
-    # Actually, FlaskSessionCaptcha usually exposes /captcha/image automatically 
-    # if configured? Let's check documentation or source if possible.
-    # Most simple implementations of this lib might not expose a route by default 
-    # or might use a fixed route. 
-    # However, looking at standard usage, we often just use `captcha.validate()`
-    # and in template `{{ captcha() }}`.
-    # But the user wants a custom "Refresh" button. 
-    # The `{{ captcha() }}` macro generates an <img> tag pointing to a route.
-    # Let's see if we can just reuse the library's mechanism or if we need to 
-    # manually trigger regeneration.
-    
-    # If we want to force regeneration and get the image:
-    # The library usually has a method to generate and return.
-    # Let's try to use the standard way first.
-    # If we look at the library source (assumed), it likely has a route.
-    # But to be safe and custom, let's implement a wrapper if needed.
-    # Wait, standard flask-session-captcha usually adds a route like /captcha/image
-    # Let's assume we can just use the library's provided mechanism in the template 
-    # but for "Refresh" we might need to reload that image URL.
-    # If the library doesn't provide a route, we have to make one.
-    # Since I can't check the library code right now, I will implement a helper 
-    # that uses the library's internal methods if available, or just rely on 
-    # the fact that `captcha.validate()` checks the session.
-    
-    # Actually, the simplest way with this lib is often:
-    # It doesn't automatically add a route. You have to use `captcha.create()` 
-    # which returns the code, but we need the image.
-    # Let's try to implement a standard captcha route using the library's `captcha.create()`.
-    # Wait, `FlaskSessionCaptcha` class usually has `validate()` and `create()`.
-    # `create()` might return the base64 string or similar?
-    # Let's assume we need to rely on the template macro `{{ captcha() }}` 
-    # which renders the HTML.
-    # But the user wants a Modal and Refresh.
-    # If I use `{{ captcha() }}` it renders the whole block.
-    # I'll stick to the plan: Add a route that returns the image content.
-    # But `FlaskSessionCaptcha` might not expose the image generation directly 
-    # as a public method returning bytes.
-    # It might be safer to use the `captcha` object to generate a code, 
-    # and then use `captcha.image(code)` if it exists.
-    # Given I can't verify the library internals, I'll try to find a safe bet.
-    # Many forks exist. The most common `flask-session-captcha` usage:
-    # app.config['CAPTCHA_ENABLE'] = True
-    # captcha = FlaskSessionCaptcha(app)
-    # In template: {{ captcha() }}
-    # In view: if captcha.validate(): ...
-    
-    # To support "Refresh" without reloading page, we need an endpoint 
-    # that regenerates the captcha and returns the new image URL or base64.
-    # Let's try to see if we can just use the `captcha` object to get a new image.
-    # If I can't be sure, I might need to implement my own simple captcha generation 
-    # using `captcha` library (not flask-session-captcha) if this one is too rigid.
-    # BUT the user specifically asked for `flask-session-captcha`.
-    # So I must use it.
-    
-    # Let's assume I can just render a template snippet that contains ONLY the captcha.
-    # Then the JS can fetch this snippet and replace the modal content.
-    # That is a robust way to handle "Refresh" with any library.
     return render_template("captcha_snippet.html")
 
 @app.route("/register", methods=["GET", "POST"])
@@ -3457,6 +3395,100 @@ def api_set_member_online(group_id: int):
     except Exception as e:
         print(f"[ERROR] Failed to set member online: {e}")
         return jsonify({"error": "Failed to update status"}), 500
+
+@app.route("/api/user/delete", methods=["POST"])
+def delete_account():
+    token = extract_token_from_request()
+    username = verify_token(token)
+    if not username:
+        return jsonify({"error": "Not logged in"}), 401
+
+    data = request.get_json()
+    password = data.get("password")
+
+    if not password:
+        return jsonify({"error": "Password required"}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    try:
+        argon2Hasher.verify(user.password_hash, password)
+    except:
+        # Slow down timing attacks
+        time.sleep(0.5)
+        return jsonify({"error": "Invalid password"}), 403
+
+    try:
+        # 1. Delete Push Subscriptions
+        PushSubscription.query.filter_by(username=username).delete(synchronize_session=False)
+        
+        # 2. Delete Group Memberships
+        GroupMember.query.filter_by(username=username).delete(synchronize_session=False)
+        
+        # 3. Delete Files (Physical + Database)
+        user_files = File.query.filter_by(username=username).all()
+        for f in user_files:
+            try:
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], f.filename)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as e:
+                print(f"[WARN] Failed to delete file {f.filename}: {e}")
+        
+        File.query.filter_by(username=username).delete(synchronize_session=False)
+        
+        # 4. Delete Messages
+        Message.query.filter_by(username=username).delete(synchronize_session=False)
+
+        # 5. Delete Groups Created by User (and their contents)
+        created_groups = Group.query.filter_by(creator=username).all()
+        for group in created_groups:
+            # Delete members of this group
+            GroupMember.query.filter_by(group_id=group.id).delete(synchronize_session=False)
+            
+            # Delete messages in this group
+            Message.query.filter_by(group_id=group.id).delete(synchronize_session=False)
+            
+            # Delete the group itself
+            db.session.delete(group)
+        
+        # 6. Delete Redis Sessions
+        try:
+            # Get all user sessions
+            user_sessions_key = f"user_sessions:{username}"
+            tokens = r.smembers(user_sessions_key)
+            
+            pipe = r.pipeline()
+            for token_bytes in tokens:
+                token = token_bytes.decode("utf-8") if isinstance(token_bytes, bytes) else token_bytes
+                pipe.delete(f"auth_token:{token}")
+                pipe.delete(f"session_metadata:{token}")
+            
+            # Delete the set of sessions
+            pipe.delete(user_sessions_key)
+            pipe.execute()
+            print(f"[OK] Cleared Redis sessions for {username}")
+        except Exception as e:
+            print(f"[WARN] Failed to clear Redis sessions: {e}")
+
+        # 7. Delete User
+        db.session.delete(user)
+        
+        db.session.commit()
+        
+        # Clear session
+        session.clear()
+        
+        print(f"[OK] Account deleted: {username}")
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to delete account {username}: {e}")
+        # Return the actual error for debugging
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 @app.route("/api/user/online", methods=["POST"])
 @limiter.limit("30 per minute")
@@ -4249,4 +4281,4 @@ if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])
+    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])
