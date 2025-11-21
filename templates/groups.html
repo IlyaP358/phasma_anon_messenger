@@ -683,27 +683,33 @@
     <div class="modal-content">
       <button class="modal-close" id="close-create">&times;</button>
       <div class="modal-header">Create New Group</div>
+
       <div id="create-error"></div>
+
       <div class="form-group">
         <label>Group Name</label>
         <input type="text" id="create-name" placeholder="e.g., Secret Chat" maxlength="50" />
         <div style="color: #666; font-size: 11px;">3-50 characters</div>
       </div>
+
       <div class="form-group">
         <label>Password (to join)</label>
         <input type="password" id="create-password" placeholder="Enter password" maxlength="128" />
         <div style="color: #666; font-size: 11px;">8-128 characters</div>
       </div>
+
       <div class="form-group">
         <label>Root Password (for deletion)</label>
         <input type="password" id="create-root-password" placeholder="Enter root password" maxlength="128" />
         <div style="color: #666; font-size: 11px;">8-128 characters, must be different from password</div>
       </div>
+
       <div class="form-group">
         <label>Max Members</label>
         <input type="number" id="create-max-members" value="100" min="2" max="1000" />
         <div style="color: #666; font-size: 11px;">2-1000 members</div>
       </div>
+
       <div class="form-actions">
         <button class="btn btn-primary" id="btn-submit-create">Create</button>
         <button class="btn btn-secondary" id="btn-cancel-create">Cancel</button>
@@ -715,17 +721,21 @@
     <div class="modal-content">
       <button class="modal-close" id="close-join">&times;</button>
       <div class="modal-header">Join Group</div>
+
       <div id="join-error"></div>
+
       <div class="form-group">
         <label>Group Code</label>
         <input type="text" id="join-code" placeholder="e.g., ABC123XY" maxlength="8"
           style="text-transform: uppercase;" />
         <div style="color: #666; font-size: 11px;">8 character code</div>
       </div>
+
       <div class="form-group">
         <label>Password</label>
         <input type="password" id="join-password" placeholder="Enter group password" />
       </div>
+
       <div class="form-actions">
         <button class="btn btn-primary" id="btn-submit-join">Join</button>
         <button class="btn btn-secondary" id="btn-cancel-join">Cancel</button>
@@ -737,10 +747,13 @@
     <div class="modal-content">
       <button class="modal-close" id="close-delete">&times;</button>
       <div class="modal-header">Delete Group</div>
+
       <div id="delete-error"></div>
+
       <p style="color: #ccc; margin-bottom: 1.5em;">
         ⚠️ This action cannot be undone. All messages and files will be permanently deleted.
       </p>
+
       <div class="form-group">
         <label>Root Password</label>
         <input type="password" id="delete-password" placeholder="Enter root password" />
@@ -913,20 +926,82 @@
       const password = document.getElementById('create-password').value;
       const rootPassword = document.getElementById('create-root-password').value;
       const maxMembers = parseInt(document.getElementById('create-max-members').value);
-      // Validations omitted for brevity, assuming same as original
+      const errorDiv = document.getElementById('create-error');
+
+      errorDiv.innerHTML = '';
+
+      if (!name || !rootPassword) {
+        errorDiv.innerHTML = '<div class="error">Name and Root Password are required</div>';
+        return;
+      }
+
+      errorDiv.innerHTML = '<div class="loading">Creating group...</div>';
+
       fetch('/api/groups/create', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, password, root_password: rootPassword, max_members: maxMembers }), credentials: 'include'
-      }).then(r => r.json()).then(d => { if (d.success) { createModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password, root_password: rootPassword, max_members: maxMembers }),
+        credentials: 'include'
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) {
+            errorDiv.innerHTML = '<div class="success">✓ Group created!</div>';
+            loadGroups();
+            setTimeout(() => {
+              createModal.classList.remove('active');
+              document.getElementById('create-name').value = '';
+              document.getElementById('create-password').value = '';
+              document.getElementById('create-root-password').value = '';
+              errorDiv.innerHTML = '';
+            }, 1000);
+          } else {
+            errorDiv.innerHTML = '<div class="error">' + d.error + '</div>';
+          }
+        })
+        .catch(err => {
+          errorDiv.innerHTML = '<div class="error">Failed to create group</div>';
+        });
     });
 
     document.getElementById('btn-submit-join').addEventListener('click', () => {
       const code = document.getElementById('join-code').value.trim().toUpperCase();
       const password = document.getElementById('join-password').value;
+      const errorDiv = document.getElementById('join-error');
+
+      errorDiv.innerHTML = '';
+
+      if (!code) {
+        errorDiv.innerHTML = '<div class="error">Please enter group code</div>';
+        return;
+      }
+
+      errorDiv.innerHTML = '<div class="loading">Joining...</div>';
+
       fetch('/api/groups/join', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ group_code: code, password }), credentials: 'include'
-      }).then(r => r.json()).then(d => { if (d.success) { joinModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_code: code, password }),
+        credentials: 'include'
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) {
+            errorDiv.innerHTML = '<div class="success">✓ Joined!</div>';
+            loadGroups();
+            setTimeout(() => {
+              joinModal.classList.remove('active');
+              document.getElementById('join-code').value = '';
+              document.getElementById('join-password').value = '';
+              errorDiv.innerHTML = '';
+            }, 1000);
+          } else {
+            errorDiv.innerHTML = '<div class="error">' + d.error + '</div>';
+          }
+        })
+        .catch(err => {
+          errorDiv.innerHTML = '<div class="error">Failed to join group</div>';
+        });
     });
 
     function loadGroups() {
@@ -958,10 +1033,38 @@
 
     document.getElementById('btn-confirm-delete').addEventListener('click', () => {
       const password = document.getElementById('delete-password').value;
+      const errorDiv = document.getElementById('delete-error');
+
+      errorDiv.innerHTML = '';
+
+      if (!password) {
+        errorDiv.innerHTML = '<div class="error">Password required</div>';
+        return;
+      }
+
+      errorDiv.innerHTML = '<div class="loading">Deleting...</div>';
+
       fetch('/api/groups/' + currentDeleteGroupId + '/delete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ root_password: password }), credentials: 'include'
-      }).then(r => r.json()).then(d => { if (d.success) { deleteModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) {
+            errorDiv.innerHTML = '<div class="success">✓ Deleted</div>';
+            loadGroups();
+            setTimeout(() => {
+              deleteModal.classList.remove('active');
+              document.getElementById('delete-password').value = '';
+              errorDiv.innerHTML = '';
+            }, 1000);
+          } else {
+            errorDiv.innerHTML = '<div class="error">' + d.error + '</div>';
+          }
+        })
+        .catch(err => {
+          errorDiv.innerHTML = '<div class="error">Failed to delete</div>';
+        });
     });
 
     // Escape HTML
