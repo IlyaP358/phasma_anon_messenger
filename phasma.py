@@ -35,6 +35,7 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import ID3NoHeaderError
 from pikepdf import Pdf
 from user_agents import parse as parse_user_agent
+from pywebpush import webpush, WebPushException
 
 # ===============================================================
 # ---- PRODUCTION vs DEVELOPMENT MODE ----
@@ -465,6 +466,24 @@ class GroupMember(db.Model):
         return int(utc_time.timestamp())
 
 # ===============================================================
+# ---- Push Subscription Model ----
+# ===============================================================
+class PushSubscription(db.Model):
+    """Web Push Subscriptions"""
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), nullable=False, index=True) # Changed to String to match Message model, removed ForeignKey to User.username as User might not be enforced strict or to allow flexibility, but usually it should be FK. User model has username unique. Let's stick to String for now as requested "user_id (or username)".
+    group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=True, index=True)
+    endpoint = db.Column(db.Text, nullable=False)
+    auth_key = db.Column(db.String(256), nullable=False)
+    p256dh = db.Column(db.String(256), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    last_used = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('endpoint', name='unique_push_endpoint'),
+    )
+
+# ===============================================================
 # ---- Master key management ----
 # ===============================================================
 def load_master_fernet():
@@ -499,6 +518,84 @@ def get_secret_decrypted(name: str):
     except InvalidToken:
         print(f"[ERROR] Could not decrypt Secret {name} with current master key.")
         return None
+
+# ===============================================================
+# ---- Push Notification Helper ----
+# ===============================================================
+def send_push_notification(subscription_info, message_body):
+    """
+    Send a push notification to a single subscription.
+    subscription_info: dict or PushSubscription object
+    message_body: str (text to display)
+    """
+    try:
+        vapid_private = os.environ.get("VAPID_PRIVATE_KEY")
+        # Use generic subject if not provided. Protocol requires mailto: or https:
+        vapid_claims = {"sub": os.environ.get("VAPID_CLAIM_EMAIL", "mailto:noreply@phasma.local")}
+        
+        # If subscription_info is a DB model, convert to dict
+        if hasattr(subscription_info, 'endpoint'):
+            subscription_data = {
+                "endpoint": subscription_info.endpoint,
+                "keys": {
+                    "auth": subscription_info.auth_key,
+                    "p256dh": subscription_info.p256dh
+                }
+            }
+        else:
+            subscription_data = subscription_info
+
+        # Send the notification
+        webpush(
+            subscription_info=subscription_data,
+            data=json.dumps({"body": message_body}),
+            vapid_private_key=vapid_private,
+            vapid_claims=vapid_claims
+        )
+        return True
+    except WebPushException as ex:
+        print(f"[WARN] Web Push failed: {ex}")
+        # If 410 Gone, remove subscription
+        if ex.response and ex.response.status_code == 410:
+            if hasattr(subscription_info, 'id'):
+                try:
+                    db.session.delete(subscription_info)
+                    db.session.commit()
+                    print(f"[INFO] Removed expired subscription {subscription_info.id}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to remove subscription: {e}")
+        return False
+    except Exception as e:
+        print(f"[ERROR] Unexpected error in send_push_notification: {e}")
+        return False
+
+def notify_group_members(group_id, sender_username, message_text):
+    """
+    Send push notifications to all group members except the sender.
+    """
+    try:
+        # Get all group members except sender
+        members = GroupMember.query.filter(
+            GroupMember.group_id == group_id,
+            GroupMember.username != sender_username
+        ).all()
+        
+        member_usernames = [m.username for m in members]
+        
+        if member_usernames:
+            # Get subscriptions for these users
+            subscriptions = PushSubscription.query.filter(
+                PushSubscription.username.in_(member_usernames)
+            ).all()
+            
+            for sub in subscriptions:
+                # Run in thread to not block
+                threading.Thread(
+                    target=send_push_notification,
+                    args=(sub, message_text)
+                ).start()
+    except Exception as e:
+        print(f"[WARN] Failed to send push notifications: {e}")
 
 # ===============================================================
 # ---- Initialize database ----
@@ -3382,6 +3479,12 @@ def save_message_to_group(username: str, group_id: int, content: str):
     message_text = f"[{ts}] {username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
     r.publish(f"chat:group:{group_id}", message_text.encode("utf-8"))
     
+    # ---- PUSH NOTIFICATIONS ----
+    group = Group.query.get(group_id)
+    group_name = group.name if group else f"Group {group_id}"
+    notify_group_members(group_id, username, f"New message in {group_name}")
+    # ----------------------------
+    
     increment_message_count()
     
     return msg
@@ -3775,6 +3878,16 @@ def upload_to_group(group_id: int):
     
     increment_message_count()
     
+    # ---- PUSH NOTIFICATIONS ----
+    try:
+        group = Group.query.get(group_id)
+        group_name = group.name if group else f"Group {group_id}"
+        file_type = file_record.file_category.capitalize() if file_record.file_category else "File"
+        notify_group_members(group_id, username, f"New {file_type} in {group_name}")
+    except Exception as e:
+        print(f"[WARN] Failed to trigger push for file upload: {e}")
+    # ----------------------------
+    
     return jsonify({
         "file_id": file_record.id,
         "message_id": message.id,
@@ -3986,8 +4099,63 @@ def root():
 # ===============================================================
 app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "0") == "1"
 
+# ===============================================================
+# ---- Web Push Routes ----
+# ===============================================================
+@app.route("/api/vapid-public-key", methods=["GET"])
+def get_vapid_public_key():
+    return jsonify({"publicKey": os.environ.get("VAPID_PUBLIC_KEY")})
+
+@app.route("/api/subscribe", methods=["POST"])
+def subscribe():
+    data = request.get_json()
+    if not data or not data.get("subscription_info"):
+        return jsonify({"error": "Invalid data"}), 400
+        
+    subscription_info = data.get("subscription_info")
+    endpoint = subscription_info.get("endpoint")
+    keys = subscription_info.get("keys", {})
+    auth_key = keys.get("auth")
+    p256dh = keys.get("p256dh")
+    
+    if not endpoint or not auth_key or not p256dh:
+        return jsonify({"error": "Missing subscription fields"}), 400
+        
+    # Check if user is authenticated
+    token = extract_token_from_request()
+    username = verify_token(token)
+    if not username:
+        # Try group session?
+        session_data = verify_group_session(token)
+        if session_data:
+            username = session_data.get('username')
+    
+    if not username:
+         return jsonify({"error": "Unauthorized"}), 401
+
+    # Check if subscription exists
+    sub = PushSubscription.query.filter_by(endpoint=endpoint).first()
+    if sub:
+        sub.username = username
+        sub.last_used = datetime.datetime.utcnow()
+    else:
+        sub = PushSubscription(
+            username=username,
+            endpoint=endpoint,
+            auth_key=auth_key,
+            p256dh=p256dh
+        )
+        db.session.add(sub)
+    
+    try:
+        db.session.commit()
+        return jsonify({"success": True}), 201
+    except Exception as e:
+        print(f"[ERROR] Failed to save subscription: {e}")
+        return jsonify({"error": "Database error"}), 500
+
 if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])
+    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])

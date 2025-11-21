@@ -18,3 +18,4 @@ gevent
 mutagen
 pikepdf
 user-agents
+pywebpush

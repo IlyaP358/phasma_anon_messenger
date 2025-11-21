@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <head>
   <meta charset="UTF-8">
   <title>Groups - phasma</title>
@@ -190,7 +191,7 @@
       background: #0a1a0a;
       border: 1px solid #0f0;
       border-radius: 4px;
-      position: relative; 
+      position: relative;
     }
 
     .user-info {
@@ -538,6 +539,7 @@
         opacity: 0;
         transform: translateY(-5px);
       }
+
       to {
         opacity: 1;
         transform: translateY(0);
@@ -627,6 +629,7 @@
     }
   </style>
 </head>
+
 <body>
   <div class="sessions-sidebar">
     <div class="sessions-header">
@@ -713,7 +716,8 @@
       <div id="join-error"></div>
       <div class="form-group">
         <label>Group Code</label>
-        <input type="text" id="join-code" placeholder="e.g., ABC123XY" maxlength="8" style="text-transform: uppercase;" />
+        <input type="text" id="join-code" placeholder="e.g., ABC123XY" maxlength="8"
+          style="text-transform: uppercase;" />
         <div style="color: #666; font-size: 11px;">8 character code</div>
       </div>
       <div class="form-group">
@@ -754,7 +758,8 @@
       <p style="color: #ccc; margin-bottom: 1.5em; line-height: 1.8;">
         Are you sure you want to delete your account <strong id="delete-username-display"></strong>?
       </p>
-      <div style="background: #2a0000; border-left: 3px solid #f00; padding: 0.8em; margin-bottom: 1.5em; color: #ff9999; font-size: 12px;">
+      <div
+        style="background: #2a0000; border-left: 3px solid #f00; padding: 0.8em; margin-bottom: 1.5em; color: #ff9999; font-size: 12px;">
         <strong>⚠️ WARNING:</strong> This action cannot be undone. All your data will be deleted.
       </div>
       <div class="form-group">
@@ -775,7 +780,7 @@
     let SESSIONS_UPDATE_INTERVAL = null;
     let isUnloading = false;
     let currentDeleteGroupId = null;
-    
+
     const createModal = document.getElementById('create-modal');
     const joinModal = document.getElementById('join-modal');
     const deleteModal = document.getElementById('delete-modal');
@@ -794,10 +799,10 @@
 
     function verifySessionWithServer() {
       fetch("/verify-session", { credentials: 'include' })
-      .then(response => {
-        if (response.status === 401) { handleSessionExpired(); }
-      })
-      .catch(err => console.warn('Session check failed', err));
+        .then(response => {
+          if (response.status === 401) { handleSessionExpired(); }
+        })
+        .catch(err => console.warn('Session check failed', err));
     }
 
     function handleSessionExpired() {
@@ -827,18 +832,18 @@
     });
 
     // Sessions
-    function formatTime(timestamp) { /* ... same as before ... */ 
-      try { const date = new Date(timestamp * 1000); const now = new Date(); const diff = now - date; const minutes = Math.floor(diff / 60000); if(minutes < 1) return "just now"; if(minutes < 60) return minutes + "m ago"; const hours = Math.floor(diff / 3600000); if(hours < 24) return hours + "h ago"; return date.toLocaleDateString(); } catch(e){ return "unknown"; }
+    function formatTime(timestamp) { /* ... same as before ... */
+      try { const date = new Date(timestamp * 1000); const now = new Date(); const diff = now - date; const minutes = Math.floor(diff / 60000); if (minutes < 1) return "just now"; if (minutes < 60) return minutes + "m ago"; const hours = Math.floor(diff / 3600000); if (hours < 24) return hours + "h ago"; return date.toLocaleDateString(); } catch (e) { return "unknown"; }
     }
     function formatDate(timestamp) { /* ... same as before ... */
-      try { const date = new Date(timestamp * 1000); const hours = String(date.getHours()).padStart(2, '0'); const minutes = String(date.getMinutes()).padStart(2, '0'); return date.toLocaleDateString() + " " + hours + ":" + minutes; } catch(e) { return "unknown"; }
+      try { const date = new Date(timestamp * 1000); const hours = String(date.getHours()).padStart(2, '0'); const minutes = String(date.getMinutes()).padStart(2, '0'); return date.toLocaleDateString() + " " + hours + ":" + minutes; } catch (e) { return "unknown"; }
     }
 
     function loadSessions() {
       const user = getCurrentUser(); if (!user) return;
       fetch('/api/sessions/list', { credentials: 'include' })
-      .then(r => r.status === 401 ? handleSessionExpired() : r.json())
-      .then(data => { if(data) renderSessions(data.sessions); });
+        .then(r => r.status === 401 ? handleSessionExpired() : r.json())
+        .then(data => { if (data) renderSessions(data.sessions); });
     }
 
     function renderSessions(sessions) {
@@ -870,19 +875,19 @@
       const isCurrent = btn && btn.closest('.session-item').classList.contains('current');
       if (!confirm(isCurrent ? 'Exit this session?' : 'Terminate this session?')) return;
       fetch('/api/sessions/' + sessionToken + '/terminate', { method: 'POST', credentials: 'include' })
-      .then(r => r.status === 401 ? handleSessionExpired() : r.json())
-      .then(data => {
-        if (isCurrent) {
-          isUnloading = true; localStorage.removeItem('username'); window.location.href = '/login';
-        } else { loadSessions(); }
-      });
+        .then(r => r.status === 401 ? handleSessionExpired() : r.json())
+        .then(data => {
+          if (isCurrent) {
+            isUnloading = true; localStorage.removeItem('username'); window.location.href = '/login';
+          } else { loadSessions(); }
+        });
     }
 
     document.getElementById('btn-terminate-all').addEventListener('click', () => {
-      if(!confirm('Terminate all other sessions?')) return;
+      if (!confirm('Terminate all other sessions?')) return;
       fetch('/api/sessions/terminate-all', { method: 'POST', credentials: 'include' })
-      .then(r => r.status === 401 ? handleSessionExpired() : r.json())
-      .then(() => { loadSessions(); alert('All other sessions terminated'); });
+        .then(r => r.status === 401 ? handleSessionExpired() : r.json())
+        .then(() => { loadSessions(); alert('All other sessions terminated'); });
     });
 
     // Heartbeat
@@ -908,24 +913,24 @@
       const maxMembers = parseInt(document.getElementById('create-max-members').value);
       // Validations omitted for brevity, assuming same as original
       fetch('/api/groups/create', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name, password, root_password: rootPassword, max_members: maxMembers}), credentials: 'include'
-      }).then(r => r.json()).then(d => { if(d.success) { createModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password, root_password: rootPassword, max_members: maxMembers }), credentials: 'include'
+      }).then(r => r.json()).then(d => { if (d.success) { createModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
     });
 
     document.getElementById('btn-submit-join').addEventListener('click', () => {
       const code = document.getElementById('join-code').value.trim().toUpperCase();
       const password = document.getElementById('join-password').value;
       fetch('/api/groups/join', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({group_code: code, password}), credentials: 'include'
-      }).then(r => r.json()).then(d => { if(d.success) { joinModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_code: code, password }), credentials: 'include'
+      }).then(r => r.json()).then(d => { if (d.success) { joinModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
     });
 
     function loadGroups() {
       fetch('/api/groups/list', { credentials: 'include' })
-      .then(r => r.status === 401 ? handleSessionExpired() : r.json())
-      .then(data => { if(data) renderGroups(data.groups); });
+        .then(r => r.status === 401 ? handleSessionExpired() : r.json())
+        .then(data => { if (data) renderGroups(data.groups); });
     }
 
     function renderGroups(groups) {
@@ -952,9 +957,9 @@
     document.getElementById('btn-confirm-delete').addEventListener('click', () => {
       const password = document.getElementById('delete-password').value;
       fetch('/api/groups/' + currentDeleteGroupId + '/delete', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({root_password: password}), credentials: 'include'
-      }).then(r => r.json()).then(d => { if(d.success) { deleteModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root_password: password }), credentials: 'include'
+      }).then(r => r.json()).then(d => { if (d.success) { deleteModal.classList.remove('active'); loadGroups(); } else { alert(d.error); } });
     });
 
     // Escape HTML
@@ -965,7 +970,7 @@
     const userMenuDropdown = document.getElementById('user-menu-dropdown');
     document.addEventListener('click', (e) => { if (!btnMenu.contains(e.target) && !userMenuDropdown.contains(e.target)) userMenuDropdown.classList.remove('active'); });
     btnMenu.addEventListener('click', () => userMenuDropdown.classList.toggle('active'));
-    
+
     document.getElementById('menu-exit').addEventListener('click', () => {
       isUnloading = true; fetch('/logout', { method: 'POST', credentials: 'include' }).finally(() => { localStorage.removeItem('username'); window.location.href = '/login'; });
     });
@@ -974,7 +979,81 @@
     if (initAuth()) {
       loadGroups(); loadSessions(); startOnlineHeartbeat();
       setInterval(loadGroups, 10000); setInterval(loadSessions, 5000); setInterval(verifySessionWithServer, 30000);
+
+      // Initialize Push Notifications
+      initPushNotifications();
+    }
+
+    // ========== PUSH NOTIFICATIONS ==========
+    async function initPushNotifications() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.log('Push messaging is not supported');
+        return;
+      }
+
+      try {
+        // Register SW
+        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+        console.log('Service Worker registered:', registration);
+
+        // Request permission
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          console.log('Notification permission denied');
+          return;
+        }
+
+        // Get VAPID key
+        const response = await fetch('/api/vapid-public-key');
+        const data = await response.json();
+        const vapidPublicKey = data.publicKey;
+
+        if (!vapidPublicKey) {
+          console.error('No VAPID public key found');
+          return;
+        }
+
+        const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+
+        // Subscribe
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey
+        });
+
+        // ALWAYS send to server to ensure it's up to date and refresh last_used
+        await fetch('/api/subscribe', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            subscription_info: subscription
+          })
+        });
+
+        console.log('Push notification subscription updated/verified');
+
+      } catch (error) {
+        console.error('Push notification error:', error);
+      }
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding)
+        .replace(/\-/g, '+')
+        .replace(/_/g, '/');
+
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
     }
   </script>
 </body>
+
 </html>

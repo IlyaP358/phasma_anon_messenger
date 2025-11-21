@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <head>
   <meta charset="UTF-8">
   <title>phasma - group chat</title>
@@ -18,20 +19,20 @@
       height: 100vh;
       overflow: hidden;
     }
-    
+
     .chat-wrapper {
       display: flex;
       flex-direction: row;
       height: 100vh;
     }
-    
+
     .chat-main {
       flex: 1;
       display: flex;
       flex-direction: column;
       min-width: 0;
     }
-    
+
     .chat-header {
       background: #0a1a0a;
       border-bottom: 1px solid #0f0;
@@ -40,20 +41,20 @@
       justify-content: space-between;
       align-items: center;
     }
-    
+
     .chat-header-left h3 {
       margin: 0;
       color: #0f0;
       font-size: 16px;
     }
-    
+
     .chat-user-badge {
       font-size: 12px;
       color: #0ff;
       margin-top: 0.3em;
       text-transform: uppercase;
     }
-    
+
     #out {
       flex: 1;
       display: flex;
@@ -64,12 +65,12 @@
       position: relative;
       max-width: 100%;
     }
-    
+
     #messages-container {
       display: flex;
       flex-direction: column;
     }
-    
+
     #load-more-container {
       text-align: center;
       padding: 0.5em;
@@ -80,7 +81,7 @@
       top: -20px;
       z-index: 100;
     }
-    
+
     #load-more-btn {
       background: #222;
       color: #0f0;
@@ -90,19 +91,19 @@
       cursor: pointer;
       transition: all 0.2s;
     }
-    
+
     #load-more-btn:hover {
       background: #0f0;
       color: #000;
     }
-    
+
     #load-more-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
       color: #888;
       border-color: #888;
     }
-    
+
     #input-container {
       padding: 1em;
       border-top: 1px solid #333;
@@ -226,7 +227,7 @@
       border-color: #0ff;
       box-shadow: 0 0 5px rgba(0, 255, 255, 0.3);
     }
-    
+
     .input-button {
       background: #222;
       color: #fff;
@@ -263,7 +264,7 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
-    
+
     #upload-btn {
       padding: 0.7em 1em;
     }
@@ -271,7 +272,7 @@
     #file-input {
       display: none;
     }
-    
+
     #leave-btn {
       background: #500;
       color: #fff;
@@ -286,11 +287,11 @@
       z-index: 10000;
       margin: 0;
     }
-    
+
     #leave-btn:hover {
       background: #a00;
     }
-    
+
     .message {
       margin-bottom: 0.5em;
       position: relative;
@@ -326,31 +327,31 @@
     .message-delete-btn:hover {
       background: #f00;
     }
-    
+
     .message-header {
       font-size: 11px;
       color: #888;
       margin-bottom: 2px;
     }
-    
+
     .message-content {
       color: #fff;
       white-space: normal;
       word-wrap: break-word;
     }
-    
+
     .message-text {
       color: #fff;
       margin-bottom: 0.5em;
     }
-    
+
     .url-previews {
       display: flex;
       flex-direction: column;
       gap: 0.5em;
       margin-top: 0.5em;
     }
-    
+
     .url-preview-card {
       border: 1px solid #0ff;
       border-left: 3px solid #0ff;
@@ -359,12 +360,12 @@
       transition: all 0.2s;
       cursor: pointer;
     }
-    
+
     .url-preview-card:hover {
       background: #0d2a2a;
       border-left-color: #0ff;
     }
-    
+
     .url-preview-service {
       font-size: 12px;
       color: #0ff;
@@ -372,7 +373,7 @@
       font-weight: bold;
       margin-bottom: 0.3em;
     }
-    
+
     .url-preview-url {
       font-size: 12px;
       color: #0ff;
@@ -381,20 +382,20 @@
       text-decoration: none;
       display: block;
     }
-    
+
     .url-preview-title {
       font-size: 14px;
       color: #aaa;
       margin-bottom: 0.3em;
       font-weight: bold;
     }
-    
+
     .url-preview-description {
       font-size: 12px;
       color: #888;
       margin-bottom: 0.5em;
     }
-    
+
     .url-preview-thumbnail {
       max-width: 100%;
       max-height: 200px;
@@ -402,11 +403,11 @@
       border: 1px solid #0ff;
       margin-bottom: 0.3em;
     }
-    
+
     .photo-msg {
       color: #0f0;
     }
-    
+
     .photo-msg img {
       max-width: 300px;
       margin-top: 0.5em;
@@ -452,12 +453,12 @@
       border-color: #426faa;
       box-shadow: 0 0 8px rgba(255, 255, 0, 0.4);
     }
-    
+
     .file-msg {
       color: #0ff;
       margin-top: 0.5em;
     }
-    
+
     .file-attachment {
       display: flex;
       align-items: center;
@@ -468,25 +469,25 @@
       margin-top: 0.3em;
       position: relative;
     }
-    
+
     .file-icon {
       width: 32px;
       height: 32px;
       flex-shrink: 0;
       object-fit: contain;
     }
-    
+
     .file-info {
       flex: 1;
       min-width: 0;
     }
-    
+
     .file-name {
       color: #0ff;
       word-break: break-all;
       font-size: 14px;
     }
-    
+
     .file-download-btn {
       position: absolute;
       top: 4px;
@@ -500,7 +501,7 @@
       font-weight: bold;
       line-height: 1;
     }
-    
+
     .file-download-btn:hover {
       background: #0aa;
     }
@@ -666,10 +667,13 @@
     }
 
     @keyframes dragPulse {
-      0%, 100% {
+
+      0%,
+      100% {
         box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
         border-color: #0f0;
       }
+
       50% {
         box-shadow: 0 0 40px rgba(0, 255, 0, 0.6);
         border-color: #0ff;
@@ -733,6 +737,7 @@
         transform: translateX(400px);
         opacity: 0;
       }
+
       to {
         transform: translateX(0);
         opacity: 1;
@@ -784,6 +789,7 @@
         transform: scale(0.8);
         opacity: 0;
       }
+
       to {
         transform: scale(1);
         opacity: 1;
@@ -843,7 +849,7 @@
       background: #0f0;
       color: #000;
     }
-    
+
     .emoji-picker-modal {
       display: none;
       position: fixed;
@@ -1044,6 +1050,7 @@
     }
   </style>
 </head>
+
 <body>
   <div id="drag-drop-overlay">
     <div class="drag-drop-box">
@@ -1058,7 +1065,7 @@
     <div class="modal-dialog">
       <div class="modal-title">⚠️ Delete Message</div>
       <div class="modal-message">Are you sure you want to delete this message?
-This action cannot be undone.</div>
+        This action cannot be undone.</div>
       <div class="modal-buttons">
         <button class="modal-btn modal-btn-cancel" id="modal-cancel">Cancel</button>
         <button class="modal-btn modal-btn-confirm" id="modal-confirm">Delete</button>
@@ -1067,14 +1074,15 @@ This action cannot be undone.</div>
   </div>
 
   <button id="leave-btn">← Leave Group</button>
-  
+
   <div class="chat-wrapper">
     <div class="chat-main">
       <div class="chat-header">
         <div class="chat-header-left">
           <h3 id="group-name">Loading...</h3>
-          <div class="chat-user-badge">Logged as: 
-<span id="chat-user">...</span></div>
+          <div class="chat-user-badge">Logged as:
+            <span id="chat-user">...</span>
+          </div>
         </div>
       </div>
 
@@ -1108,8 +1116,9 @@ This action cannot be undone.</div>
           <button type="button" class="input-button" id="emoji-btn">😂</button>
           <button type="button" class="input-button" id="send-btn">↳</button>
         </div>
-        
-        <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
+
+        <input id="file-input" type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav,application/pdf,text/plain" />
       </div>
     </div>
 
@@ -1146,11 +1155,11 @@ This action cannot be undone.</div>
   </div>
 
   <script nonce="{{ nonce }}" type="module">
-    const GROUP_ID = {{ group_id|tojson }};
-    const TEMPLATE_USER = {{ user|tojson }};
-    const TEMPLATE_GROUP_TOKEN = {{ auth_token|tojson }};
-    const GROUP_NAME = {{ group_name|tojson }};
-    
+    const GROUP_ID = {{ group_id| tojson }};
+    const TEMPLATE_USER = {{ user| tojson }};
+    const TEMPLATE_GROUP_TOKEN = {{ auth_token| tojson }};
+    const GROUP_NAME = {{ group_name| tojson }};
+
     // ========== EMOJI LOGIC STARTS HERE ==========
     const EMOJI_DATA = {
       frequent: [],
@@ -1302,9 +1311,9 @@ This action cannot be undone.</div>
     let isUploadingFile = false;
     let messageIdToElementMap = new Map();
     let pendingDeleteMessageId = null;
-    
+
     console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
-    
+
     function showError(message, duration = 5000) {
       const notification = document.getElementById('error-notification');
       notification.textContent = message;
@@ -1322,7 +1331,7 @@ This action cannot be undone.</div>
       notification.classList.add('active');
       notification.classList.add('success');
       notification.classList.remove('error');
-      
+
       setTimeout(() => {
         notification.classList.remove('active');
       }, duration);
@@ -1342,18 +1351,18 @@ This action cannot be undone.</div>
     }
 
     document.getElementById('modal-cancel').addEventListener('click', hideDeleteConfirmModal);
-    document.getElementById('modal-confirm').addEventListener('click', function() {
+    document.getElementById('modal-confirm').addEventListener('click', function () {
       if (pendingDeleteMessageId !== null) {
         executeDeleteMessage(pendingDeleteMessageId);
       }
       hideDeleteConfirmModal();
     });
-    document.getElementById('confirm-modal').addEventListener('click', function(e) {
+    document.getElementById('confirm-modal').addEventListener('click', function (e) {
       if (e.target === this) {
         hideDeleteConfirmModal();
       }
     });
-    document.addEventListener('keydown', function(e) {
+    document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
         hideDeleteConfirmModal();
       }
@@ -1365,14 +1374,14 @@ This action cannot be undone.</div>
       CURRENT_USER = localStorage.getItem('username');
       console.log('[Auth] Current user:', CURRENT_USER);
       console.log('[Auth] Template user:', TEMPLATE_USER);
-      
+
       if (!CURRENT_USER) {
         console.error('[Auth] No username in localStorage - redirecting to login');
         alert('Session lost. Please login again.');
         window.location.href = '/login';
         return false;
       }
-      
+
       if (TEMPLATE_USER && TEMPLATE_USER !== CURRENT_USER) {
         console.error('[Auth] User mismatch! Template:', TEMPLATE_USER, 'Local:', CURRENT_USER);
         alert('SECURITY ERROR: User verification failed. Logging you out.');
@@ -1380,7 +1389,7 @@ This action cannot be undone.</div>
         window.location.href = '/login';
         return false;
       }
-      
+
       if (TEMPLATE_GROUP_TOKEN) {
         GROUP_SESSION_TOKEN = TEMPLATE_GROUP_TOKEN;
         console.log('[Auth] Using group session token from template');
@@ -1390,7 +1399,7 @@ This action cannot be undone.</div>
         window.location.href = '/login';
         return false;
       }
-      
+
       setupChat();
       return true;
     }
@@ -1431,24 +1440,24 @@ This action cannot be undone.</div>
     function loadMembers() {
       const user = getCurrentUser();
       if (!user) return;
-      
+
       fetch(`/api/groups/${GROUP_ID}/members`, {
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
         credentials: 'include'
       })
-      .then(response => {
-        if (response.status === 401) {
-          console.error('[Members] 401 - Session expired');
-          handleSessionExpired();
-          return null;
-        }
-        return response.json();
-      })
-      .then(data => {
-        if (!data) return;
-        renderMembers(data.members, data.total);
-      })
-      .catch(err => console.error('[Members] Failed:', err));
+        .then(response => {
+          if (response.status === 401) {
+            console.error('[Members] 401 - Session expired');
+            handleSessionExpired();
+            return null;
+          }
+          return response.json();
+        })
+        .then(data => {
+          if (!data) return;
+          renderMembers(data.members, data.total);
+        })
+        .catch(err => console.error('[Members] Failed:', err));
     }
 
     function renderMembers(members, total) {
@@ -1466,15 +1475,15 @@ This action cannot be undone.</div>
         const isOnline = member.is_online;
         const isCreator = member.role === 'creator';
         const isCurrentUser = member.username === CURRENT_USER;
-        
+
         let className = 'member-item ';
         if (isCreator) className += 'creator ';
         className += isOnline ? 'online' : 'offline';
 
-        const dot = isOnline 
-          ? '<span class="member-online-dot"></span>' 
+        const dot = isOnline
+          ? '<span class="member-online-dot"></span>'
           : '<span class="member-offline-dot"></span>';
-        
+
         const roleLabel = isCreator ? '<span class="member-role">👑</span>' : '';
         const userLabel = isCurrentUser ? ' <span class="member-role">(you)</span>' : '';
 
@@ -1490,7 +1499,7 @@ This action cannot be undone.</div>
     function sendOnlineHeartbeat() {
       const user = getCurrentUser();
       if (!user) return;
-      
+
       fetch(`/api/groups/${GROUP_ID}/members/online`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
@@ -1552,35 +1561,35 @@ This action cannot be undone.</div>
         url: `/group/${GROUP_ID}/message/${messageId}/delete`,
         type: 'POST',
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-        success: function() {
+        success: function () {
           console.log('[Delete] Message deleted:', messageId);
-          
+
           const msgElement = messageIdToElementMap.get(messageId);
           if (msgElement) {
             msgElement.classList.add('message-deleted');
             msgElement.innerHTML = '<div class="message-header">[deleted]</div>';
             messageIdToElementMap.delete(messageId);
           }
-          
+
           showSuccess('✓ Message deleted');
         },
-        error: function(xhr) {
+        error: function (xhr) {
           console.error('[Delete] Failed:', xhr.status);
-          
+
           if (xhr.status === 401) {
             handleSessionExpired();
             return;
           }
-          
+
           if (xhr.status === 403) {
             showError('✗ You can only delete your own messages');
             return;
           }
-          
+
           try {
             const response = JSON.parse(xhr.responseText);
             showError(`✗ Delete failed: ${response.error}`);
-          } catch(e) {
+          } catch (e) {
             showError('✗ Failed to delete message');
           }
         }
@@ -1593,17 +1602,17 @@ This action cannot be undone.</div>
       if (!timeMatch) return null;
       const timestamp = parseInt(timeMatch[1], 10);
       const afterTime = data.substring(timeMatch[0].length);
-      
+
       const userMatch = afterTime.match(/^([^:]+):\s*/);
       if (!userMatch) return null;
-      
+
       const username = userMatch[1];
       const rest = afterTime.substring(userMatch[0].length);
-      
+
       const urlsSplit = rest.split('|URLS:');
       const content = urlsSplit[0];
       let urls = {};
-      
+
       if (urlsSplit.length > 1) {
         try {
           urls = JSON.parse(urlsSplit[1]);
@@ -1611,7 +1620,7 @@ This action cannot be undone.</div>
           urls = {};
         }
       }
-      
+
       return { timestamp, username, content, urls };
     }
 
@@ -1622,7 +1631,7 @@ This action cannot be undone.</div>
       serviceDiv.className = "url-preview-service";
       serviceDiv.textContent = preview.service_type || 'LINK';
       card.appendChild(serviceDiv);
-      
+
       const urlDiv = document.createElement("div");
       urlDiv.className = "url-preview-url";
       urlDiv.style.cursor = 'pointer';
@@ -1634,14 +1643,14 @@ This action cannot be undone.</div>
         titleDiv.textContent = preview.title;
         card.appendChild(titleDiv);
       }
-      
+
       if (preview.description) {
         const descDiv = document.createElement("div");
         descDiv.className = "url-preview-description";
         descDiv.textContent = preview.description.substring(0, 100);
         card.appendChild(descDiv);
       }
-      
+
       if (preview.thumbnail_url) {
         const img = document.createElement("img");
         img.className = "url-preview-thumbnail";
@@ -1652,7 +1661,7 @@ This action cannot be undone.</div>
         img.onclick = (e) => { e.stopPropagation(); window.open(url, '_blank'); };
         card.appendChild(img);
       }
-      
+
       card.onclick = () => window.open(url, '_blank');
       return card;
     }
@@ -1665,19 +1674,19 @@ This action cannot be undone.</div>
         msg.textContent = "[PARSE ERROR]";
         return msg;
       }
-      
+
       const msgWrapper = document.createElement("div");
       msgWrapper.className = "message";
       msgWrapper.setAttribute('data-message-id', messageId);
-      
+
       const localTime = formatLocalTime(parsed.timestamp);
       const localDate = formatDateFromTimestamp(parsed.timestamp);
-      
+
       const header = document.createElement("div");
       header.className = "message-header";
       header.textContent = `${localDate}, [${localTime}]`;
       msgWrapper.appendChild(header);
-      
+
       const mainContent = document.createElement("div");
       mainContent.className = "message-content";
       if (parsed.content.startsWith("[AUDIO:")) {
@@ -1731,7 +1740,7 @@ This action cannot be undone.</div>
           fileDiv.className = "file-msg";
           const fileAttachment = document.createElement("div");
           fileAttachment.className = "file-attachment";
-          
+
           const fileIcon = document.createElement("img");
           fileIcon.className = "file-icon";
           fileIcon.src = "/static/phasma_file.png";
@@ -1750,7 +1759,7 @@ This action cannot be undone.</div>
             a.download = fileMatch[3];
             a.click();
           };
-          
+
           fileAttachment.appendChild(fileIcon);
           fileAttachment.appendChild(fileInfo);
           fileAttachment.appendChild(downloadBtn);
@@ -1763,7 +1772,7 @@ This action cannot be undone.</div>
         textDiv.className = "message-text";
         textDiv.textContent = `${parsed.username}: ${parsed.content}`;
         mainContent.appendChild(textDiv);
-        
+
         if (parsed.urls && Object.keys(parsed.urls).length > 0) {
           const previewsContainer = document.createElement("div");
           previewsContainer.className = "url-previews";
@@ -1773,7 +1782,7 @@ This action cannot be undone.</div>
           mainContent.appendChild(previewsContainer);
         }
       }
-      
+
       msgWrapper.appendChild(mainContent);
       const isOwnMessage = parsed.username === CURRENT_USER;
       if (isOwnMessage) {
@@ -1784,11 +1793,11 @@ This action cannot be undone.</div>
           e.stopPropagation();
           showDeleteConfirmModal(messageId);
         };
-        
+
         msgWrapper.appendChild(deleteBtn);
         messageIdToElementMap.set(messageId, msgWrapper);
       }
-      
+
       return msgWrapper;
     }
 
@@ -1814,7 +1823,7 @@ This action cannot be undone.</div>
       const scrollContainer = out;
       const oldScrollHeight = scrollContainer.scrollHeight;
       const oldScrollTop = scrollContainer.scrollTop;
-      const url = oldestMessageId 
+      const url = oldestMessageId
         ?
         `/group/${GROUP_ID}/history?before_id=${oldestMessageId}&limit=50`
         : `/group/${GROUP_ID}/history?limit=50`;
@@ -1822,80 +1831,80 @@ This action cannot be undone.</div>
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
         credentials: 'include'
       })
-      .then(response => {
-        if (response.status === 401) {
-          handleSessionExpired();
-          return null;
-        }
-        return response.json();
-      })
-      .then(data => {
-        if (!data) return;
-        if (data.messages.length === 0) {
-          hasMoreHistory = false;
-          loadMoreBtn.textContent = "No more messages";
-          setTimeout(() => loadMoreContainer.style.display = "none", 2000);
-          return;
-        }
-
-        const messageElements = [];
-        data.messages.forEach(msg => {
-          if (!loadedMessageIds.has(msg.id)) {
-            loadedMessageIds.add(msg.id);
-            const msgElement = createMessageElement(msg.text, msg.id);
-            messageElements.push({element: msgElement, id: msg.id});
-            
-            if (!oldestMessageId || msg.id < oldestMessageId) {
-              oldestMessageId = msg.id;
-            }
-            if (!newestMessageId || msg.id > newestMessageId) {
-              newestMessageId = msg.id;
-            }
+        .then(response => {
+          if (response.status === 401) {
+            handleSessionExpired();
+            return null;
           }
+          return response.json();
+        })
+        .then(data => {
+          if (!data) return;
+          if (data.messages.length === 0) {
+            hasMoreHistory = false;
+            loadMoreBtn.textContent = "No more messages";
+            setTimeout(() => loadMoreContainer.style.display = "none", 2000);
+            return;
+          }
+
+          const messageElements = [];
+          data.messages.forEach(msg => {
+            if (!loadedMessageIds.has(msg.id)) {
+              loadedMessageIds.add(msg.id);
+              const msgElement = createMessageElement(msg.text, msg.id);
+              messageElements.push({ element: msgElement, id: msg.id });
+
+              if (!oldestMessageId || msg.id < oldestMessageId) {
+                oldestMessageId = msg.id;
+              }
+              if (!newestMessageId || msg.id > newestMessageId) {
+                newestMessageId = msg.id;
+              }
+            }
+          });
+          if (initialLoadDone) {
+            for (let i = messageElements.length - 1; i >= 0; i--) {
+              messagesContainer.insertBefore(messageElements[i].element, messagesContainer.firstChild);
+            }
+          } else {
+            messageElements.forEach(item => messagesContainer.appendChild(item.element));
+          }
+
+          if (initialLoadDone) {
+            requestAnimationFrame(() => {
+              const newScrollHeight = scrollContainer.scrollHeight;
+              scrollContainer.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
+            });
+          }
+
+          hasMoreHistory = data.has_more;
+          if (!hasMoreHistory) {
+            loadMoreBtn.textContent = "No more messages";
+            setTimeout(() => loadMoreContainer.style.display = "none", 2000);
+          } else {
+            loadMoreBtn.textContent = "↓ Load older messages";
+          }
+
+          if (!initialLoadDone) {
+            initialLoadDone = true;
+            requestAnimationFrame(() => {
+              scrollContainer.scrollTop = scrollContainer.scrollHeight;
+              if (!sseStarted) {
+                sseStarted = true;
+                startSSE();
+              }
+            });
+          }
+        })
+        .catch(err => {
+          console.error("Failed to load history:", err);
+          loadMoreBtn.textContent = "⚠ Error - try again";
+          hasMoreHistory = true;
+        })
+        .finally(() => {
+          isLoadingHistory = false;
+          loadMoreBtn.disabled = false;
         });
-        if (initialLoadDone) {
-          for (let i = messageElements.length - 1; i >= 0; i--) {
-            messagesContainer.insertBefore(messageElements[i].element, messagesContainer.firstChild);
-          }
-        } else {
-          messageElements.forEach(item => messagesContainer.appendChild(item.element));
-        }
-
-        if (initialLoadDone) {
-          requestAnimationFrame(() => {
-            const newScrollHeight = scrollContainer.scrollHeight;
-            scrollContainer.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
-          });
-        }
-
-        hasMoreHistory = data.has_more;
-        if (!hasMoreHistory) {
-          loadMoreBtn.textContent = "No more messages";
-          setTimeout(() => loadMoreContainer.style.display = "none", 2000);
-        } else {
-          loadMoreBtn.textContent = "↓ Load older messages";
-        }
-
-        if (!initialLoadDone) {
-          initialLoadDone = true;
-          requestAnimationFrame(() => {
-            scrollContainer.scrollTop = scrollContainer.scrollHeight;
-            if (!sseStarted) {
-              sseStarted = true;
-              startSSE();
-            }
-          });
-        }
-      })
-      .catch(err => {
-        console.error("Failed to load history:", err);
-        loadMoreBtn.textContent = "⚠ Error - try again";
-        hasMoreHistory = true;
-      })
-      .finally(() => {
-        isLoadingHistory = false;
-        loadMoreBtn.disabled = false;
-      });
     }
 
     out.addEventListener('scroll', () => {
@@ -1915,26 +1924,26 @@ This action cannot be undone.</div>
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        
+
         function read() {
           reader.read().then(({ done, value }) => {
             if (done) return;
-            
+
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-            
-            buffer = lines.pop() 
+
+            buffer = lines.pop()
               || '';
-            
+
             lines.forEach(line => {
               if (line.startsWith('data: ')) {
                 const data = line.slice(6).trim();
                 if (!data) return;
-                
+
                 if (data.startsWith('DELETE_MESSAGE:')) {
                   const messageId = parseInt(data.substring(15), 10);
                   console.log('[SSE] Message deleted:', messageId);
-                  
+
                   const msgElement = document.querySelector(`[data-message-id="${messageId}"]`);
                   if (msgElement) {
                     msgElement.style.transition = 'all 0.3s ease-out';
@@ -1949,10 +1958,24 @@ This action cannot be undone.</div>
                   }
                   return;
                 }
-                
+
                 const msgElement = createMessageElement(data, Date.now() + Math.random());
                 messagesContainer.appendChild(msgElement);
-                
+
+                // Play notification sound if message is not from current user
+                const timeMatch = data.match(/^\[(\d+)\]\s+/);
+                if (timeMatch) {
+                  const afterTime = data.substring(timeMatch[0].length);
+                  const userMatch = afterTime.match(/^([^:]+):\s*/);
+                  if (userMatch) {
+                    const msgUsername = userMatch[1];
+                    if (msgUsername !== CURRENT_USER) {
+                      const audio = new Audio('/static/phasma_notification_sound.mp3');
+                      audio.play().catch(e => console.log('Audio play failed:', e));
+                    }
+                  }
+                }
+
                 const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
                 if (isNearBottom) {
                   requestAnimationFrame(() => {
@@ -1987,12 +2010,12 @@ This action cannot be undone.</div>
         type: 'POST',
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
         data: { message: text },
-        success: function() {
+        success: function () {
           document.getElementById('in').value = '';
         },
-        error: function(xhr) {
+        error: function (xhr) {
           if (xhr.status === 429) {
-             showError('✗ You are sending requests too quickly. Try again later.');
+            showError('✗ You are sending requests too quickly. Try again later.');
           } else if (xhr.status === 401) {
             handleSessionExpired();
           } else if (xhr.status === 400) {
@@ -2001,7 +2024,7 @@ This action cannot be undone.</div>
               if (response.error === 'Message too long') {
                 showError(`✗ Message too long! Maximum: ${response.max_length} characters.`);
               }
-            } catch(e) {
+            } catch (e) {
               showError('✗ Invalid request.');
             }
           } else {
@@ -2015,7 +2038,7 @@ This action cannot be undone.</div>
       if (!selectedFile) return;
       if (isUploadingFile) return;
       isUploadingFile = true;
-      
+
       const formData = new FormData();
       formData.append('file', selectedFile);
       $.ajax({
@@ -2025,18 +2048,18 @@ This action cannot be undone.</div>
         data: formData,
         processData: false,
         contentType: false,
-        success: function(response) {
+        success: function (response) {
           console.log('[Upload] File sent successfully');
           hideFilePreview();
           isUploadingFile = false;
         },
-        error: function(xhr) {
+        error: function (xhr) {
           isUploadingFile = false;
           try {
             const response = JSON.parse(xhr.responseText);
             const message = response.message || response.error || 'Unknown error';
             showError(`✗ Upload failed: ${message}`);
-          } catch(e) {
+          } catch (e) {
             if (xhr.status === 429) {
               showError('✗ Too many requests. Try again later.');
             } else if (xhr.status === 401) {
@@ -2053,7 +2076,7 @@ This action cannot be undone.</div>
     }
 
     document.getElementById('send-btn').addEventListener('click', sendMessageOrFile);
-    document.getElementById('in').addEventListener('keyup', function(e) {
+    document.getElementById('in').addEventListener('keyup', function (e) {
       if (e.keyCode === 13 && !e.shiftKey) {
         e.preventDefault();
         sendMessageOrFile();
@@ -2137,7 +2160,7 @@ This action cannot be undone.</div>
       } else {
         sourceLabel.textContent = '📄 From Device';
       }
-      
+
       filename.textContent = file.name;
       filesize.textContent = formatFileSize(file.size);
       const ext = getFileExtension(file.name);
@@ -2171,37 +2194,37 @@ This action cannot be undone.</div>
       document.getElementById('file-input').value = '';
     }
 
-    document.getElementById('in').addEventListener('paste', function(e) {
+    document.getElementById('in').addEventListener('paste', function (e) {
       const items = e.clipboardData?.items;
       if (!items) return;
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        
+
         if (item.kind === 'file') {
           const file = item.getAsFile();
           if (file) {
-             e.preventDefault();
+            e.preventDefault();
             processFileUpload(file, 'paste');
             break;
           }
         }
       }
     });
-    document.getElementById('file-input').addEventListener('change', function() {
+    document.getElementById('file-input').addEventListener('change', function () {
       if (this.files.length > 0) {
         processFileUpload(this.files[0], 'upload');
       }
     });
     document.getElementById('preview-remove-btn').addEventListener('click', hideFilePreview);
-    document.getElementById('upload-btn').addEventListener('click', function() {
+    document.getElementById('upload-btn').addEventListener('click', function () {
       document.getElementById('file-input').click();
     });
     // ========== DRAG & DROP ==========
     const dragDropOverlay = document.getElementById('drag-drop-overlay');
     let isDraggingFile = false;
     let dragLeaveTimeout = null;
-    
+
     document.addEventListener('dragenter', (e) => {
       if (e.dataTransfer?.types?.includes('Files')) {
         clearTimeout(dragLeaveTimeout);
@@ -2226,7 +2249,7 @@ This action cannot be undone.</div>
       clearTimeout(dragLeaveTimeout);
       isDraggingFile = false;
       dragDropOverlay.classList.remove('active');
-      
+
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
 
@@ -2234,7 +2257,7 @@ This action cannot be undone.</div>
       processFileUpload(file, 'drag-drop');
     });
     // ========== LEAVE GROUP ==========
-    document.getElementById("leave-btn").addEventListener('click', function() {
+    document.getElementById("leave-btn").addEventListener('click', function () {
       if (confirm("Warning: If you leave this group, it will be removed from your personal account. Are you sure?")) {
         isUnloading = true;
         fetch(`/api/groups/${GROUP_ID}/leave`, {
@@ -2258,8 +2281,8 @@ This action cannot be undone.</div>
         });
       }
     });
-    
-    window.addEventListener('beforeunload', function() {
+
+    window.addEventListener('beforeunload', function () {
       if (!isUnloading) {
         clearInterval(MEMBERS_UPDATE_INTERVAL);
         clearInterval(ONLINE_HEARTBEAT_INTERVAL);
@@ -2273,6 +2296,79 @@ This action cannot be undone.</div>
     } else {
       console.error('[Init] Auth failed');
     }
+    // ========== PUSH NOTIFICATIONS ==========
+    async function initPushNotifications() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.log('Push messaging is not supported');
+        return;
+      }
+
+      try {
+        // Register SW
+        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
+        console.log('Service Worker registered:', registration);
+
+        // Request permission
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          console.log('Notification permission denied');
+          return;
+        }
+
+        // Get VAPID key
+        const response = await fetch('/api/vapid-public-key');
+        const data = await response.json();
+        const vapidPublicKey = data.publicKey;
+
+        if (!vapidPublicKey) {
+          console.error('No VAPID public key found');
+          return;
+        }
+
+        const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+
+        // Subscribe
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey
+        });
+
+        // ALWAYS send to server to ensure it's up to date and refresh last_used
+        await fetch('/api/subscribe', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            subscription_info: subscription
+          })
+        });
+
+        console.log('Push notification subscription updated/verified');
+
+      } catch (error) {
+        console.error('Push notification error:', error);
+      }
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding)
+        .replace(/\-/g, '+')
+        .replace(/_/g, '/');
+
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    }
+
+    // Initialize Push Notifications
+    initPushNotifications();
   </script>
 </body>
+
 </html>
