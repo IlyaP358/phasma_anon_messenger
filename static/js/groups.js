@@ -4,6 +4,8 @@ let ONLINE_HEARTBEAT_INTERVAL = null;
 let SESSIONS_UPDATE_INTERVAL = null;
 let isUnloading = false;
 let currentDeleteGroupId = null;
+let lastMessageTimestamps = {};
+let isFirstLoad = true;
 
 const createModal = document.getElementById('create-modal');
 const joinModal = document.getElementById('join-modal');
@@ -224,8 +226,18 @@ function renderGroups(groups) {
     let html = '';
     groups.forEach(group => {
         const isCreator = group.role === 'creator';
+
+        let badgeHtml = '';
+        if (group.unread_count > 0) {
+            const countText = group.unread_count > 99 ? '99+' : group.unread_count;
+            badgeHtml = `<span class="unread-badge">${countText}</span>`;
+        }
+
         html += `<div class="group-item">
-          <div class="group-name">${escapeHtml(group.name)}</div>
+          <div class="group-name-container">
+              <div class="group-name">${escapeHtml(group.name)}</div>
+              ${badgeHtml}
+          </div>
           <div class="group-code">#${group.code}</div>
           <div class="group-info">👤 ${isCreator ? '(Creator)' : '(Member)'}</div>
           <div class="group-buttons">
@@ -237,6 +249,30 @@ function renderGroups(groups) {
     list.innerHTML = html;
     document.querySelectorAll('.btn-enter').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); window.location.href = '/group/' + btn.getAttribute('data-group-id') + '/chat'; }));
     document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); currentDeleteGroupId = btn.getAttribute('data-group-id'); deleteModal.classList.add('active'); }));
+
+    // Check for new messages
+    let hasNewMessage = false;
+    groups.forEach(group => {
+        const lastTime = lastMessageTimestamps[group.id] || 0;
+        if (group.last_message_at > lastTime) {
+            if (!isFirstLoad && lastTime > 0) {
+                hasNewMessage = true;
+            }
+            lastMessageTimestamps[group.id] = group.last_message_at;
+        }
+    });
+
+    if (hasNewMessage) {
+        playNotificationSound();
+    }
+    isFirstLoad = false;
+}
+
+function playNotificationSound() {
+    const audio = document.getElementById('notification-sound');
+    if (audio) {
+        audio.play().catch(e => console.log('Audio play failed (user interaction needed?):', e));
+    }
 }
 
 document.getElementById('btn-confirm-delete').addEventListener('click', () => {
@@ -353,6 +389,12 @@ if (initAuth()) {
 
     // Initialize Push Notifications
     initPushNotifications();
+
+    // Refresh on focus/visibility
+    window.addEventListener('focus', loadGroups);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) loadGroups();
+    });
 }
 
 // ========== PUSH NOTIFICATIONS ==========

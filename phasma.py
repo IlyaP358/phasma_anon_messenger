@@ -162,7 +162,7 @@ EXT_TO_MIME = {
     'txt': 'text/plain'
 }
 
-AUTH_TOKEN_TTL = 3600  # seconds = 1 hour
+AUTH_TOKEN_TTL = 604800  # seconds = 7 days
 SESSION_METADATA_TTL = 3600
 
 USERNAME_MIN_LENGTH = 3
@@ -462,7 +462,9 @@ class GroupMember(db.Model):
     group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=False, index=True)
     username = db.Column(db.String(100), nullable=False, index=True)
     role = db.Column(db.String(20), default='member', nullable=False)  # creator, member
+    role = db.Column(db.String(20), default='member', nullable=False)  # creator, member
     joined_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    last_read_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     
     __table_args__ = (
         db.UniqueConstraint('group_id', 'username', name='unique_group_member'),
@@ -1592,13 +1594,25 @@ def get_user_groups(username: str) -> list:
         for member in members:
             group = Group.query.filter_by(id=member.group_id).first()
             if group:
+                # Get last message time
+                last_msg = Message.query.filter_by(group_id=group.id).order_by(Message.created_at.desc()).first()
+                last_msg_time = last_msg.format_time() if last_msg else 0
+
+                # Calculate unread count
+                unread_count = Message.query.filter(
+                    Message.group_id == group.id,
+                    Message.created_at > member.last_read_at
+                ).count()
+
                 groups_info.append({
                     'id': group.id,
                     'name': group.name,
                     'code': group.group_code,
                     'creator': group.creator,
                     'role': member.role,
-                    'joined_at': member.format_time()
+                    'joined_at': member.format_time(),
+                    'last_message_at': last_msg_time,
+                    'unread_count': unread_count
                 })
         
         return groups_info
@@ -3819,6 +3833,15 @@ def history_group(group_id: int):
     updated_session_data = session.copy()
     updated_session_data['last_activity'] = int(time.time())
     
+    # Update last_read_at for the user in this group
+    try:
+        member = GroupMember.query.filter_by(group_id=group_id, username=username).first()
+        if member:
+            member.last_read_at = datetime.datetime.utcnow()
+            db.session.commit()
+    except Exception as e:
+        print(f"[WARN] Failed to update last_read_at: {e}")
+
     pipe = r.pipeline()
     pipe.multi()
     pipe.setex(f"group_session:{token}", AUTH_TOKEN_TTL, json.dumps(updated_session_data).encode("utf-8"))
@@ -4281,4 +4304,4 @@ if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])
+    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])
