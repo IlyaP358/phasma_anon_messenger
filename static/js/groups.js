@@ -215,7 +215,8 @@ document.getElementById('btn-submit-join').addEventListener('click', () => {
 });
 
 function loadGroups() {
-    fetch('/api/groups/list', { credentials: 'include' })
+    // Add timestamp to prevent caching
+    fetch('/api/groups/list?t=' + Date.now(), { credentials: 'include' })
         .then(r => r.status === 401 ? handleSessionExpired() : r.json())
         .then(data => { if (data) renderGroups(data.groups); });
 }
@@ -223,6 +224,10 @@ function loadGroups() {
 function renderGroups(groups) {
     const list = document.getElementById('groups-list');
     if (!groups || groups.length === 0) { list.innerHTML = '<div class="empty-state">No groups yet.</div>'; return; }
+
+    // Client-side sort fallback (just in case)
+    groups.sort((a, b) => b.last_message_at - a.last_message_at);
+
     let html = '';
     groups.forEach(group => {
         const isCreator = group.role === 'creator';
@@ -385,7 +390,11 @@ document.getElementById('btn-confirm-delete-account').addEventListener('click', 
 // Init
 if (initAuth()) {
     loadGroups(); loadSessions(); startOnlineHeartbeat();
-    setInterval(loadGroups, 10000); setInterval(loadSessions, 5000); setInterval(verifySessionWithServer, 30000);
+    loadGroups(); loadSessions(); startOnlineHeartbeat();
+    setInterval(loadGroups, 60000); setInterval(loadSessions, 5000); setInterval(verifySessionWithServer, 30000);
+
+    // Initialize SSE for real-time updates
+    initSSE();
 
     // Initialize Push Notifications
     initPushNotifications();
@@ -450,6 +459,37 @@ async function initPushNotifications() {
     } catch (error) {
         console.error('Push notification error:', error);
     }
+}
+
+
+// ========== SSE (Real-time Updates) ==========
+function initSSE() {
+    if (!window.EventSource) {
+        console.log("SSE not supported");
+        return;
+    }
+
+    const eventSource = new EventSource("/api/user/events");
+
+    eventSource.onmessage = function (event) {
+        const data = JSON.parse(event.data);
+        if (data.type === 'ping') return;
+
+        if (data.type === 'group_update') {
+            console.log("Received group update:", data);
+            // Reload groups to update unread counts and order
+            loadGroups();
+            // Play sound
+            playNotificationSound();
+        }
+    };
+
+    eventSource.onerror = function (err) {
+        console.error("SSE Error:", err);
+        eventSource.close();
+        // Retry after 5 seconds
+        setTimeout(initSSE, 5000);
+    };
 }
 
 function urlBase64ToUint8Array(base64String) {

@@ -163,7 +163,7 @@ EXT_TO_MIME = {
 }
 
 AUTH_TOKEN_TTL = 604800  # seconds = 7 days
-SESSION_METADATA_TTL = 3600
+SESSION_METADATA_TTL = 604800
 
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 32
@@ -607,8 +607,20 @@ def notify_group_members(group_id, sender_username, message_text):
                     target=send_push_notification,
                     args=(sub, message_text)
                 ).start()
+        
+        # SSE Notification (Real-time)
+        timestamp = int(time.time())
+        event_data = json.dumps({
+            "type": "group_update",
+            "group_id": group_id,
+            "timestamp": timestamp
+        })
+        
+        for username in member_usernames:
+            r.publish(f"user:events:{username}", event_data.encode("utf-8"))
+            
     except Exception as e:
-        print(f"[WARN] Failed to send push notifications: {e}")
+        print(f"[WARN] Failed to send notifications: {e}")
 
 # ===============================================================
 # ---- Initialize database ----
@@ -1614,6 +1626,9 @@ def get_user_groups(username: str) -> list:
                     'last_message_at': last_msg_time,
                     'unread_count': unread_count
                 })
+        
+        # Sort by last_message_at descending (newest activity first)
+        groups_info.sort(key=lambda x: x['last_message_at'], reverse=True)
         
         return groups_info
     except Exception as e:
@@ -3640,6 +3655,23 @@ def event_stream_group(group_id: int):
                 data = str(data)
         yield f"data: {data}\n\n"
 
+def event_stream_user(username: str):
+    """SSE stream - for global user events"""
+    pubsub = r.pubsub(ignore_subscribe_messages=True)
+    pubsub.subscribe(f"user:events:{username}")
+    
+    # Send initial ping
+    yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+    
+    for message in pubsub.listen():
+        data = message.get("data")
+        if isinstance(data, bytes):
+            try:
+                data = data.decode("utf-8")
+            except Exception:
+                data = str(data)
+        yield f"data: {data}\n\n"
+
 # ===============================================================
 # ---- ONLINE STATUS MANAGEMENT ----
 # ===============================================================
@@ -3804,6 +3836,20 @@ def stream_group(group_id: int):
     pipe.execute()
     
     return Response(event_stream_group(group_id), mimetype="text/event-stream")
+
+@app.route("/api/user/events")
+@limiter.limit("60 per minute")
+def stream_user_events():
+    """
+    SSE stream for global user events (notifications)
+    """
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return abort(401)
+        
+    return Response(event_stream_user(username), mimetype="text/event-stream")
 
 
 @app.route("/group/<int:group_id>/history")
