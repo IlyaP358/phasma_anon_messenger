@@ -354,6 +354,8 @@ document.getElementById('menu-delete').addEventListener('click', () => {
     document.getElementById('delete-username-display').textContent = CURRENT_USER;
     deleteAccountModal.classList.add('active');
     userMenuDropdown.classList.remove('active');
+    // Close profile modal to avoid UI collision
+    profileModal.classList.remove('active');
 });
 
 // Profile Settings Logic

@@ -1611,10 +1611,11 @@ def get_user_groups(username: str) -> list:
                 last_msg = Message.query.filter_by(group_id=group.id).order_by(Message.created_at.desc()).first()
                 last_msg_time = last_msg.format_time() if last_msg else 0
 
-                # Calculate unread count
+                # Calculate unread count (exclude user's own messages)
                 unread_count = Message.query.filter(
                     Message.group_id == group.id,
-                    Message.created_at > member.last_read_at
+                    Message.created_at > member.last_read_at,
+                    Message.username != username  # Don't count user's own messages as unread
                 ).count()
 
                 groups_info.append({
@@ -1810,14 +1811,38 @@ def delete_user_account(username: str) -> bool:
         db.session.flush()
         print(f"[OK] Messages deleted")
         
-        #  6: Удаляем сам аккаунт
-        print(f"[INFO] Deleting user account: {username}...")
+        #  6: Получаем user объект для удаления профиля и аккаунта
+        print(f"[INFO] Getting user account: {username}...")
         user = User.query.filter_by(username=username).first()
+        
         if user:
+            #  7: Удаляем фото профиля пользователя (если есть)
+            print(f"[INFO] Deleting profile picture for user ID {user.id}...")
+            import glob
+            # Use absolute path for glob pattern
+            upload_dir = os.path.abspath(UPLOAD_FOLDER)
+            profile_pattern = os.path.join(upload_dir, f"profile_{user.id}_*.bin")
+            print(f"[DEBUG] Looking for profile pictures with pattern: {profile_pattern}")
+            profile_files = glob.glob(profile_pattern)
+            print(f"[DEBUG] Found {len(profile_files)} profile picture files")
+            
+            if profile_files:
+                for profile_pic_path in profile_files:
+                    if os.path.exists(profile_pic_path):
+                        try:
+                            os.remove(profile_pic_path)
+                            print(f"[OK] Deleted profile picture: {profile_pic_path}")
+                        except Exception as e:
+                            print(f"[WARN] Failed to delete profile picture {profile_pic_path}: {e}")
+            else:
+                print(f"[INFO] No profile picture found for user {user.id}")
+            
+            #  8: Удаляем сам аккаунт
+            print(f"[INFO] Deleting user account from database: {username}...")
             db.session.delete(user)
             db.session.flush()
         
-        #  7: Коммитим все изменения
+        #  9: Коммитим все изменения
         db.session.commit()
         print(f"[OK] Transaction committed")
         
@@ -3493,17 +3518,22 @@ def upload_profile_pic():
     save_path = os.path.join(UPLOAD_FOLDER, new_filename)
     
     try:
+        # Delete ALL old profile pictures for this user (using glob pattern)
+        import glob
+        upload_dir = os.path.abspath(UPLOAD_FOLDER)
+        old_profile_pattern = os.path.join(upload_dir, f"profile_{user.id}_*.bin")
+        old_profile_files = glob.glob(old_profile_pattern)
+        
+        for old_file in old_profile_files:
+            try:
+                os.remove(old_file)
+                print(f"[OK] Deleted old profile picture: {old_file}")
+            except Exception as e:
+                print(f"[WARN] Failed to delete old profile pic {old_file}: {e}")
+        
+        # Save new profile picture
         with open(save_path, 'wb') as f:
             f.write(encrypted_data)
-            
-        # Delete old profile pic if exists
-        if user.profile_pic:
-            old_path = os.path.join(UPLOAD_FOLDER, user.profile_pic)
-            if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except Exception as e:
-                    print(f"[WARN] Failed to delete old profile pic: {e}")
 
         user.profile_pic = new_filename
         db.session.commit()
@@ -3619,6 +3649,20 @@ def delete_account():
             print(f"[OK] Cleared Redis sessions for {username}")
         except Exception as e:
             print(f"[WARN] Failed to clear Redis sessions: {e}")
+
+        # 6.5. Delete Profile Picture
+        import glob
+        upload_dir = os.path.abspath(UPLOAD_FOLDER)
+        profile_pattern = os.path.join(upload_dir, f"profile_{user.id}_*.bin")
+        profile_files = glob.glob(profile_pattern)
+        
+        if profile_files:
+            for profile_pic_path in profile_files:
+                try:
+                    os.remove(profile_pic_path)
+                    print(f"[OK] Deleted profile picture: {profile_pic_path}")
+                except Exception as e:
+                    print(f"[WARN] Failed to delete profile picture {profile_pic_path}: {e}")
 
         # 7. Delete User
         db.session.delete(user)

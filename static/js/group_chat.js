@@ -247,7 +247,11 @@ function setupChat() {
     console.log('[Chat] Setting up chat interface...');
     document.getElementById('chat-user').textContent = CURRENT_USER;
     document.getElementById('group-name').textContent = GROUP_NAME;
-    loadMembers();
+    // Load members first with callback to load history after
+    loadMembers(() => {
+        console.log('[Chat] Members loaded, now loading history...');
+        loadHistory();
+    });
     MEMBERS_UPDATE_INTERVAL = setInterval(loadMembers, 10000);
     sendOnlineHeartbeat();
     ONLINE_HEARTBEAT_INTERVAL = setInterval(sendOnlineHeartbeat, 20000);
@@ -276,7 +280,7 @@ function getCurrentUser() {
 }
 
 // ========== MEMBERS MANAGEMENT ==========
-function loadMembers() {
+function loadMembers(callback) {
     const user = getCurrentUser();
     if (!user) return;
 
@@ -295,6 +299,10 @@ function loadMembers() {
         .then(data => {
             if (!data) return;
             renderMembers(data.members, data.total);
+            // Call callback after members are rendered and memberProfilePics Map is populated
+            if (callback && typeof callback === 'function') {
+                callback();
+            }
         })
         .catch(err => console.error('[Members] Failed:', err));
 }
@@ -1154,8 +1162,8 @@ window.addEventListener('beforeunload', function () {
 // ========== INITIALIZATION ==========
 console.log('[Init] Starting group chat initialization...');
 if (initAuth()) {
-    console.log('[Init] Auth successful, loading history...');
-    loadHistory();
+    console.log('[Init] Auth successful, chat setup will load history...');
+    // loadHistory() is now called from setupChat() after loadMembers() completes
 } else {
     console.error('[Init] Auth failed');
 }
