@@ -3,3 +3,5 @@ __pycache__
 uploads
 .env
 migrate_db.py
+migrate_profile_pic.py
+migrate_profile_pic_pg.py

@@ -10,6 +10,7 @@ let isFirstLoad = true;
 const createModal = document.getElementById('create-modal');
 const joinModal = document.getElementById('join-modal');
 const deleteModal = document.getElementById('delete-modal');
+const profileModal = document.getElementById('profile-modal');
 
 // Auth & Init
 function initAuth() {
@@ -19,6 +20,13 @@ function initAuth() {
         return false;
     }
     document.getElementById('current-user').textContent = CURRENT_USER;
+
+    // Load header avatar
+    const headerAvatar = document.getElementById('header-avatar');
+    if (headerAvatar) {
+        headerAvatar.src = `/user/profile-pic/${CURRENT_USER}?t=${new Date().getTime()}`;
+    }
+
     verifySessionWithServer();
     return true;
 }
@@ -270,6 +278,15 @@ function renderGroups(groups) {
     if (hasNewMessage) {
         playNotificationSound();
     }
+
+    if (usernameDisplay) {
+        usernameDisplay.textContent = `Logged in as: ${username}`;
+        // Update header avatar
+        const headerAvatar = document.getElementById('header-avatar');
+        if (headerAvatar) {
+            headerAvatar.src = `/user/profile-pic/${username}?t=${new Date().getTime()}`;
+        }
+    }
     isFirstLoad = false;
 }
 
@@ -338,6 +355,76 @@ document.getElementById('menu-delete').addEventListener('click', () => {
     deleteAccountModal.classList.add('active');
     userMenuDropdown.classList.remove('active');
 });
+
+// Profile Settings Logic
+const profilePicInput = document.getElementById('profile-pic-input');
+const profilePicPreview = document.getElementById('profile-pic-preview');
+const profileError = document.getElementById('profile-error');
+
+document.getElementById('menu-profile-settings').addEventListener('click', () => {
+    document.getElementById('profile-username-display').textContent = CURRENT_USER;
+    // Load current profile pic
+    profilePicPreview.src = `/user/profile-pic/${CURRENT_USER}?t=${Date.now()}`;
+    profileModal.classList.add('active');
+    userMenuDropdown.classList.remove('active');
+});
+
+document.getElementById('close-profile').addEventListener('click', () => {
+    profileModal.classList.remove('active');
+    profileError.innerHTML = '';
+});
+
+document.getElementById('btn-close-profile').addEventListener('click', () => {
+    profileModal.classList.remove('active');
+    profileError.innerHTML = '';
+});
+
+document.querySelector('.profile-pic-overlay').addEventListener('click', () => {
+    profilePicInput.click();
+});
+
+profilePicInput.addEventListener('change', function () {
+    if (this.files && this.files[0]) {
+        const file = this.files[0];
+
+        // Basic validation
+        if (file.size > 10 * 1024 * 1024) {
+            profileError.innerHTML = '<div class="error">File too large (max 10MB)</div>';
+            return;
+        }
+
+        // Upload immediately (or we could show preview then upload, but user asked for "crop if user wants" - for now simple upload)
+        uploadProfilePic(file);
+    }
+});
+
+function uploadProfilePic(file) {
+    profileError.innerHTML = '<div class="loading">Uploading...</div>';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    fetch('/api/user/profile-pic', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                profileError.innerHTML = '<div class="success">Profile picture updated!</div>';
+                // Update preview
+                profilePicPreview.src = `/user/profile-pic/${CURRENT_USER}?t=${Date.now()}`;
+                // Also update any other instances on the page if we add them
+            } else {
+                profileError.innerHTML = '<div class="error">' + (data.error || 'Upload failed') + '</div>';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            profileError.innerHTML = '<div class="error">Upload failed</div>';
+        });
+}
 
 document.getElementById('close-delete-account').addEventListener('click', () => {
     deleteAccountModal.classList.remove('active');

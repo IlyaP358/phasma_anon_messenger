@@ -149,6 +149,7 @@ let selectedFile = null;
 let isUploadingFile = false;
 let messageIdToElementMap = new Map();
 let pendingDeleteMessageId = null;
+let memberProfilePics = new Map(); // Stores username -> has_profile_pic (bool)
 
 console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
 
@@ -325,11 +326,20 @@ function renderMembers(members, total) {
         const roleLabel = isCreator ? '<span class="member-role">👑</span>' : '';
         const userLabel = isCurrentUser ? ' <span class="member-role">(you)</span>' : '';
 
+        // Avatar for member
+        const avatarSrc = member.has_profile_pic
+            ? `/user/profile-pic/${member.username}`
+            : '/static/unknown_user_phasma_icon.png';
+
         html += `
           <div class="${className}">
+            <img src="${avatarSrc}" alt="${escapeHtml(member.username)}" class="member-avatar">
             ${dot}<span class="member-username">${escapeHtml(member.username)}</span>${userLabel}${roleLabel}
           </div>
         `;
+
+        // Update profile pic cache
+        memberProfilePics.set(member.username, member.has_profile_pic);
     });
     membersList.innerHTML = html;
 }
@@ -520,10 +530,27 @@ function createMessageElement(data, messageId) {
     const localTime = formatLocalTime(parsed.timestamp);
     const localDate = formatDateFromTimestamp(parsed.timestamp);
 
+    // Avatar
+    const avatarImg = document.createElement("img");
+    avatarImg.className = "message-avatar";
+    const hasPic = memberProfilePics.get(parsed.username);
+    if (hasPic) {
+        avatarImg.src = `/user/profile-pic/${parsed.username}`;
+    } else {
+        avatarImg.src = "/static/unknown_user_phasma_icon.png";
+    }
+    avatarImg.alt = parsed.username;
+    msgWrapper.appendChild(avatarImg);
+
+    // Content Wrapper (Username + Message Content)
+    const contentWrapper = document.createElement("div");
+    contentWrapper.className = "message-content-wrapper";
+
+    // Username and timestamp header
     const header = document.createElement("div");
     header.className = "message-header";
-    header.textContent = `${localDate}, [${localTime}]`;
-    msgWrapper.appendChild(header);
+    header.innerHTML = `<strong>${escapeHtml(parsed.username)}</strong> <span class="message-time">${localDate}, ${localTime}</span>`;
+    contentWrapper.appendChild(header);
 
     const mainContent = document.createElement("div");
     mainContent.className = "message-content";
@@ -532,7 +559,6 @@ function createMessageElement(data, messageId) {
         if (audioMatch) {
             const audioDiv = document.createElement("div");
             audioDiv.className = "audio-msg";
-            audioDiv.textContent = `${parsed.username}: `;
             const audio = document.createElement("audio");
             audio.className = "audio-player";
             audio.src = audioMatch[2];
@@ -546,7 +572,6 @@ function createMessageElement(data, messageId) {
         if (videoMatch) {
             const videoDiv = document.createElement("div");
             videoDiv.className = "video-msg";
-            videoDiv.textContent = `${parsed.username}: `;
             const video = document.createElement("video");
             video.className = "video-player";
             video.src = videoMatch[2];
@@ -560,7 +585,6 @@ function createMessageElement(data, messageId) {
         if (photoMatch) {
             const photoDiv = document.createElement("div");
             photoDiv.className = "photo-msg";
-            photoDiv.textContent = `${parsed.username}: `;
             const img = document.createElement("img");
             img.src = photoMatch[2];
             img.alt = "Photo";
@@ -586,7 +610,7 @@ function createMessageElement(data, messageId) {
             fileInfo.className = "file-info";
             const fileName = document.createElement("div");
             fileName.className = "file-name";
-            fileName.textContent = `${parsed.username}: ${fileMatch[3]}`;
+            fileName.textContent = fileMatch[3];
             fileInfo.appendChild(fileName);
             const downloadBtn = document.createElement("button");
             downloadBtn.className = "file-download-btn";
@@ -608,7 +632,7 @@ function createMessageElement(data, messageId) {
     else {
         const textDiv = document.createElement("div");
         textDiv.className = "message-text";
-        textDiv.textContent = `${parsed.username}: ${parsed.content}`;
+        textDiv.textContent = parsed.content;
         mainContent.appendChild(textDiv);
 
         if (parsed.urls && Object.keys(parsed.urls).length > 0) {
@@ -621,7 +645,8 @@ function createMessageElement(data, messageId) {
         }
     }
 
-    msgWrapper.appendChild(mainContent);
+    contentWrapper.appendChild(mainContent);
+    msgWrapper.appendChild(contentWrapper);
     const isOwnMessage = parsed.username === CURRENT_USER;
     if (isOwnMessage) {
         const deleteBtn = document.createElement("button");

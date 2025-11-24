@@ -273,6 +273,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=True)
+    profile_pic = db.Column(db.String(256), nullable=True) # Stores filename in uploads/
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     def format_time(self):
@@ -3378,11 +3379,16 @@ def api_get_group_members(group_id: int):
             # Check if user is online globally
             is_online = is_user_online_global(member.username)
             
+            # Check if user has a profile pic
+            user_record = User.query.filter_by(username=member.username).first()
+            has_profile_pic = bool(user_record and user_record.profile_pic)
+
             members_list.append({
                 'username': member.username,
                 'role': member.role,
                 'joined_at': member.format_time(),
-                'is_online': is_online
+                'is_online': is_online,
+                'has_profile_pic': has_profile_pic
             })
         
         # Sort: online first, then creator, then by username
@@ -3424,6 +3430,118 @@ def api_set_member_online(group_id: int):
     except Exception as e:
         print(f"[ERROR] Failed to set member online: {e}")
         return jsonify({"error": "Failed to update status"}), 500
+
+@app.route('/api/user/profile-pic', methods=['POST'])
+def upload_profile_pic():
+    token = extract_token_from_request()
+    username = verify_token(token)
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    # Validate file size (max 10MB) - Initial check before processing
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    
+    if size > FILE_CATEGORIES['photo']['max_size']:
+        return jsonify({'error': 'File too large'}), 400
+
+    # Process image: Resize to 256x256 and strip metadata
+    try:
+        from PIL import Image, ImageOps
+        import io
+        
+        img = Image.open(file)
+        
+        # Convert to RGB to ensure consistency
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        # Resize/Crop to 256x256
+        img = ImageOps.fit(img, (256, 256), method=Image.Resampling.LANCZOS)
+        
+        # Strip metadata by creating a new image
+        data = list(img.getdata())
+        image_without_exif = Image.new(img.mode, img.size)
+        image_without_exif.putdata(data)
+        
+        # Save to bytes as JPEG
+        output = io.BytesIO()
+        image_without_exif.save(output, format='JPEG', quality=90)
+        file_data = output.getvalue()
+        
+    except Exception as e:
+        print(f"[ERROR] Image processing failed: {e}")
+        return jsonify({'error': 'Invalid image file'}), 400
+
+    # Encrypt
+    encrypted_data = data_fernet.encrypt(file_data)
+    
+    # Save
+    new_filename = f"profile_{user.id}_{uuid.uuid4().hex}.bin"
+    save_path = os.path.join(UPLOAD_FOLDER, new_filename)
+    
+    try:
+        with open(save_path, 'wb') as f:
+            f.write(encrypted_data)
+            
+        # Delete old profile pic if exists
+        if user.profile_pic:
+            old_path = os.path.join(UPLOAD_FOLDER, user.profile_pic)
+            if os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                except Exception as e:
+                    print(f"[WARN] Failed to delete old profile pic: {e}")
+
+        user.profile_pic = new_filename
+        db.session.commit()
+        
+        return jsonify({'success': True, 'filename': new_filename})
+
+    except Exception as e:
+        print(f"[ERROR] Profile upload failed: {e}")
+        return jsonify({'error': 'Upload failed'}), 500
+
+@app.route('/user/profile-pic/<username>')
+@limiter.limit("60 per minute")
+def get_profile_pic(username):
+    # Allow access to profile pics for authenticated users
+    token = extract_token_from_request()
+    if not verify_token(token):
+        # Return default icon if not logged in (or 401, but icon is better for UI)
+        return send_file('static/unknown_user_phasma_icon.png')
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.profile_pic:
+        return send_file('static/unknown_user_phasma_icon.png')
+
+    try:
+        file_path = os.path.join(UPLOAD_FOLDER, user.profile_pic)
+        if not os.path.exists(file_path):
+             return send_file('static/unknown_user_phasma_icon.png')
+
+        with open(file_path, 'rb') as f:
+            encrypted_data = f.read()
+            
+        decrypted_data = data_fernet.decrypt(encrypted_data)
+        
+        return Response(decrypted_data, mimetype='image/jpeg') # Default to jpeg, browser handles others usually
+
+    except Exception as e:
+        print(f"[ERROR] Failed to serve profile pic: {e}")
+        return send_file('static/unknown_user_phasma_icon.png')
 
 @app.route("/api/user/delete", methods=["POST"])
 def delete_account():

@@ -25,14 +25,17 @@
   <div class="main-container">
     <div class="top-bar">
       <div class="user-info">
-        <div class="user-label">Logged in as:</div>
-        <div class="user-name" id="current-user">Loading...</div>
+        <img id="header-avatar" src="/static/unknown_user_phasma_icon.png" alt="Avatar" class="header-avatar">
+        <span id="current-user">Loading...</span>
       </div>
       <button class="btn btn-menu" id="btn-menu">⋮</button>
 
       <div id="user-menu-dropdown" class="user-menu-dropdown">
         <button class="menu-item" id="menu-enable-notifications">
           <span class="menu-icon">🔔</span> Enable Notifications
+        </button>
+        <button class="menu-item" id="menu-profile-settings">
+          <span class="menu-icon">👤</span> Profile Settings
         </button>
         <button class="menu-item menu-exit" id="menu-exit">
           <span class="menu-icon">🚪</span> Exit
@@ -161,6 +164,30 @@
       <div class="form-actions">
         <button class="btn btn-danger" id="btn-confirm-delete-account">Delete My Account</button>
         <button class="btn btn-secondary" id="btn-cancel-delete-account">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="profile-modal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" id="close-profile">&times;</button>
+      <div class="modal-header">Profile Settings</div>
+
+      <div class="profile-section">
+        <div class="profile-pic-container">
+          <img id="profile-pic-preview" src="/static/unknown_user_phasma_icon.png" alt="Profile Picture">
+          <div class="profile-pic-overlay">
+            <span>Change</span>
+            <input type="file" id="profile-pic-input" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
+          </div>
+        </div>
+        <div class="profile-username" id="profile-username-display">Loading...</div>
+      </div>
+
+      <div id="profile-error"></div>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" id="btn-close-profile">Close</button>
       </div>
     </div>
   </div>
