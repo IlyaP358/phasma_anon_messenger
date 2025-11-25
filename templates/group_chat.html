@@ -146,6 +146,7 @@
     const TEMPLATE_GROUP_TOKEN = {{ auth_token| tojson }};
     const GROUP_NAME = {{ group_name| tojson }};
   </script>
+  <audio id="notification-sound" src="/static/phasma_notification_sound.mp3" preload="auto"></audio>
   <script nonce="{{ nonce }}" src="/static/js/group_chat.js"></script>
 </body>
 

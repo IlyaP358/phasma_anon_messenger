@@ -1575,5 +1575,46 @@ function urlBase64ToUint8Array(base64String) {
     return outputArray;
 }
 
-// Initialize Push Notifications
+// ========== SSE (Real-time Updates) ==========
+function playNotificationSound() {
+    const audio = document.getElementById('notification-sound');
+    if (audio) {
+        audio.play().catch(e => console.log('Audio play failed (user interaction needed?):', e));
+    }
+}
+
+function initSSE() {
+    if (!window.EventSource) {
+        console.log("SSE not supported");
+        return;
+    }
+
+    const eventSource = new EventSource("/api/user/events");
+
+    eventSource.onmessage = function (event) {
+        const data = JSON.parse(event.data);
+        if (data.type === 'ping') return;
+
+        if (data.type === 'group_update') {
+            console.log("Received group update:", data);
+            // Reload groups to update unread counts and order
+            loadGroups();
+            // Play notification sound only if the update is for a different group
+            // (current group messages already play sound via WebSocket handler)
+            if (data.group_id && data.group_id !== GROUP_ID) {
+                playNotificationSound();
+            }
+        }
+    };
+
+    eventSource.onerror = function (err) {
+        console.error("SSE Error:", err);
+        eventSource.close();
+        // Retry after 5 seconds
+        setTimeout(initSSE, 5000);
+    };
+}
+
+// Initialize SSE and Push Notifications
+initSSE();
 initPushNotifications();
