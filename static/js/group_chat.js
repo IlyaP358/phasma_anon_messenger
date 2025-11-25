@@ -255,6 +255,144 @@ function setupChat() {
     MEMBERS_UPDATE_INTERVAL = setInterval(loadMembers, 10000);
     sendOnlineHeartbeat();
     ONLINE_HEARTBEAT_INTERVAL = setInterval(sendOnlineHeartbeat, 20000);
+
+    // Load groups sidebar
+    loadGroups();
+    setInterval(loadGroups, 60000);
+
+    // Back button
+    const btnBack = document.getElementById('btn-back-groups');
+    if (btnBack) {
+        btnBack.addEventListener('click', () => {
+            window.location.href = '/groups';
+        });
+    }
+}
+
+// ========== GROUPS SIDEBAR ==========
+let currentDeleteGroupId = null;
+const deleteModal = document.getElementById('delete-modal');
+
+function loadGroups() {
+    fetch('/api/groups/list?t=' + Date.now(), { credentials: 'include' })
+        .then(r => {
+            if (r.status === 401) {
+                handleSessionExpired();
+                return null;
+            }
+            return r.json();
+        })
+        .then(data => { if (data) renderGroups(data.groups); })
+        .catch(err => console.warn('[Groups] Failed to load groups:', err));
+}
+
+function renderGroups(groups) {
+    const list = document.getElementById('groups-list');
+    if (!list) return;
+
+    if (!groups || groups.length === 0) {
+        list.innerHTML = '<div class="members-empty">No groups</div>';
+        return;
+    }
+
+    // Sort by last message
+    groups.sort((a, b) => b.last_message_at - a.last_message_at);
+
+    let html = '';
+    groups.forEach(group => {
+        const isActive = group.id === GROUP_ID;
+        const activeClass = isActive ? ' active' : '';
+        const isCreator = group.role === 'creator';
+
+        let badgeHtml = '';
+        if (group.unread_count > 0 && !isActive) {
+            const countText = group.unread_count > 99 ? '99+' : group.unread_count;
+            badgeHtml = `<span class="unread-badge">${countText}</span>`;
+        }
+
+        const deleteBtnHtml = isCreator ? `<button class="btn-delete-group" data-group-id="${group.id}">Delete</button>` : '';
+
+        html += `<div class="group-item${activeClass}" data-group-id="${group.id}">
+          <div class="group-name">
+              <span>${escapeHtml(group.name)}</span>
+              <div style="display:flex; align-items:center;">
+                  ${badgeHtml}
+                  ${deleteBtnHtml}
+              </div>
+          </div>
+          <div class="group-code">#${group.code}</div>
+        </div>`;
+    });
+    list.innerHTML = html;
+
+    // Add event listeners (replacing inline onclick)
+    document.querySelectorAll('.group-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            // Don't trigger if delete button was clicked
+            if (e.target.classList.contains('btn-delete-group')) return;
+
+            const groupId = item.getAttribute('data-group-id');
+            window.location.href = '/group/' + groupId + '/chat';
+        });
+    });
+
+    document.querySelectorAll('.btn-delete-group').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentDeleteGroupId = btn.getAttribute('data-group-id');
+            deleteModal.classList.add('active');
+        });
+    });
+}
+
+// Delete Modal Logic
+if (deleteModal) {
+    document.getElementById('btn-cancel-delete').addEventListener('click', () => {
+        deleteModal.classList.remove('active');
+        document.getElementById('delete-password').value = '';
+        document.getElementById('delete-error').innerHTML = '';
+    });
+
+    document.getElementById('btn-confirm-delete').addEventListener('click', () => {
+        const password = document.getElementById('delete-password').value;
+        const errorDiv = document.getElementById('delete-error');
+
+        errorDiv.innerHTML = '';
+
+        if (!password) {
+            errorDiv.innerHTML = '<div class="error">Password required</div>';
+            return;
+        }
+
+        errorDiv.innerHTML = '<div class="loading">Deleting...</div>';
+
+        fetch('/api/groups/' + currentDeleteGroupId + '/delete', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ root_password: password }), credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(d => {
+                if (d.success) {
+                    errorDiv.innerHTML = '<div class="success">✓ Deleted</div>';
+                    // If we deleted the current group, go back to groups list
+                    if (currentDeleteGroupId == GROUP_ID) {
+                        window.location.href = '/groups';
+                    } else {
+                        loadGroups();
+                        setTimeout(() => {
+                            deleteModal.classList.remove('active');
+                            document.getElementById('delete-password').value = '';
+                            errorDiv.innerHTML = '';
+                        }, 1000);
+                    }
+                } else {
+                    errorDiv.innerHTML = '<div class="error">' + d.error + '</div>';
+                }
+            })
+            .catch(err => {
+                errorDiv.innerHTML = '<div class="error">Failed to delete</div>';
+            });
+    });
 }
 
 function handleSessionExpired() {
@@ -753,7 +891,7 @@ function loadHistory() {
                 loadMoreBtn.textContent = "No more messages";
                 setTimeout(() => loadMoreContainer.style.display = "none", 2000);
             } else {
-                loadMoreBtn.textContent = "↓ Load older messages";
+                loadMoreBtn.textContent = "↑ Load older messages";
             }
 
             if (!initialLoadDone) {

@@ -32,9 +32,38 @@
     </div>
   </div>
 
+  <div id="delete-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-title">Delete Group</div>
+      <div class="modal-message">
+        <div id="delete-error"></div>
+        <p style="color: #ccc; margin-bottom: 1em;">
+          ⚠️ This action cannot be undone. All messages and files will be permanently deleted.
+        </p>
+        <div style="margin-bottom: 1em;">
+          <label style="display:block; color:#0f0; margin-bottom:0.5em; font-weight:bold;">Root Password</label>
+          <input type="password" id="delete-password" placeholder="Enter root password"
+            style="width:100%; padding:0.5em; background:#222; border:1px solid #333; color:#fff;">
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-cancel" id="btn-cancel-delete">Cancel</button>
+        <button class="modal-btn modal-btn-confirm" id="btn-confirm-delete">Delete Group</button>
+      </div>
+    </div>
+  </div>
+
   <button id="leave-btn">← Leave Group</button>
 
   <div class="chat-wrapper">
+    <div class="groups-sidebar">
+      <div class="groups-header">
+        <button id="btn-back-groups" class="btn-back">← Back</button>
+        <div class="groups-title">My Groups</div>
+      </div>
+      <div id="groups-list"></div>
+    </div>
+
     <div class="chat-main">
       <div class="chat-header">
         <div class="chat-header-left">
