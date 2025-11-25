@@ -1,141 +1,332 @@
 // ========== EMOJI LOGIC STARTS HERE ==========
-const EMOJI_DATA = {
-    frequent: [],
-    smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '🥲', '😋', '😛', '😜', '🤪', '😌', '😔', '😑', '😐', '😶', '🤐', '😏', '😒', '🙁', '☹️', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤮', '🤢', '🤮', '🤮', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '🙁', '☹️', '😮', '😯', '😲', '😳', '🥺', '😦', '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣', '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '☠️', '💩', '🤡', '👹', '👺', '👻', '👽', '👾', '🤖', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'],
-    people: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🫰', '🤟', '🤘', '🤙', '👍', '👎', '☝️', '👆', '👇', '☞', '👈', '👉', '🫵', '👊', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🫶', '🤲', '🤝', '🤜', '🤛', '🦾', '🦿', '👂', '👃', '🧠', '🦷', '🦴', '👀', '👁️', '👅', '👄', '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🦝', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🪱', '🐛', '🦋', '🐌', '🐞', '🐜', '🪰', '🐢', '🐍', '🐙', '🦐', '🦑', '🦐', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃', '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🦮', '🐈', '🐓', '🦃', '🦚', '🦜', '🦢', '🦗', '🥚', '🍳', '🍞', '🍌', '🍎', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈', '🥞', '🥓', '🥔', '🍟', '🍕', '🌭', '🥪', '🌮', '🌯', '🥙', '🧆', '🍔', '🍟', '🍗', '🥩', '🍖', '🌭', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🦪', '🍤', '🍙', '🍚', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🍯', '🥛', '🥤', '☕', '🍵', '🍶', '🍾', '🍷', '🍸', '🍹', '🍺', '🍻', '🥂', '🥃'],
-    nature: ['🌿', '🀀', '☘️', '🎄', '🎄', '🌲', '🌳', '🌴', '🌱', '🌾', '💐', '🌷', '🌹', '🥀', '🌺', '🌻', '🌞', '🌝', '🌛', '🌜', '🌚', '🌕', '🌖', '🌗', '🌘', '🌑', '🌒', '🌓', '🌔', '⭐', '🌟', '✨', '⚡', '☄️', '💥', '🔥', '🌪️', '🌈', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '🌨️', '❄️', '☃️', '⛄', '🌬️', '💨', '💧', '💦', '☔'],
-    food: ['🍏', '🎄', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈', '🥞', '🥓', '🥔', '🍟', '🍕', '🌭', '🥪', '🌮', '🌯', '🥙', '🧆', '🍔', '🍟', '🍗', '🥩', '🍖', '🌭', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🦪', '🍤', '🍙', '🍚', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🍯', '🥛', '🥤', '☕', '🍵', '🍶', '🍾', '🍷', '🍸', '🍹', '🍺', '🍻', '🥂', '🥃'],
-    travel: ['✈️', '🛫', '🛬', '🛩️', '💺', '🛰️', '🚁', '🛶', '⛵', '🚤', '🛳️', '⛴️', '🛥️', '🛩️', '✈️', '🚀', '🛸', '🚂', '🚃', '🚄', '🚅', '🚆', '🚇', '🚈', '🚉', '🚊', '🚝', '🚞', '🚋', '🚌', '🚍', '🚎', '🚐', '🚑', '🚒', '🚓', '🚔', '🚕', '🚖', '🚗', '🚘', '🚙', '🚚', '🚛', '🚜', '🏎️', '🏍️', '🛵', '🦯', '🦽', '🦼', '🛺', '🚲', '🛴', '🛹', '🛼', '🚏', '⛽', '🚨', '🚥', '🚦', '🛑', '🚧', '⚓', '⛵', '🚤', '🛳️', '🛥️', '🚢', '✈️', '🛫', '🛬', '🛩️', '💺', '🛰️', '🚁', '🛶', '⛵', '🚤', '🛳️', '🛥️', '🛢️', '⛽', '🚨', '🚥', '🚦', '🛑', '⚓', '⛵', '🚤', '🛳️', '🛥️', '🏝️', '⛱️', '🏖️', '🏜️', '🌋', '⛰️', '🏔️', '🗻', '🏕️', '⛺', '⛲', '🏞️', '🛣️', '🛤️', '🗾', '🎡', '🎢', '🎠', '⛲', '⛺', '🏕️', '🗼', '🗽', '🗿', '🎪', '🎭', '🎨'],
-    objects: ['⚽', '⚾', '🥎', '🎾', '🏀', '🏐', '🏈', '🏉', '🎱', '🎳', '🏓', '🏸', '🥊', '🥋', '🎣', '🎽', '🎿', '⛷️', '🛷', '🥌', '🎯', '🪀', '🪁', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪗', '🎻', '🎲', '♟️', '🎯', '🎳', '🎮', '🎰', '🧩', '🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🏍️', '🏎️', '🛵', '🦯', '🦽', '🦼', '🛺', '🚲', '🛴', '🛹', '🛼', '🛞', '🚨', '🚔', '🚍', '🚘', '🚖', '🚡', '🚠', '🚟', '🚃', '🚋', '🚞', '🚝', '🚄', '🚅', '🚈', '2', '🚆', '🚇', '🚊', '🚉', '🚌', '🚎', '🚐', '🛒', '🚚', '🚛', '✈️', '🛫', '🛬', '🛩️', '💺', '🛰️'],
-    symbols: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '💌', '💜', '💛', '💚', '💙', '💜', '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '✅', '❌', '⎈', '✔️', '❌', '➕', '➖', '➗', '➘', '➙', '➚', '➛', '➜', '➝', '➞', '➟', '➠', '➡️', '➢', '➣', '➤', '➥', '➦', '➧', '➨', '➩', '➪', '➫', '➬', '➭', '➮', '➯', '🔚', '🔙', '🔛', '🔜', '🔝', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '⚫', '⚪', '🟤', '🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '⬛', '⬜', '🟫', '🟰']
-};
-
+const EMOJI_DB_URL = '/static/emoji_database.json';
+let emojiData = [];
+let emojiCategories = {};
+let emojiVariants = {}; // base_name -> [variant_objects]
 let recentEmojis = [];
 
-function saveRecentEmoji(emoji) {
-    recentEmojis = [emoji, ...recentEmojis.filter(e => e !== emoji)].slice(0, 10);
-}
-
+// Load recent emojis from local storage
 function loadRecentEmojis() {
-    EMOJI_DATA.frequent = recentEmojis.length > 0 ? recentEmojis : ['😊', '😂', '❤️', '👍', '🔥', '👏', '✨', '💯'];
+    const stored = localStorage.getItem('recent_emojis');
+    if (stored) {
+        try {
+            recentEmojis = JSON.parse(stored);
+        } catch (e) {
+            recentEmojis = [];
+        }
+    }
 }
 
-loadRecentEmojis();
+function saveRecentEmoji(emoji) {
+    // Remove if exists, then add to front
+    recentEmojis = [emoji, ...recentEmojis.filter(e => e !== emoji)].slice(0, 20);
+    localStorage.setItem('recent_emojis', JSON.stringify(recentEmojis));
+}
 
+// Fetch and process emoji database
+async function loadEmojiDatabase() {
+    try {
+        const response = await fetch(EMOJI_DB_URL);
+        const data = await response.json();
+        emojiData = data.emojis;
+        processEmojiData();
+        renderCategories();
+        renderEmojiGrid('Recent'); // Default to Recent
+    } catch (error) {
+        console.error('Failed to load emoji database:', error);
+        document.getElementById('emoji-grid').innerHTML = '<div class="emoji-no-results">Failed to load emojis</div>';
+    }
+}
+
+function processEmojiData() {
+    emojiCategories = { 'Recent': [] };
+    emojiVariants = {};
+
+    // Helper to normalize name for variant checking
+    // "OK hand: dark skin tone" -> base: "OK hand"
+    const nameMap = new Map();
+    emojiData.forEach(e => nameMap.set(e.name, e));
+
+    emojiData.forEach(emoji => {
+        // Handle Categories
+        let cat = emoji.category;
+        // Simplify category name: "People & Body (family)" -> "People & Body"
+        if (cat.includes('(')) {
+            cat = cat.split('(')[0].trim();
+        }
+
+        if (!emojiCategories[cat]) {
+            emojiCategories[cat] = [];
+        }
+
+        // Handle Variants
+        // Check if this is a variant
+        if (emoji.name.includes(':')) {
+            const parts = emoji.name.split(':');
+            const potentialBaseName = parts[0].trim();
+
+            if (nameMap.has(potentialBaseName)) {
+                // This is a variant
+                if (!emojiVariants[potentialBaseName]) {
+                    emojiVariants[potentialBaseName] = [];
+                }
+                emojiVariants[potentialBaseName].push(emoji);
+                return; // Don't add variants to main grid
+            }
+        }
+
+        // Add to category if not a variant (or if base not found)
+        emojiCategories[cat].push(emoji);
+    });
+}
+
+// UI Elements
 const emojiBtn = document.getElementById('emoji-btn');
 const emojiModal = document.getElementById('emoji-picker-modal');
 const emojiCloseBtn = document.getElementById('emoji-close-btn');
 const emojiSearch = document.getElementById('emoji-search');
 const emojiGrid = document.getElementById('emoji-grid');
-const emojiTabs = document.querySelectorAll('.emoji-tab');
+const emojiTabsContainer = document.getElementById('emoji-categories-tabs');
+const variantPopup = document.getElementById('emoji-variant-popup');
+const variantGrid = document.getElementById('emoji-variant-grid');
 
-let currentCategory = 'frequent';
+let currentCategory = 'Recent';
 
+// Event Listeners
 emojiBtn.addEventListener('click', () => {
     emojiModal.classList.add('active');
-    renderEmojiGrid('frequent');
+    loadRecentEmojis();
+    // Refresh Recent category
+    if (currentCategory === 'Recent') {
+        renderEmojiGrid('Recent');
+    }
     emojiSearch.focus();
 });
 
 emojiCloseBtn.addEventListener('click', () => {
     emojiModal.classList.remove('active');
+    variantPopup.style.display = 'none';
     emojiSearch.value = '';
 });
 
+// Close modal when clicking outside
 document.addEventListener('click', (e) => {
-    if (!emojiModal.contains(e.target) && e.target !== emojiBtn) {
+    if (!emojiModal.contains(e.target) && e.target !== emojiBtn && !variantPopup.contains(e.target)) {
         emojiModal.classList.remove('active');
+        variantPopup.style.display = 'none';
     }
 });
 
-emojiTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-        emojiTabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        currentCategory = tab.dataset.category;
-        emojiSearch.value = '';
-        renderEmojiGrid(currentCategory);
-    });
-});
-
+// Search
 emojiSearch.addEventListener('input', () => {
     const query = emojiSearch.value.toLowerCase();
+    variantPopup.style.display = 'none';
+
     if (!query) {
         renderEmojiGrid(currentCategory);
         return;
     }
-    emojiTabs.forEach(t => t.classList.remove('active'));
+
+    // Highlight no tabs during search
+    document.querySelectorAll('.emoji-tab').forEach(t => t.classList.remove('active'));
     renderSearchResults(query);
 });
 
+function renderCategories() {
+    emojiTabsContainer.innerHTML = '';
+
+    // Define icons/labels for known categories to make it look nicer
+    const categoryIcons = {
+        'Recent': '⏱️',
+        'Smileys & Emotion': '😀',
+        'People & Body': '👋',
+        'Animals & Nature': '🐻',
+        'Food & Drink': '🍔',
+        'Travel & Places': '🚗',
+        'Activities': '⚽',
+        'Objects': '💡',
+        'Symbols': '❤️',
+        'Flags': '🏁'
+    };
+
+    // Ensure Recent is first, then others
+    const cats = ['Recent', ...Object.keys(emojiCategories).filter(c => c !== 'Recent')];
+
+    cats.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = 'emoji-tab';
+        if (cat === currentCategory) btn.classList.add('active');
+        btn.textContent = categoryIcons[cat] || cat.substring(0, 2); // Fallback to first 2 chars
+        btn.title = cat;
+
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.emoji-tab').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            currentCategory = cat;
+            emojiSearch.value = '';
+            variantPopup.style.display = 'none';
+            renderEmojiGrid(cat);
+        });
+
+        emojiTabsContainer.appendChild(btn);
+    });
+}
+
 function renderEmojiGrid(category) {
-    const emojis = EMOJI_DATA[category] || [];
     emojiGrid.innerHTML = '';
+    let emojis = [];
+
+    if (category === 'Recent') {
+        // Map recent strings back to objects if possible, or just use strings
+        // But our logic uses objects for variants. 
+        // Simple approach: Recent stores strings. We find the object.
+        emojis = recentEmojis.map(char => {
+            return emojiData.find(e => e.emoji === char) || { emoji: char, name: 'recent' };
+        });
+
+        if (emojis.length === 0) {
+            emojiGrid.innerHTML = '<div class="emoji-no-results">No recent emojis</div>';
+            return;
+        }
+    } else {
+        emojis = emojiCategories[category] || [];
+    }
 
     if (emojis.length === 0) {
         emojiGrid.innerHTML = '<div class="emoji-no-results">No emojis</div>';
         return;
     }
 
-    emojis.forEach(emoji => {
-        const item = document.createElement('div');
-        item.className = 'emoji-item';
-        item.textContent = emoji;
-        item.addEventListener('click', () => {
-            insertEmoji(emoji);
-            saveRecentEmoji(emoji);
-            loadRecentEmojis();
-        });
-        emojiGrid.appendChild(item);
+    emojis.forEach(emojiObj => {
+        createEmojiElement(emojiObj, emojiGrid);
     });
 }
 
 function renderSearchResults(query) {
     emojiGrid.innerHTML = '';
-    const results = [];
+    const results = emojiData.filter(e =>
+        e.name.toLowerCase().includes(query) ||
+        (e.shortname && e.shortname.toLowerCase().includes(query))
+    ).slice(0, 100);
 
-    Object.values(EMOJI_DATA).forEach(emojis => {
-        emojis.forEach(emoji => {
-            if (!results.includes(emoji)) {
-                results.push(emoji);
-            }
-        });
-    });
-
-    const filtered = results.slice(0, 100);
-
-    if (filtered.length === 0) {
+    if (results.length === 0) {
         emojiGrid.innerHTML = '<div class="emoji-no-results">No results</div>';
         return;
     }
 
-    filtered.forEach(emoji => {
-        const item = document.createElement('div');
-        item.className = 'emoji-item';
-        item.textContent = emoji;
-        item.addEventListener('click', () => {
-            insertEmoji(emoji);
-            saveRecentEmoji(emoji);
-            loadRecentEmojis();
-        });
-        emojiGrid.appendChild(item);
+    results.forEach(emojiObj => {
+        createEmojiElement(emojiObj, emojiGrid);
     });
 }
 
-function insertEmoji(emoji) {
+function createEmojiElement(emojiObj, container) {
+    const item = document.createElement('div');
+    item.className = 'emoji-item';
+    item.textContent = emojiObj.emoji;
+    item.title = emojiObj.name;
+
+    // Check for variants
+    // Note: Recent emojis might be variants themselves, so we check if *this* emoji name is a base for others
+    // OR if it's a base name in our variants map
+    const hasVariants = emojiVariants[emojiObj.name];
+
+    if (hasVariants) {
+        const indicator = document.createElement('span');
+        indicator.style.position = 'absolute';
+        indicator.style.bottom = '0';
+        indicator.style.right = '0';
+        indicator.style.fontSize = '8px';
+        indicator.style.color = '#888';
+        indicator.textContent = '▼';
+        item.style.position = 'relative';
+        item.appendChild(indicator);
+    }
+
+    item.addEventListener('click', (e) => {
+        if (hasVariants) {
+            showVariantPopup(emojiObj, hasVariants, item);
+        } else {
+            insertEmoji(emojiObj.emoji);
+            saveRecentEmoji(emojiObj.emoji);
+        }
+    });
+
+    container.appendChild(item);
+}
+
+function showVariantPopup(baseEmoji, variants, targetElement) {
+    variantGrid.innerHTML = '';
+
+    // Add base emoji first
+    createVariantElement(baseEmoji);
+
+    // Add variants
+    variants.forEach(v => createVariantElement(v));
+
+    // Show popup to measure its size
+    variantPopup.style.display = 'block';
+    variantPopup.style.visibility = 'hidden';
+
+    // Get dimensions
+    const rect = targetElement.getBoundingClientRect();
+    const modalRect = emojiModal.getBoundingClientRect();
+    const popupRect = variantPopup.getBoundingClientRect();
+
+    // Calculate position relative to modal
+    let top = rect.top - modalRect.top - popupRect.height - 5; // Try above first
+    let left = rect.left - modalRect.left;
+
+    // Check if popup goes above modal top
+    if (top < 10) {
+        // Show below instead
+        top = rect.bottom - modalRect.top + 5;
+    }
+
+    // Check if popup goes beyond modal right edge
+    if (left + popupRect.width > modalRect.width - 10) {
+        left = modalRect.width - popupRect.width - 10;
+    }
+
+    // Check if popup goes beyond modal left edge
+    if (left < 10) {
+        left = 10;
+    }
+
+    // Apply position
+    variantPopup.style.top = top + 'px';
+    variantPopup.style.left = left + 'px';
+    variantPopup.style.visibility = 'visible';
+}
+
+function createVariantElement(emojiObj) {
+    const item = document.createElement('div');
+    item.className = 'emoji-variant-item';
+    item.textContent = emojiObj.emoji;
+    item.title = emojiObj.name;
+    item.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent closing immediately
+        insertEmoji(emojiObj.emoji);
+        saveRecentEmoji(emojiObj.emoji);
+        variantPopup.style.display = 'none';
+    });
+    variantGrid.appendChild(item);
+}
+
+function insertEmoji(emojiChar) {
     const input = document.getElementById('in');
     const start = input.selectionStart;
     const end = input.selectionEnd;
     const text = input.value;
 
-    input.value = text.substring(0, start) + emoji + text.substring(end);
-    input.selectionStart = input.selectionEnd = start + emoji.length;
+    input.value = text.substring(0, start) + emojiChar + text.substring(end);
+    input.selectionStart = input.selectionEnd = start + emojiChar.length;
     input.focus();
 
     emojiModal.classList.remove('active');
 }
 
-renderEmojiGrid('frequent');
+// Initialize
+loadEmojiDatabase();
 // ========== EMOJI LOGIC ENDS HERE ==========
 
 // ========== CORE CHAT VARIABLES ==========

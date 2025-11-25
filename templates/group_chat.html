@@ -125,19 +125,17 @@
         <button type="button" class="emoji-close-btn" id="emoji-close-btn">x</button>
       </div>
 
-      <div class="emoji-categories-tabs">
-        <button type="button" class="emoji-tab active" data-category="frequent">⏱️</button>
-        <button type="button" class="emoji-tab" data-category="smileys">:)</button>
-        <button type="button" class="emoji-tab" data-category="people">hi</button>
-        <button type="button" class="emoji-tab" data-category="nature">leaf</button>
-        <button type="button" class="emoji-tab" data-category="food">food</button>
-        <button type="button" class="emoji-tab" data-category="travel">car</button>
-        <button type="button" class="emoji-tab" data-category="objects">bulb</button>
-        <button type="button" class="emoji-tab" data-category="symbols">heart</button>
+      <div class="emoji-categories-tabs" id="emoji-categories-tabs">
+        <!-- Categories will be injected here -->
       </div>
 
       <div class="emoji-picker-content">
         <div id="emoji-grid" class="emoji-grid"></div>
+      </div>
+
+      <!-- Variant Popup -->
+      <div id="emoji-variant-popup" class="emoji-variant-popup" style="display: none;">
+        <div class="emoji-variant-grid" id="emoji-variant-grid"></div>
       </div>
     </div>
   </div>
