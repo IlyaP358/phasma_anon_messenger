@@ -853,6 +853,15 @@ function loadHistory() {
                 hasMoreHistory = false;
                 loadMoreBtn.textContent = "No more messages";
                 setTimeout(() => loadMoreContainer.style.display = "none", 2000);
+
+                // FIX: Ensure SSE starts even if group is empty
+                if (!initialLoadDone) {
+                    initialLoadDone = true;
+                    if (!sseStarted) {
+                        sseStarted = true;
+                        startSSE();
+                    }
+                }
                 return;
             }
 
