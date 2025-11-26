@@ -1,22 +1,45 @@
 <!doctype html>
-<title>Login - phasma</title>
-<link rel="icon" type="image/png" href="/static/icon.png">
-<link rel="stylesheet" href="/static/css/login.css">
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Login - phasma</title>
+  <link rel="icon" type="image/png" href="/static/icon.png">
+  <link rel="stylesheet" href="/static/css/fluent.css">
+  <link rel="stylesheet" href="/static/css/login.css">
+</head>
 
 <body>
-  <div>
-    <img src="/static/phisma_title.png" alt="logo" class="logo">
+  <div class="login-wrapper">
+    <div class="login-card glass-panel">
+      <div class="logo-container">
+        <img src="/static/phisma_title.png" alt="phasma" class="logo">
+      </div>
+      <h2>Enter the chat</h2>
+
+      <div id="error-msg"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input name="user" id="username" class="fluent-input" required autocomplete="username"
+            placeholder="Enter your username" />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" name="password" id="password" class="fluent-input" required
+            autocomplete="current-password" placeholder="Enter your password" />
+        </div>
+        <div class="form-actions">
+          <input type="submit" value="Log in" id="submit-btn" class="fluent-btn primary full-width" />
+        </div>
+      </form>
+      <div class="auth-footer">
+        <p>Don't have an account? <a href="/register">Register</a></p>
+      </div>
+    </div>
   </div>
-  <h2>Enter the chat</h2>
-
-  <div id="error-msg"></div>
-
-  <form id="login-form">
-    <p>Username: <input name="user" id="username" required autocomplete="username" /></p>
-    <p>Password: <input type="password" name="password" id="password" required autocomplete="current-password" /></p>
-    <p><input type="submit" value="Log in" id="submit-btn" /></p>
-  </form>
-  <p>Don't have an account? <a href="/register">Register</a></p>
 
   <script nonce="{{ nonce }}" src="/static/js/login.js"></script>
 </body>

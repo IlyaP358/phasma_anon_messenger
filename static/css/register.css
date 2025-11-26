@@ -1,158 +1,172 @@
-  body {
-      max-width: 500px;
-      margin-top: 90px;
-      margin-left: 700px;
-      padding: 1em;
-      background: black;
-      color: #fff;
-      font: 16px/1.6 menlo, monospace;
-  }
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: radial-gradient(circle at top left, #1a2a3a, #0f0f0f);
+}
 
-  a {
-      color: #0ff;
-  }
+.register-wrapper {
+    width: 100%;
+    max-width: 450px;
+    padding: 20px;
+}
 
-  .logo {
-      position: absolute;
-      top: 5px;
-      left: 640px;
-      width: 290px;
-      height: auto;
-      z-index: -1;
-  }
+.register-card {
+    padding: 40px;
+    text-align: center;
+}
 
-  .error {
-      color: #f00;
-      background: rgba(255, 0, 0, 0.1);
-      border: 1px solid #f00;
-      padding: 0.8em;
-      margin: 1em 0;
-      border-radius: 2px;
-  }
+.logo-container {
+    margin-bottom: 20px;
+}
 
-  .success {
-      color: #0f0;
-      background: rgba(0, 255, 0, 0.1);
-      border: 1px solid #0f0;
-      padding: 0.8em;
-      margin: 1em 0;
-      border-radius: 2px;
-  }
+.logo {
+    max-width: 150px;
+    height: auto;
+}
 
-  .loading {
-      color: #0ff;
-      background: rgba(0, 255, 255, 0.1);
-      border: 1px solid #0ff;
-      padding: 0.8em;
-      margin: 1em 0;
-      border-radius: 2px;
-  }
+h2 {
+    margin: 0 0 30px;
+    font-weight: 600;
+    font-size: 24px;
+}
 
-  .requirements {
-      color: #888;
-      font-size: 12px;
-      margin-top: 0.5em;
-      line-height: 1.5;
-  }
+.form-group {
+    margin-bottom: 20px;
+    text-align: left;
+}
 
-  .requirement-met {
-      color: #0f0;
-  }
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
 
-  .requirement-unmet {
-      color: #f00;
-  }
+.requirements {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 5px;
+}
 
-  input[type="submit"] {
-      cursor: pointer;
-  }
+.form-actions {
+    margin-top: 30px;
+}
 
-  input[type="submit"]:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-  }
+.full-width {
+    width: 100%;
+}
 
-  /* Modal styles */
-  .modal {
-      display: none;
-      position: fixed;
-      z-index: 1000;
-      left: 0;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      overflow: auto;
-      background-color: rgba(0, 0, 0, 0.8);
-  }
+.auth-footer {
+    margin-top: 20px;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
 
-  .modal-content {
-      background-color: #000;
-      margin: 15% auto;
-      padding: 20px;
-      border: 1px solid #0ff;
-      width: 320px;
-      text-align: center;
-      border-radius: 5px;
-      box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
-  }
+.auth-footer a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
 
-  .close {
-      color: #0ff;
-      float: right;
-      font-size: 28px;
-      font-weight: bold;
-      cursor: pointer;
-  }
+.auth-footer a:hover {
+    text-decoration: underline;
+}
 
-  .close:hover {
-      color: #fff;
-  }
+#message-box {
+    margin-bottom: 20px;
+    min-height: 20px;
+}
 
-  .captcha-container {
-      margin: 15px 0;
-      background: #fff;
-      /* Captcha images usually have white bg */
-      padding: 5px;
-      border-radius: 3px;
-  }
+.error-msg {
+    color: var(--danger-color);
+}
 
-  .captcha-input {
-      width: 100%;
-      padding: 8px;
-      margin: 10px 0;
-      background: #222;
-      border: 1px solid #444;
-      color: #fff;
-      text-align: center;
-      font-size: 18px;
-      letter-spacing: 2px;
-  }
+.success-msg {
+    color: #4caf50;
+}
 
-  .btn-secondary {
-      background: transparent;
-      border: 1px solid #666;
-      color: #aaa;
-      padding: 5px 10px;
-      cursor: pointer;
-      font-size: 12px;
-  }
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+}
 
-  .btn-secondary:hover {
-      border-color: #fff;
-      color: #fff;
-  }
+.modal-content {
+    background-color: #1e1e1e;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #333;
+    width: 300px;
+    border-radius: 12px;
+    text-align: center;
+    position: relative;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
 
-  .btn-primary {
-      background: #0ff;
-      color: #000;
-      border: none;
-      padding: 10px 20px;
-      cursor: pointer;
-      font-weight: bold;
-      width: 100%;
-      margin-top: 10px;
-  }
+.close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
 
-  .btn-primary:hover {
-      background: #fff;
-  }
+.close:hover,
+.close:focus {
+    color: #fff;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.captcha-container {
+    background: #fff;
+    padding: 10px;
+    margin: 15px 0;
+    border-radius: 4px;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.captcha-input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 4px;
+    border: 1px solid #444;
+    background: #222;
+    color: #fff;
+}
+
+.btn-secondary {
+    background: #333;
+    color: #fff;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+
+.btn-primary {
+    background: var(--primary-color);
+    color: #000;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    width: 100%;
+    margin-top: 10px;
+}

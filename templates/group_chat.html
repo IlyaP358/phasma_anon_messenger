@@ -3,10 +3,11 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Group Chat - phasma</title>
   <link rel="icon" type="image/png" href="/static/icon.png">
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <link rel="stylesheet" href="/static/css/fluent.css">
   <link rel="stylesheet" href="/static/css/group_chat.css">
 </head>
 
@@ -66,12 +67,14 @@
 
     <div class="chat-main">
       <div class="chat-header">
+        <button id="btn-toggle-groups" class="input-button mobile-only" style="margin-right: 10px;">☰</button>
         <div class="chat-header-left">
           <h3 id="group-name">Loading...</h3>
           <div class="chat-user-badge">Logged as:
             <span id="chat-user">...</span>
           </div>
         </div>
+        <button id="btn-toggle-members" class="input-button">👥</button>
       </div>
 
       <div id="out">

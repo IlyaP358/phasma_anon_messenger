@@ -1,0 +1,414 @@
+:root {
+    /* Telegram Dark Palette */
+    --bg-color: #17212b;
+    --surface-color: #242f3d;
+    --surface-hover: #2c3847;
+    --surface-active: #2b5278;
+    --primary-color: #5288c1;
+    --primary-hover: #4576a8;
+    --primary-color-rgb: 82, 136, 193;
+    --secondary-color: #64b5f6;
+    --text-primary: #f5f5f5;
+    --text-secondary: #7f91a4;
+    --text-muted: #5d6c7e;
+    --border-color: #0e1621;
+    --danger-color: #ff595a;
+    --success-color: #4caf50;
+
+    /* Message Bubbles */
+    --msg-out-bg: #2b5278;
+    --msg-in-bg: #182533;
+
+    /* Glassmorphism */
+    --glass-bg: rgba(36, 47, 61, 0.85);
+    --glass-border: 1px solid rgba(255, 255, 255, 0.05);
+    --glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --blur-amount: 20px;
+
+    /* Spacing & Radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Glass Panel Utility */
+.glass-panel {
+    background: rgba(36, 47, 61, 0.7);
+    backdrop-filter: blur(var(--blur-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount));
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    border-radius: var(--radius-md);
+}
+
+/* Enhanced Button Styles */
+button {
+    font-family: inherit;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.fluent-btn,
+.btn,
+button.btn-primary,
+button.btn-secondary,
+button.btn-danger,
+.modal-btn,
+.input-button,
+.session-button,
+.btn-terminate-all {
+    background: var(--primary-color);
+    border: none;
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 14px;
+    font-weight: 500;
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    /* Touch-friendly */
+}
+
+.fluent-btn::before,
+.btn::before,
+.modal-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.fluent-btn:hover::before,
+.btn:hover::before,
+.modal-btn:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+.fluent-btn:hover,
+.btn:hover,
+.btn-primary:hover {
+    background: var(--primary-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(var(--primary-color-rgb), 0.4);
+}
+
+.fluent-btn:active,
+.btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(var(--primary-color-rgb), 0.3);
+}
+
+/* Secondary Button */
+.fluent-btn.secondary,
+.btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.fluent-btn.secondary:hover,
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Danger Button */
+.btn-danger,
+.modal-btn-confirm {
+    background: var(--danger-color);
+    color: #fff;
+}
+
+.btn-danger:hover,
+.modal-btn-confirm:hover {
+    background: #ff3d3e;
+    box-shadow: 0 8px 24px rgba(255, 89, 90, 0.4);
+}
+
+/* Cancel Button */
+.modal-btn-cancel {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.modal-btn-cancel:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--text-secondary);
+}
+
+/* Session Buttons */
+.session-button {
+    width: 100%;
+    padding: 8px 16px;
+    font-size: 12px;
+    background: var(--danger-color);
+    min-height: 36px;
+}
+
+.session-button.current-badge {
+    background: var(--success-color);
+    color: #fff;
+}
+
+.btn-terminate-all {
+    width: 100%;
+    background: rgba(255, 89, 90, 0.2);
+    border: 1px solid var(--danger-color);
+    color: var(--danger-color);
+    font-weight: 600;
+}
+
+.btn-terminate-all:hover {
+    background: var(--danger-color);
+    color: #fff;
+}
+
+/* Input Buttons (Chat) */
+.input-button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 50%;
+    min-height: unset;
+}
+
+.input-button:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--primary-color);
+    transform: scale(1.1);
+}
+
+#send-btn {
+    color: var(--primary-color);
+}
+
+#send-btn:hover {
+    color: #fff;
+    background: var(--primary-color);
+}
+
+/* Menu Items */
+.menu-item {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    padding: 12px 16px;
+    text-align: left;
+    width: 100%;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+}
+
+.menu-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.menu-item.menu-exit {
+    color: var(--danger-color);
+    border-top: 1px solid var(--border-color);
+}
+
+.menu-item.menu-exit:hover {
+    background: rgba(255, 89, 90, 0.1);
+}
+
+/* Input Fields */
+.fluent-input,
+input[type="text"],
+input[type="password"],
+input[type="number"] {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 12px;
+    border-radius: var(--radius-md);
+    width: 100%;
+    outline: none;
+    transition: all 0.3s;
+    font-size: 14px;
+}
+
+.fluent-input:focus,
+input:focus {
+    border-color: var(--primary-color);
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.1);
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(-100%);
+    }
+
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+    }
+
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -1000px 0;
+    }
+
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease;
+}
+
+.slide-in {
+    animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-in-right {
+    animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.scale-in {
+    animation: scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Loading Spinner */
+.spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Ripple Effect */
+.ripple {
+    position: relative;
+    overflow: hidden;
+}
+
+.ripple::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.ripple:active::after {
+    width: 300px;
+    height: 300px;
+}
+
+/* Touch Feedback */
+@media (hover: none) {
+
+    .fluent-btn:active,
+    .btn:active,
+    .menu-item:active {
+        background: var(--surface-hover);
+        transform: scale(0.98);
+    }
+}

@@ -109,11 +109,52 @@ emojiCloseBtn.addEventListener('click', () => {
     emojiSearch.value = '';
 });
 
+// ========== MOBILE SIDEBAR TOGGLES ==========
+const btnToggleGroups = document.getElementById('btn-toggle-groups');
+const btnToggleMembers = document.getElementById('btn-toggle-members');
+const groupsSidebar = document.querySelector('.groups-sidebar');
+const membersSidebar = document.querySelector('.members-sidebar');
+
+if (btnToggleGroups && groupsSidebar) {
+    btnToggleGroups.addEventListener('click', (e) => {
+        e.stopPropagation();
+        groupsSidebar.classList.toggle('active');
+        // Close members sidebar on mobile
+        if (window.innerWidth <= 900 && membersSidebar) {
+            membersSidebar.classList.remove('active');
+        }
+    });
+}
+
+if (btnToggleMembers && membersSidebar) {
+    btnToggleMembers.addEventListener('click', (e) => {
+        e.stopPropagation();
+        membersSidebar.classList.toggle('active');
+        // Close groups sidebar on mobile
+        if (window.innerWidth <= 900 && groupsSidebar) {
+            groupsSidebar.classList.remove('active');
+        }
+    });
+}
+
 // Close modal when clicking outside
 document.addEventListener('click', (e) => {
+    // Close emoji modal
     if (!emojiModal.contains(e.target) && e.target !== emojiBtn && !variantPopup.contains(e.target)) {
         emojiModal.classList.remove('active');
         variantPopup.style.display = 'none';
+    }
+
+    // Close sidebars on mobile when clicking outside
+    if (window.innerWidth <= 900) {
+        if (groupsSidebar && groupsSidebar.classList.contains('active') &&
+            !groupsSidebar.contains(e.target) && e.target !== btnToggleGroups) {
+            groupsSidebar.classList.remove('active');
+        }
+        if (membersSidebar && membersSidebar.classList.contains('active') &&
+            !membersSidebar.contains(e.target) && e.target !== btnToggleMembers) {
+            membersSidebar.classList.remove('active');
+        }
     }
 });
 

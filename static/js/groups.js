@@ -595,3 +595,23 @@ function urlBase64ToUint8Array(base64String) {
     }
     return outputArray;
 }
+// Sidebar Toggle
+const btnToggleSessions = document.getElementById('btn-toggle-sessions');
+const sessionsSidebar = document.querySelector('.sessions-sidebar');
+
+if (btnToggleSessions) {
+    btnToggleSessions.addEventListener('click', (e) => {
+        e.stopPropagation();
+        sessionsSidebar.classList.toggle('active');
+    });
+}
+
+document.addEventListener('click', (e) => {
+    if (window.innerWidth <= 768) {
+        if (sessionsSidebar && sessionsSidebar.classList.contains('active') &&
+            !sessionsSidebar.contains(e.target) &&
+            e.target !== btnToggleSessions) {
+            sessionsSidebar.classList.remove('active');
+        }
+    }
+});
