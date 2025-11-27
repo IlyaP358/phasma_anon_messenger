@@ -130,12 +130,17 @@ body {
     border-radius: var(--radius-lg);
     margin-bottom: 20px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    position: relative;
+    z-index: 50;
 }
 
 .user-info {
     display: flex;
     align-items: center;
     gap: 12px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
 }
 
 .header-avatar {
@@ -151,27 +156,44 @@ body {
     color: var(--text-primary);
 }
 
-#btn-menu {
+.settings-menu-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.btn-menu {
     background: transparent;
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    padding: 8px 12px;
+    padding: 8px;
+    width: 40px;
+    height: 40px;
     border-radius: var(--radius-md);
     cursor: pointer;
     font-size: 20px;
     transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-#btn-menu:hover {
+.btn-menu:hover {
     background: rgba(255, 255, 255, 0.05);
     border-color: var(--primary-color);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.mobile-only {
+    display: none;
 }
 
 .user-menu-dropdown {
     display: none;
     position: absolute;
     top: 100%;
-    right: 0;
+    left: 0;
+    right: auto;
     margin-top: 8px;
     background: rgba(30, 30, 30, 0.95);
     backdrop-filter: blur(20px);
@@ -179,7 +201,7 @@ body {
     border-radius: var(--radius-md);
     min-width: 200px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    z-index: 200;
+    z-index: 1001;
 }
 
 .user-menu-dropdown.active {
@@ -310,6 +332,16 @@ h1 {
 .group-info {
     font-size: 12px;
     color: var(--text-secondary);
+}
+
+.group-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.group-buttons .btn {
+    flex: 1;
 }
 
 /* FIXED: Unread badge */
@@ -495,6 +527,10 @@ input:focus {
 }
 
 @media (max-width: 1200px) {
+    .mobile-only {
+        display: flex;
+    }
+
     .sessions-sidebar {
         transform: translateX(100%);
     }

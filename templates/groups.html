@@ -26,24 +26,27 @@
 
   <div class="main-container">
     <div class="top-bar">
-      <button id="btn-toggle-sessions" class="btn-menu mobile-only" style="margin-right: 10px;">☰</button>
+      <div class="settings-menu-container">
+        <button class="btn btn-menu" id="btn-menu">⋮</button>
+        <div id="user-menu-dropdown" class="user-menu-dropdown">
+          <button class="menu-item" id="menu-enable-notifications">
+            <span class="menu-icon">🔔</span> Enable Notifications
+          </button>
+          <button class="menu-item" id="menu-profile-settings">
+            <span class="menu-icon">👤</span> Profile Settings
+          </button>
+          <button class="menu-item menu-exit" id="menu-exit">
+            <span class="menu-icon">🚪</span> Exit
+          </button>
+        </div>
+      </div>
+
       <div class="user-info">
         <img id="header-avatar" src="/static/unknown_user_phasma_icon.png" alt="Avatar" class="header-avatar">
         <span id="current-user">Loading...</span>
       </div>
-      <button class="btn btn-menu" id="btn-menu">⋮</button>
 
-      <div id="user-menu-dropdown" class="user-menu-dropdown">
-        <button class="menu-item" id="menu-enable-notifications">
-          <span class="menu-icon">🔔</span> Enable Notifications
-        </button>
-        <button class="menu-item" id="menu-profile-settings">
-          <span class="menu-icon">👤</span> Profile Settings
-        </button>
-        <button class="menu-item menu-exit" id="menu-exit">
-          <span class="menu-icon">🚪</span> Exit
-        </button>
-      </div>
+      <button id="btn-toggle-sessions" class="btn-menu mobile-only">☰</button>
     </div>
 
     <h1>💬 phasma groups</h1>

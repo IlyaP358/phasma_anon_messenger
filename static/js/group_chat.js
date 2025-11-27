@@ -499,6 +499,52 @@ function setupChat() {
             window.location.href = '/groups';
         });
     }
+
+    // Leave button
+    const btnLeave = document.getElementById('leave-btn');
+    const leaveModal = document.getElementById('leave-modal');
+    const btnCancelLeave = document.getElementById('btn-cancel-leave');
+    const btnConfirmLeave = document.getElementById('btn-confirm-leave');
+
+    if (btnLeave && leaveModal) {
+        btnLeave.addEventListener('click', () => {
+            leaveModal.classList.add('active');
+        });
+
+        btnCancelLeave.addEventListener('click', () => {
+            leaveModal.classList.remove('active');
+        });
+
+        btnConfirmLeave.addEventListener('click', () => {
+            // Call API to leave group
+            fetch(`/api/groups/${GROUP_ID}/leave`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+                credentials: 'include'
+            }).then(response => {
+                if (response.ok) {
+                    isUnloading = true;
+                    clearInterval(MEMBERS_UPDATE_INTERVAL);
+                    clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+                    window.location.href = "/groups";
+                } else {
+                    showNotification("Failed to leave group", 3000, true);
+                    leaveModal.classList.remove('active');
+                }
+            }).catch(err => {
+                console.error("Error leaving group:", err);
+                showNotification("Error leaving group", 3000, true);
+                leaveModal.classList.remove('active');
+            });
+        });
+
+        // Close on outside click
+        leaveModal.addEventListener('click', (e) => {
+            if (e.target === leaveModal) {
+                leaveModal.classList.remove('active');
+            }
+        });
+    }
 }
 
 // ========== GROUPS SIDEBAR ==========
@@ -542,7 +588,7 @@ function renderGroups(groups) {
             badgeHtml = `<span class="unread-badge">${countText}</span>`;
         }
 
-        const deleteBtnHtml = isCreator ? `<button class="btn-delete-group" data-group-id="${group.id}">Delete</button>` : '';
+        const deleteBtnHtml = isCreator ? `<button class="btn-delete-group fluent-btn secondary" style="font-size:10px; padding:4px 8px; min-height:24px;" data-group-id="${group.id}">Delete</button>` : '';
 
         html += `<div class="group-item${activeClass}" data-group-id="${group.id}">
           <div class="group-name">
@@ -1506,31 +1552,7 @@ document.addEventListener('drop', (e) => {
     const file = files[0];
     processFileUpload(file, 'drag-drop');
 });
-// ========== LEAVE GROUP ==========
-document.getElementById("leave-btn").addEventListener('click', function () {
-    if (confirm("Warning: If you leave this group, it will be removed from your personal account. Are you sure?")) {
-        isUnloading = true;
-        fetch(`/api/groups/${GROUP_ID}/leave`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-            credentials: 'include'
-        }).then(response => {
-            if (response.ok) {
-                clearInterval(MEMBERS_UPDATE_INTERVAL);
-                clearInterval(ONLINE_HEARTBEAT_INTERVAL);
-                alert("You have left the group.");
-                window.location.href = "/groups";
-            } else {
-                alert("Failed to leave group.");
-                isUnloading = false;
-            }
-        }).catch(err => {
-            console.error("Leave group error:", err);
-            alert("An error occurred.");
-            isUnloading = false;
-        });
-    }
-});
+
 
 window.addEventListener('beforeunload', function () {
     if (!isUnloading) {

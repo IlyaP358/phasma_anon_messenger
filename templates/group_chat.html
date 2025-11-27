@@ -53,8 +53,24 @@
       </div>
     </div>
   </div>
+  </div>
 
-  <button id="leave-btn">← Leave Group</button>
+  <div id="leave-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-title">⚠️ Leave Group</div>
+      <div class="modal-message">
+        <p style="color: #ccc; margin-bottom: 1em;">
+          Warning: If you leave this group, it will be removed from your personal account. Are you sure?
+        </p>
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-cancel" id="btn-cancel-leave">Cancel</button>
+        <button class="modal-btn modal-btn-confirm" id="btn-confirm-leave">Leave Group</button>
+      </div>
+    </div>
+  </div>
+
+
 
   <div class="chat-wrapper">
     <div class="groups-sidebar">
@@ -116,6 +132,7 @@
     <div class="members-sidebar">
       <div class="members-header">
         Members <span class="members-count" id="members-count">(0)</span>
+        <button id="leave-btn">Leave Group</button>
       </div>
       <div id="members-list"></div>
     </div>
