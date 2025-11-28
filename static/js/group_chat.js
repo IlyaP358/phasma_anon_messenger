@@ -1270,18 +1270,10 @@ function startSSE() {
                         const msgElement = createMessageElement(data, msgId);
                         messagesContainer.appendChild(msgElement);
 
-                        // Play notification sound if message is not from current user
-                        const timeMatch = data.match(/^\[(\d+)\]\s+/);
-                        if (timeMatch) {
-                            const afterTime = data.substring(timeMatch[0].length);
-                            const userMatch = afterTime.match(/^([^:]+):\s*/);
-                            if (userMatch) {
-                                const msgUsername = userMatch[1];
-                                if (msgUsername !== CURRENT_USER) {
-                                    const audio = new Audio('/static/phasma_notification_sound.mp3');
-                                    audio.play().catch(e => console.log('Audio play failed:', e));
-                                }
-                            }
+                        // Play notification sound if message is not from current user and window is not focused
+                        if (parsed && parsed.username !== CURRENT_USER && !document.hasFocus()) {
+                            const audio = new Audio('/static/phasma_notification_sound.mp3');
+                            audio.play().catch(e => console.log('Audio play failed:', e));
                         }
 
                         const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
@@ -1570,6 +1562,13 @@ window.addEventListener('beforeunload', function () {
     if (!isUnloading) {
         clearInterval(MEMBERS_UPDATE_INTERVAL);
         clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+
+        // Mark all messages as read before leaving
+        try {
+            navigator.sendBeacon(`/api/groups/${GROUP_ID}/mark-read`, new Blob([JSON.stringify({})], { type: 'application/json' }));
+        } catch (e) {
+            console.warn('[Unload] Failed to mark as read:', e);
+        }
     }
 });
 // ========== INITIALIZATION ==========

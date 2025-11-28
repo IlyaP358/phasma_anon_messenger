@@ -3158,6 +3158,37 @@ def api_leave_group(group_id: int):
     
     return jsonify({"success": True, "message": "Left the group"}), 200
 
+@app.route("/api/groups/<int:group_id>/mark-read", methods=["POST"])
+@limiter.limit("60 per minute")
+def api_mark_group_read(group_id: int):
+    """Mark all messages in group as read (update last_read_at)"""
+    token = extract_token_from_request()
+    session = verify_group_session(token)
+    
+    if not session:
+        return abort(401)
+    
+    if session['group_id'] != group_id:
+        return abort(403)
+    
+    username = session['username']
+    
+    if not is_user_in_group(username, group_id):
+        return abort(403)
+    
+    try:
+        member = GroupMember.query.filter_by(group_id=group_id, username=username).first()
+        if member:
+            member.last_read_at = datetime.datetime.utcnow()
+            db.session.commit()
+            print(f"[OK] Marked group {group_id} as read for {username}")
+        
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        print(f"[ERROR] Failed to mark group as read: {e}")
+        db.session.rollback()
+        return jsonify({"error": "Failed to mark as read"}), 500
+
 @app.route("/api/groups/<int:group_id>/delete", methods=["POST"])
 @limiter.limit("5 per hour")
 def api_delete_group(group_id: int):
@@ -4512,4 +4543,4 @@ if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])
+    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])
