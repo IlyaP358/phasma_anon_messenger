@@ -870,10 +870,20 @@ function executeDeleteMessage(messageId) {
 
 // ========== MESSAGE PARSING & RENDERING ==========
 function parseMessageData(data) {
-    const timeMatch = data.match(/^\[(\d+)\]\s+/);
+    let messageId = null;
+    let afterId = data;
+
+    // Try to extract ID first
+    const idMatch = data.match(/^\[ID:(\d+)\]/);
+    if (idMatch) {
+        messageId = parseInt(idMatch[1], 10);
+        afterId = data.substring(idMatch[0].length);
+    }
+
+    const timeMatch = afterId.match(/^\[(\d+)\]\s+/);
     if (!timeMatch) return null;
     const timestamp = parseInt(timeMatch[1], 10);
-    const afterTime = data.substring(timeMatch[0].length);
+    const afterTime = afterId.substring(timeMatch[0].length);
 
     const userMatch = afterTime.match(/^([^:]+):\s*/);
     if (!userMatch) return null;
@@ -893,7 +903,7 @@ function parseMessageData(data) {
         }
     }
 
-    return { timestamp, username, content, urls };
+    return { id: messageId, timestamp, username, content, urls };
 }
 
 function createURLPreviewCard(url, preview) {
@@ -1255,7 +1265,9 @@ function startSSE() {
                             return;
                         }
 
-                        const msgElement = createMessageElement(data, Date.now() + Math.random());
+                        const parsed = parseMessageData(data);
+                        const msgId = (parsed && parsed.id) ? parsed.id : (Date.now() + Math.random());
+                        const msgElement = createMessageElement(data, msgId);
                         messagesContainer.appendChild(msgElement);
 
                         // Play notification sound if message is not from current user

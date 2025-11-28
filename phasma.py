@@ -2592,10 +2592,10 @@ def format_message_for_sse(msg: Message) -> str:
             if file_record:
                 signed_data = generate_signed_file_url(file_record.file_token)
                 file_url = f"/file/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
-                return f"[{ts}] {msg.username}: [PHOTO:{file_id}:{file_url}]"
+                return f"[ID:{msg.id}][{ts}] {msg.username}: [PHOTO:{file_id}:{file_url}]"
             else:
-                return f"[{ts}] {msg.username}: [PHOTO:{file_id}]"
-        return f"[{ts}] {msg.username}: [PHOTO]"
+                return f"[ID:{msg.id}][{ts}] {msg.username}: [PHOTO:{file_id}]"
+        return f"[ID:{msg.id}][{ts}] {msg.username}: [PHOTO]"
     
     elif msg.message_type == 'file':
         plain = msg.get_plain()
@@ -2609,22 +2609,22 @@ def format_message_for_sse(msg: Message) -> str:
                 category = plain.get('category', 'file')
                 
                 if category == 'audio':
-                    return f"[{ts}] {msg.username}: [AUDIO:{file_id}:{file_url}]"
+                    return f"[ID:{msg.id}][{ts}] {msg.username}: [AUDIO:{file_id}:{file_url}]"
                 elif category == 'video':
-                    return f"[{ts}] {msg.username}: [VIDEO:{file_id}:{file_url}]"
+                    return f"[ID:{msg.id}][{ts}] {msg.username}: [VIDEO:{file_id}:{file_url}]"
                 else:
                     filename = plain.get('filename', 'file')
-                    return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_url}]"
+                    return f"[ID:{msg.id}][{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_url}]"
             else:
                 category = plain.get('category', 'file')
                 if category == 'audio':
-                    return f"[{ts}] {msg.username}: [AUDIO:{file_id}]"
+                    return f"[ID:{msg.id}][{ts}] {msg.username}: [AUDIO:{file_id}]"
                 elif category == 'video':
-                    return f"[{ts}] {msg.username}: [VIDEO:{file_id}]"
+                    return f"[ID:{msg.id}][{ts}] {msg.username}: [VIDEO:{file_id}]"
                 else:
                     filename = plain.get('filename', 'file')
-                    return f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
-        return f"[{ts}] {msg.username}: [FILE]"
+                    return f"[ID:{msg.id}][{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}]"
+        return f"[ID:{msg.id}][{ts}] {msg.username}: [FILE]"
 
 # ===============================================================
 # ---- DELETE MESSAGE FUNCTION ----
@@ -3790,7 +3790,7 @@ def save_message_to_group(username: str, group_id: int, content: str):
     
     # Publish to Redis для этой группы
     ts = msg.format_time()
-    message_text = f"[{ts}] {username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
+    message_text = f"[ID:{msg.id}][{ts}] {username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
     r.publish(f"chat:group:{group_id}", message_text.encode("utf-8"))
     
     # ---- PUSH NOTIFICATIONS ----
@@ -4512,4 +4512,4 @@ if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])
+    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])
