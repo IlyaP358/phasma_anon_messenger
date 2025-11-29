@@ -70,7 +70,29 @@
     </div>
   </div>
 
-
+  <div id="invite-modal" class="modal-overlay">
+    <div class="modal-dialog" style="text-align: center;">
+      <div class="modal-title">Invite to Group</div>
+      <div class="modal-message">
+        <div id="invite-loading" class="loading">Generating invite...</div>
+        <div id="invite-content" style="display: none;">
+          <img id="invite-qr" src="" alt="QR Code"
+            style="width: 200px; height: 200px; margin: 10px auto; display: block; border: 5px solid white; border-radius: 10px;">
+          <div style="margin-top: 15px;">
+            <input type="text" id="invite-link" readonly
+              style="width: 100%; padding: 8px; background: #222; border: 1px solid #333; color: #fff; border-radius: 4px; text-align: center;">
+            <button class="modal-btn modal-btn-confirm" id="btn-copy-invite" style="margin-top: 10px; width: 100%;">Copy
+              Link</button>
+          </div>
+          <p style="color: #888; font-size: 12px; margin-top: 10px;">Link expires in 1 hour</p>
+        </div>
+        <div id="invite-error" class="error"></div>
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-cancel" id="btn-close-invite">Close</button>
+      </div>
+    </div>
+  </div>
 
   <div class="chat-wrapper">
     <div class="groups-sidebar">
@@ -132,6 +154,9 @@
     <div class="members-sidebar">
       <div class="members-header">
         Members <span class="members-count" id="members-count">(0)</span>
+        <button id="invite-btn"
+          style="display: none; margin-right: 5px; background: #0078d4; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">+
+          Invite</button>
         <button id="leave-btn">Leave Group</button>
       </div>
       <div id="members-list"></div>
@@ -165,6 +190,7 @@
     const TEMPLATE_USER = {{ user| tojson }};
     const TEMPLATE_GROUP_TOKEN = {{ auth_token| tojson }};
     const GROUP_NAME = {{ group_name| tojson }};
+    const GROUP_TYPE = {{ group_type| tojson }};
   </script>
   <audio id="notification-sound" src="/static/phasma_notification_sound.mp3" preload="auto"></audio>
   <script nonce="{{ nonce }}" src="/static/js/group_chat.js"></script>

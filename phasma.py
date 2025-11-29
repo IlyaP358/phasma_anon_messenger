@@ -37,6 +37,10 @@ from pikepdf import Pdf
 from user_agents import parse as parse_user_agent
 from pywebpush import webpush, WebPushException
 from flask_session_captcha import FlaskSessionCaptcha
+from flask_qrcode import QRcode
+import qrcode
+from io import BytesIO
+import base64
 
 # ===============================================================
 # ---- PRODUCTION vs DEVELOPMENT MODE ----
@@ -69,6 +73,7 @@ app.config["CAPTCHA_WIDTH"] = 160
 app.config["CAPTCHA_HEIGHT"] = 60
 app.config['CAPTCHA_SESSION_KEY'] = 'captcha_image'
 captcha = FlaskSessionCaptcha(app)
+QRcode(app)
 
 # ===============================================================
 # ---- Disable Flask/Werkzeug logging ----
@@ -434,12 +439,13 @@ class URLPreview(db.Model):
 class Group(db.Model):
     """Модель группы (чата)"""
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)  # Название группы
-    group_code = db.Column(db.String(8), unique=True, nullable=False, index=True)  # Уникальный 8-значный код
-    creator = db.Column(db.String(100), nullable=False, index=True)  # Username создателя
-    password_hash = db.Column(db.String(256), nullable=False)  # Хеш пароля входа
-    root_password_hash = db.Column(db.String(256), nullable=False)  # Хеш рут-пароля
-    max_members = db.Column(db.Integer, default=100)  # Максимум участников
+    name = db.Column(db.String(100), nullable=False)
+    group_code = db.Column(db.String(8), unique=True, nullable=False, index=True)
+    creator = db.Column(db.String(100), nullable=False, index=True)
+    password_hash = db.Column(db.String(256), nullable=False)
+    root_password_hash = db.Column(db.String(256), nullable=False)
+    max_members = db.Column(db.Integer, default=100)
+    group_type = db.Column(db.String(20), default='public', nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
     
     def format_time(self):
@@ -2127,6 +2133,82 @@ def save_file(username: str, file_obj) -> tuple or None:
         print(f"[ERROR] Failed to save file: {e}")
         return None
 
+# ===============================================================
+# ---- Invite Token Helpers ----
+# ===============================================================
+INVITE_SECRET = None
+INVITE_TTL = 3600 # 1 hour
+
+def get_or_create_invite_secret():
+    global INVITE_SECRET
+    if INVITE_SECRET:
+        return INVITE_SECRET
+    
+    with app.app_context():
+        secret = get_secret_decrypted("INVITE_SECRET")
+        if not secret:
+            secret = secrets.token_urlsafe(32)
+            set_secret_encrypted("INVITE_SECRET", secret)
+            print("[INFO] Generated new INVITE_SECRET")
+        INVITE_SECRET = secret
+        return secret
+
+def generate_invite_token(group_id: int) -> str:
+    secret = get_or_create_invite_secret()
+    expiration = int(time.time()) + INVITE_TTL
+    
+    # Payload: group_id:expiration
+    payload = f"{group_id}:{expiration}"
+    signature = hmac.new(
+        secret.encode('utf-8'),
+        payload.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Token format: group_id.expiration.signature (base64 encoded parts to be safe)
+    # Actually simpler: base64(payload).signature
+    import base64
+    payload_b64 = base64.urlsafe_b64encode(payload.encode('utf-8')).decode('utf-8').rstrip('=')
+    
+    return f"{payload_b64}.{signature}"
+
+def verify_invite_token(token: str) -> int or None:
+    """Returns group_id if valid, None otherwise"""
+    try:
+        if not token or '.' not in token:
+            return None
+            
+        payload_b64, signature = token.rsplit('.', 1)
+        
+        import base64
+        # Add padding back if needed
+        padding = '=' * (-len(payload_b64) % 4)
+        payload = base64.urlsafe_b64decode(payload_b64 + padding).decode('utf-8')
+        
+        group_id_str, expiration_str = payload.split(':')
+        group_id = int(group_id_str)
+        expiration = int(expiration_str)
+        
+        if time.time() > expiration:
+            print(f"[WARN] Invite token expired for group {group_id}")
+            return None
+            
+        secret = get_or_create_invite_secret()
+        expected_signature = hmac.new(
+            secret.encode('utf-8'),
+            payload.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        if not hmac.compare_digest(signature, expected_signature):
+            print(f"[WARN] Invalid invite signature")
+            return None
+            
+        return group_id
+    except Exception as e:
+        print(f"[ERROR] Invite verification failed: {e}")
+        return None
+
 def load_file_by_token(file_token: str) -> tuple or None:
     """Load and decrypt file by token"""
     try:
@@ -2968,6 +3050,7 @@ def api_create_group():
     password = data.get("password", "").strip()
     root_password = data.get("root_password", "").strip()
     max_members = data.get("max_members", 100)
+    group_type = data.get("group_type", "public") # public, private
     
     # Валидация
     if not group_name or len(group_name) < 3 or len(group_name) > 50:
@@ -2984,6 +3067,9 @@ def api_create_group():
     
     if not isinstance(max_members, int) or max_members < 2 or max_members > 1000:
         return jsonify({"error": "Max members must be 2-1000"}), 400
+        
+    if group_type not in ('public', 'private'):
+        return jsonify({"error": "Invalid group type"}), 400
     
     try:
         # Генерируешь уникальный код
@@ -3000,7 +3086,8 @@ def api_create_group():
             creator=username,
             password_hash=password_hash,
             root_password_hash=root_password_hash,
-            max_members=max_members
+            max_members=max_members,
+            group_type=group_type
         )
         db.session.add(group)
         db.session.flush()  # Чтобы получить ID
@@ -3107,7 +3194,109 @@ def api_join_group():
     except Exception as e:
         print(f"[ERROR] Failed to join group: {e}")
         return jsonify({"error": "Failed to join group"}), 500
+    except Exception as e:
+        print(f"[ERROR] Failed to join group: {e}")
+        return jsonify({"error": "Failed to join group"}), 500
 
+@app.route("/api/groups/<int:group_id>/invite", methods=["GET"])
+@limiter.limit("10 per minute")
+def api_generate_invite(group_id: int):
+    """Generate invite link and QR code"""
+    token = extract_token_from_request()
+    session = verify_group_session(token)
+    
+    if not session:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    if session['group_id'] != group_id:
+        return jsonify({"error": "Invalid group"}), 403
+        
+    # Check if group is public
+    group = Group.query.get(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+        
+    if group.group_type != 'public':
+        return jsonify({"error": "Invites are only available for public groups"}), 403
+        
+    invite_token = generate_invite_token(group_id)
+    invite_url = f"{request.host_url}invite/{invite_token}"
+    
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H, # High error correction for logo
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(invite_url)
+    qr.make(fit=True)
+    
+    img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+    
+    # Add Logo
+    try:
+        logo_path = os.path.join(app.static_folder, 'phasma_logo.png')
+        if os.path.exists(logo_path):
+            logo = Image.open(logo_path)
+            
+            # Calculate logo size (e.g., 20% of QR code size)
+            qr_width, qr_height = img.size
+            logo_size = int(qr_width * 0.2)
+            logo = logo.resize((logo_size, logo_size), Image.LANCZOS)
+            
+            # Calculate position to center the logo
+            pos = ((qr_width - logo_size) // 2, (qr_height - logo_size) // 2)
+            
+            # Paste logo
+            img.paste(logo, pos)
+            print("[INFO] Embedded logo in QR code")
+    except Exception as e:
+        print(f"[WARN] Failed to embed logo in QR code: {e}")
+    
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    qr_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+    
+    return jsonify({
+        "invite_url": invite_url,
+        "qr_code": f"data:image/png;base64,{qr_base64}",
+        "expires_in": INVITE_TTL
+    })
+
+@app.route("/invite/<token>", methods=["GET"])
+def join_via_invite(token):
+    """Handle joining via invite link"""
+    # Check if user is logged in
+    if 'username' not in session:
+        # Store invite token in session to handle after login? 
+        # For now, just redirect to login with message
+        return redirect("/login?next=" + request.url)
+        
+    username = session['username']
+    group_id = verify_invite_token(token)
+    
+    if not group_id:
+        return "Invalid or expired invite link", 400
+        
+    group = Group.query.get(group_id)
+    if not group:
+        return "Group not found", 404
+        
+    # Check if already member
+    if is_user_in_group(username, group_id):
+        return redirect(f"/group/{group_id}/chat")
+        
+    # Check max members
+    if get_group_members_count(group_id) >= group.max_members:
+        return "Group is full", 403
+        
+    # Add to group
+    success = add_user_to_group(group_id, username, 'member')
+    if success:
+        print(f"[OK] User {username} joined group {group_id} via invite")
+        return redirect(f"/group/{group_id}/chat")
+    else:
+        return "Failed to join group", 500
 @app.route("/api/groups/<int:group_id>/info", methods=["GET"])
 @limiter.limit("30 per minute")
 def api_group_info(group_id: int):
@@ -3387,6 +3576,7 @@ def group_chat(group_id: int):
         user=username, 
         group_id=group_id,
         group_name=group_name,
+        group_type=group.group_type,
         nonce=nonce
     ))
     
@@ -4543,4 +4733,4 @@ if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
-    app.run(host="127.0.0.1", port=5000, debug=app.config["DEBUG"])
+    app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])

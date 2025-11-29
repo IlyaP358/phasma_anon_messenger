@@ -144,6 +144,7 @@ document.getElementById('btn-submit-create').addEventListener('click', () => {
     const password = document.getElementById('create-password').value;
     const rootPassword = document.getElementById('create-root-password').value;
     const maxMembers = parseInt(document.getElementById('create-max-members').value);
+    const groupType = document.querySelector('input[name="create-type"]:checked').value;
     const errorDiv = document.getElementById('create-error');
 
     errorDiv.innerHTML = '';
@@ -158,7 +159,7 @@ document.getElementById('btn-submit-create').addEventListener('click', () => {
     fetch('/api/groups/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, password, root_password: rootPassword, max_members: maxMembers }),
+        body: JSON.stringify({ name, password, root_password: rootPassword, max_members: maxMembers, group_type: groupType }),
         credentials: 'include'
     })
         .then(r => r.json())

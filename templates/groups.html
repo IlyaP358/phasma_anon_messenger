@@ -76,6 +76,28 @@
       </div>
 
       <div class="form-group">
+        <label>Group Type</label>
+        <div class="group-type-options">
+          <label class="group-type-label">
+            <input type="radio" name="create-type" value="public" checked>
+            <div class="group-type-card">
+              <div class="group-type-icon">🌐</div>
+              <div class="group-type-name">Public</div>
+              <div class="group-type-desc">Invite Link</div>
+            </div>
+          </label>
+          <label class="group-type-label">
+            <input type="radio" name="create-type" value="private">
+            <div class="group-type-card">
+              <div class="group-type-icon">🔒</div>
+              <div class="group-type-name">Private</div>
+              <div class="group-type-desc">Code Only</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
         <label>Password (to join)</label>
         <input type="password" id="create-password" placeholder="Enter password" maxlength="128" />
         <div style="color: #666; font-size: 11px;">8-128 characters</div>

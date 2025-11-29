@@ -545,6 +545,77 @@ function setupChat() {
             }
         });
     }
+
+    // Invite Logic
+    const inviteBtn = document.getElementById('invite-btn');
+    const inviteModal = document.getElementById('invite-modal');
+    const btnCloseInvite = document.getElementById('btn-close-invite');
+    const btnCopyInvite = document.getElementById('btn-copy-invite');
+
+    if (inviteBtn && inviteModal) {
+        // Show invite button only if group is public
+        if (typeof GROUP_TYPE !== 'undefined' && GROUP_TYPE === 'public') {
+            inviteBtn.style.display = 'inline-block';
+        }
+
+        inviteBtn.addEventListener('click', () => {
+            inviteModal.classList.add('active');
+            loadInvite();
+        });
+
+        btnCloseInvite.addEventListener('click', () => {
+            inviteModal.classList.remove('active');
+        });
+
+        inviteModal.addEventListener('click', (e) => {
+            if (e.target === inviteModal) {
+                inviteModal.classList.remove('active');
+            }
+        });
+
+        btnCopyInvite.addEventListener('click', () => {
+            const link = document.getElementById('invite-link');
+            link.select();
+            document.execCommand('copy');
+            btnCopyInvite.textContent = 'Copied!';
+            setTimeout(() => {
+                btnCopyInvite.textContent = 'Copy Link';
+            }, 2000);
+        });
+    }
+}
+
+function loadInvite() {
+    const loading = document.getElementById('invite-loading');
+    const content = document.getElementById('invite-content');
+    const error = document.getElementById('invite-error');
+    const img = document.getElementById('invite-qr');
+    const link = document.getElementById('invite-link');
+
+    loading.style.display = 'block';
+    content.style.display = 'none';
+    error.textContent = '';
+
+    fetch(`/api/groups/${GROUP_ID}/invite`, {
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        credentials: 'include'
+    })
+        .then(r => r.json())
+        .then(data => {
+            loading.style.display = 'none';
+            if (data.error) {
+                error.textContent = data.error;
+            } else {
+                content.style.display = 'block';
+                img.src = data.qr_code;
+                link.value = data.invite_url;
+            }
+        })
+        .catch(err => {
+            loading.style.display = 'none';
+            error.textContent = 'Failed to load invite';
+            console.error(err);
+        });
 }
 
 // ========== GROUPS SIDEBAR ==========
@@ -1271,9 +1342,13 @@ function startSSE() {
                         messagesContainer.appendChild(msgElement);
 
                         // Play notification sound if message is not from current user and window is not focused
-                        if (parsed && parsed.username !== CURRENT_USER && !document.hasFocus()) {
-                            const audio = new Audio('/static/phasma_notification_sound.mp3');
-                            audio.play().catch(e => console.log('Audio play failed:', e));
+                        if (parsed && parsed.username !== CURRENT_USER) {
+                            if (isWindowActive) {
+                                markAsRead();
+                            } else {
+                                const audio = new Audio('/static/phasma_notification_sound.mp3');
+                                audio.play().catch(e => console.log('Audio play failed:', e));
+                            }
                         }
 
                         const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
@@ -1687,6 +1762,42 @@ function initSSE() {
         // Retry after 5 seconds
         setTimeout(initSSE, 5000);
     };
+}
+
+// ========== SMART UNREAD LOGIC ==========
+let isWindowActive = document.visibilityState === 'visible' && document.hasFocus();
+
+function markAsRead() {
+    if (!isWindowActive) return;
+
+    fetch(`/api/groups/${GROUP_ID}/mark-read`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+        credentials: 'include'
+    }).catch(err => console.error('[Read] Failed to mark as read:', err));
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        isWindowActive = true;
+        markAsRead();
+    } else {
+        isWindowActive = false;
+    }
+});
+
+window.addEventListener('focus', () => {
+    isWindowActive = true;
+    markAsRead();
+});
+
+window.addEventListener('blur', () => {
+    isWindowActive = false;
+});
+
+// Initial check
+if (isWindowActive) {
+    markAsRead();
 }
 
 // Initialize SSE and Push Notifications
