@@ -20,3 +20,4 @@ pikepdf
 user-agents
 pywebpush
 flask-session-captcha
+flask_qrcode

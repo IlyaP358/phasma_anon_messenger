@@ -3266,13 +3266,21 @@ def api_generate_invite(group_id: int):
 @app.route("/invite/<token>", methods=["GET"])
 def join_via_invite(token):
     """Handle joining via invite link"""
-    # Check if user is logged in
-    if 'username' not in session:
-        # Store invite token in session to handle after login? 
-        # For now, just redirect to login with message
-        return redirect("/login?next=" + request.url)
+    # Extract auth token from request (cookie or header)
+    auth_token = extract_token_from_request()
+    
+    # If not in header, try cookie
+    if not auth_token:
+        auth_token = request.cookies.get('auth_token', '').strip()
+    
+    # Verify authentication
+    username = verify_token(auth_token, strict_ip_check=False)
+    
+    if not username:
+        # User not logged in, redirect to login with next parameter
+        return redirect(f"/login?next={request.url}")
         
-    username = session['username']
+    # Verify invite token
     group_id = verify_invite_token(token)
     
     if not group_id:
@@ -3284,6 +3292,7 @@ def join_via_invite(token):
         
     # Check if already member
     if is_user_in_group(username, group_id):
+        print(f"[INFO] User {username} already member of group {group_id}, redirecting to chat")
         return redirect(f"/group/{group_id}/chat")
         
     # Check max members
