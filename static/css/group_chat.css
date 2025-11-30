@@ -603,6 +603,44 @@ body {
     }
 }
 
+/* ========== KICK BUTTON STYLES ========== */
+.btn-kick-member {
+    background: #d13438;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.btn-kick-member:hover {
+    background: #a92b2e;
+    transform: scale(1.05);
+}
+
+.btn-kick-member:active {
+    transform: scale(0.95);
+}
+
+/* ========== GROUP SETTINGS MODAL STYLES ========== */
+.group-type-label input[type="radio"]:checked+.group-type-card {
+    border-color: #0078d4 !important;
+    background: #0d2a3f !important;
+    box-shadow: 0 0 0 1px #0078d4;
+}
+
+.group-type-card:hover {
+    border-color: #666 !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.group-type-label input[type="radio"]:checked+.group-type-card:hover {
+    border-color: #0078d4 !important;
+}
+
 /* Members List Items */
 .member-item {
     display: flex;

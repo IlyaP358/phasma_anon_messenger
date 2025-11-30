@@ -809,6 +809,23 @@ function renderMembers(members, total) {
         const isOnline = member.is_online;
         const isCreator = member.role === 'creator';
         const isCurrentUser = member.username === CURRENT_USER;
+        const isSelfCreator = (TEMPLATE_USER === CURRENT_USER && TEMPLATE_USER === member.username && isCreator); // Check if *I* am the creator
+    });
+
+    // Find creator username
+    const creatorMember = members.find(m => m.role === 'creator');
+    const amICreator = creatorMember && creatorMember.username === CURRENT_USER;
+
+    // Show/Hide Settings Button based on role
+    const settingsBtn = document.getElementById('btn-group-settings');
+    if (settingsBtn) {
+        settingsBtn.style.display = amICreator ? 'inline-block' : 'none';
+    }
+
+    members.forEach(member => {
+        const isOnline = member.is_online;
+        const isCreator = member.role === 'creator';
+        const isCurrentUser = member.username === CURRENT_USER;
 
         let className = 'member-item ';
         if (isCreator) className += 'creator ';
@@ -821,6 +838,12 @@ function renderMembers(members, total) {
         const roleLabel = isCreator ? '<span class="member-role">👑</span>' : '';
         const userLabel = isCurrentUser ? ' <span class="member-role">(you)</span>' : '';
 
+        // Kick Button (Only for creator, and cannot kick self)
+        let kickBtn = '';
+        if (amICreator && !isCurrentUser) {
+            kickBtn = `<button class="btn-kick-member" data-username="${escapeHtml(member.username)}" title="Kick Member">Kick🚫</button>`;
+        }
+
         // Avatar for member
         const avatarSrc = member.has_profile_pic
             ? `/user/profile-pic/${member.username}`
@@ -828,8 +851,11 @@ function renderMembers(members, total) {
 
         html += `
           <div class="${className}">
-            <img src="${avatarSrc}" alt="${escapeHtml(member.username)}" class="member-avatar">
-            ${dot}<span class="member-username">${escapeHtml(member.username)}</span>${userLabel}${roleLabel}
+            <div style="display:flex; align-items:center; flex:1;">
+                <img src="${avatarSrc}" alt="${escapeHtml(member.username)}" class="member-avatar">
+                ${dot}<span class="member-username">${escapeHtml(member.username)}</span>${userLabel}${roleLabel}
+            </div>
+            ${kickBtn}
           </div>
         `;
 
@@ -837,6 +863,150 @@ function renderMembers(members, total) {
         memberProfilePics.set(member.username, member.has_profile_pic);
     });
     membersList.innerHTML = html;
+
+    // Attach event listeners for kick buttons
+    document.querySelectorAll('.btn-kick-member').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const username = btn.getAttribute('data-username');
+            showKickModal(username);
+        });
+    });
+}
+
+// ========== KICK MEMBER LOGIC ==========
+let memberToKick = null;
+const kickModal = document.getElementById('kick-modal');
+
+function showKickModal(username) {
+    memberToKick = username;
+    document.getElementById('kick-username').textContent = username;
+    kickModal.classList.add('active');
+}
+
+if (kickModal) {
+    document.getElementById('btn-cancel-kick').addEventListener('click', () => {
+        kickModal.classList.remove('active');
+        memberToKick = null;
+    });
+
+    document.getElementById('btn-confirm-kick').addEventListener('click', () => {
+        if (!memberToKick) return;
+
+        const btn = document.getElementById('btn-confirm-kick');
+        const originalText = btn.textContent;
+        btn.textContent = 'Kicking...';
+        btn.disabled = true;
+
+        fetch(`/api/groups/${GROUP_ID}/kick`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${GROUP_SESSION_TOKEN}`
+            },
+            body: JSON.stringify({ username: memberToKick }),
+            credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showSuccess(`User ${memberToKick} kicked`);
+                    loadMembers(); // Refresh list
+                    kickModal.classList.remove('active');
+                } else {
+                    showError(data.error || 'Failed to kick member');
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                showError('Failed to kick member');
+            })
+            .finally(() => {
+                btn.textContent = originalText;
+                btn.disabled = false;
+                memberToKick = null;
+            });
+    });
+}
+
+// ========== GROUP SETTINGS LOGIC ==========
+const settingsModal = document.getElementById('group-settings-modal');
+const btnSettings = document.getElementById('btn-group-settings');
+const settingsWarning = document.getElementById('settings-warning');
+
+if (btnSettings && settingsModal) {
+    btnSettings.addEventListener('click', () => {
+        // Set current state
+        const currentType = (typeof GROUP_TYPE !== 'undefined') ? GROUP_TYPE : 'public';
+        const radio = document.querySelector(`input[name="settings-type"][value="${currentType}"]`);
+        if (radio) radio.checked = true;
+
+        // Show/Hide warning initially
+        if (currentType === 'public') {
+            // If currently public, switching to private shows warning.
+            // But we only show warning if *selected* is private.
+            // Let's handle change event.
+        }
+
+        settingsModal.classList.add('active');
+    });
+
+    document.getElementById('btn-close-settings').addEventListener('click', () => {
+        settingsModal.classList.remove('active');
+    });
+
+    // Handle radio change to show warning
+    document.querySelectorAll('input[name="settings-type"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (e.target.value === 'private' && GROUP_TYPE === 'public') {
+                settingsWarning.style.display = 'block';
+            } else {
+                settingsWarning.style.display = 'none';
+            }
+        });
+    });
+
+    document.getElementById('btn-save-settings').addEventListener('click', () => {
+        const newType = document.querySelector('input[name="settings-type"]:checked').value;
+        if (newType === GROUP_TYPE) {
+            settingsModal.classList.remove('active');
+            return;
+        }
+
+        const btn = document.getElementById('btn-save-settings');
+        btn.textContent = 'Saving...';
+        btn.disabled = true;
+
+        fetch(`/api/groups/${GROUP_ID}/update_type`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${GROUP_SESSION_TOKEN}`
+            },
+            body: JSON.stringify({ group_type: newType }),
+            credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showSuccess('Group settings updated');
+                    // Update local variable
+                    // We can't easily update the const GROUP_TYPE from template, but we can reload page or just update UI
+                    // Reloading is safer to ensure everything syncs (like invite button visibility)
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showError(data.error || 'Failed to update settings');
+                    btn.textContent = 'Save';
+                    btn.disabled = false;
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                showError('Failed to update settings');
+                btn.textContent = 'Save';
+                btn.disabled = false;
+            });
+    });
 }
 
 function sendOnlineHeartbeat() {

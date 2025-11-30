@@ -94,6 +94,57 @@
     </div>
   </div>
 
+  <div id="kick-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-title">Kick Member</div>
+      <div class="modal-message">
+        Are you sure you want to kick <strong id="kick-username"></strong> from the group?
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-cancel" id="btn-cancel-kick">Cancel</button>
+        <button class="modal-btn modal-btn-confirm" id="btn-confirm-kick"
+          style="background-color: #d13438;">Kick</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="group-settings-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-title">Group Settings</div>
+      <div class="modal-message">
+        <div class="form-group">
+          <label style="display:block; margin-bottom:15px; font-weight: 500;">Group Type</label>
+          <div class="group-type-options" style="display: flex; gap: 15px;">
+            <label class="group-type-label" style="flex:1; cursor:pointer;">
+              <input type="radio" name="settings-type" value="public" style="display: none;">
+              <div class="group-type-card"
+                style="border:2px solid #444; padding:20px; border-radius:8px; text-align:center; transition: all 0.2s; background: #1a1a1a;">
+                <div class="group-type-icon" style="font-size: 32px; margin-bottom: 8px;">🌐</div>
+                <div class="group-type-name" style="font-weight: 500;">Public</div>
+              </div>
+            </label>
+            <label class="group-type-label" style="flex:1; cursor:pointer;">
+              <input type="radio" name="settings-type" value="private" style="display: none;">
+              <div class="group-type-card"
+                style="border:2px solid #444; padding:20px; border-radius:8px; text-align:center; transition: all 0.2s; background: #1a1a1a;">
+                <div class="group-type-icon" style="font-size: 32px; margin-bottom: 8px;">🔒</div>
+                <div class="group-type-name" style="font-weight: 500;">Private</div>
+              </div>
+            </label>
+          </div>
+          <p id="settings-warning" style="color: #d13438; font-size: 12px; margin-top: 15px; display: none;">
+            ⚠️ Switching to Private will invalidate all existing invite links.
+          </p>
+        </div>
+        <div id="settings-error"></div>
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-cancel" id="btn-close-settings">Close</button>
+        <button class="modal-btn modal-btn-confirm" id="btn-save-settings">Save</button>
+      </div>
+    </div>
+  </div>
+
   <div class="chat-wrapper">
     <div class="groups-sidebar">
       <div class="groups-header">
@@ -154,10 +205,13 @@
     <div class="members-sidebar">
       <div class="members-header">
         Members <span class="members-count" id="members-count">(0)</span>
-        <button id="invite-btn"
-          style="display: none; margin-right: 5px; background: #0078d4; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">+
-          Invite</button>
-        <button id="leave-btn">Leave Group</button>
+        <div style="margin-left: auto; display: flex; gap: 5px;">
+          <button id="btn-group-settings" class="input-button" style="display: none;" title="Group Settings">⚙️</button>
+          <button id="invite-btn"
+            style="display: none; background: #0078d4; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">+
+            Invite</button>
+          <button id="leave-btn">Leave Group</button>
+        </div>
       </div>
       <div id="members-list"></div>
     </div>

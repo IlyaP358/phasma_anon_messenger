@@ -1632,7 +1632,8 @@ def get_user_groups(username: str) -> list:
                     'role': member.role,
                     'joined_at': member.format_time(),
                     'last_message_at': last_msg_time,
-                    'unread_count': unread_count
+                    'unread_count': unread_count,
+                    'type': group.group_type
                 })
         
         # Sort by last_message_at descending (newest activity first)
@@ -3198,6 +3199,105 @@ def api_join_group():
         print(f"[ERROR] Failed to join group: {e}")
         return jsonify({"error": "Failed to join group"}), 500
 
+@app.route("/api/groups/<int:group_id>/kick", methods=["POST"])
+@limiter.limit("10 per minute")
+def api_kick_member(group_id):
+    """Kick a member from the group (Creator only)"""
+    token = extract_token_from_request()
+    session = verify_group_session(token)
+    
+    if not session:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    if session['group_id'] != group_id:
+        return jsonify({"error": "Forbidden"}), 403
+    
+    username = session['username']
+
+    data = request.get_json()
+    target_username = data.get("username")
+
+    if not target_username:
+        return jsonify({"error": "Target username required"}), 400
+
+    group = Group.query.get(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    # Check if current user is creator
+    if group.creator != username:
+        return jsonify({"error": "Only group creator can kick members"}), 403
+
+    # Check if target is creator (cannot kick self/creator)
+    if target_username == group.creator:
+        return jsonify({"error": "Cannot kick the creator"}), 400
+
+    # Check if target is in group
+    member = GroupMember.query.filter_by(group_id=group_id, username=target_username).first()
+    if not member:
+        return jsonify({"error": "User is not in this group"}), 404
+
+    try:
+        db.session.delete(member)
+        db.session.commit()
+        
+        # Notify group (optional, but good for UI update)
+        notify_group_members(group_id, username, f"User {target_username} was kicked from the group.")
+        
+        print(f"[INFO] User {username} kicked {target_username} from group {group_id}")
+        return jsonify({"success": True})
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to kick member: {e}")
+        return jsonify({"error": "Failed to kick member"}), 500
+
+
+@app.route("/api/groups/<int:group_id>/update_type", methods=["POST"])
+@limiter.limit("5 per minute")
+def api_update_group_type(group_id):
+    """Update group type (Public/Private) (Creator only)"""
+    token = extract_token_from_request()
+    
+    # Try group session first
+    session = verify_group_session(token)
+    if session:
+        # Authenticated via group session
+        if session['group_id'] != group_id:
+            return jsonify({"error": "Forbidden"}), 403
+        username = session['username']
+    else:
+        # Try standard auth token (for groups.html page)
+        username = verify_token(token)
+        if not username:
+            return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    new_type = data.get("group_type")
+
+    if new_type not in ['public', 'private']:
+        return jsonify({"error": "Invalid group type"}), 400
+
+    group = Group.query.get(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    # Check if current user is creator
+    if group.creator != username:
+        return jsonify({"error": "Only group creator can change group settings"}), 403
+
+    try:
+        old_type = group.group_type
+        group.group_type = new_type
+        db.session.commit()
+        
+        print(f"[INFO] User {username} changed group {group_id} type from {old_type} to {new_type}")
+        return jsonify({"success": True})
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Failed to update group type: {e}")
+        return jsonify({"error": "Failed to update group type"}), 500
+
+
 @app.route("/api/groups/<int:group_id>/invite", methods=["GET"])
 @limiter.limit("10 per minute")
 def api_generate_invite(group_id: int):
@@ -3289,6 +3389,10 @@ def join_via_invite(token):
     group = Group.query.get(group_id)
     if not group:
         return "Group not found", 404
+
+    # Check if group is public
+    if group.group_type != 'public':
+        return "This invite link is no longer valid (group is private)", 403
         
     # Check if already member
     if is_user_in_group(username, group_id):

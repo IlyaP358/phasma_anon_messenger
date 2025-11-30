@@ -256,6 +256,7 @@ function renderGroups(groups) {
           <div class="group-info">👤 ${isCreator ? '(Creator)' : '(Member)'}</div>
           <div class="group-buttons">
             <button class="btn btn-enter" data-group-id="${group.id}">Enter</button>
+            ${isCreator ? `<button class="btn btn-secondary btn-settings" data-group-id="${group.id}" data-group-type="${group.type || 'public'}" style="margin-right:5px;">Settings</button>` : ''}
             ${isCreator ? '<button class="btn btn-danger btn-delete" data-group-id="' + group.id + '">Delete</button>' : ''}
           </div>
         </div>`;
@@ -263,6 +264,18 @@ function renderGroups(groups) {
     list.innerHTML = html;
     document.querySelectorAll('.btn-enter').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); window.location.href = '/group/' + btn.getAttribute('data-group-id') + '/chat'; }));
     document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); currentDeleteGroupId = btn.getAttribute('data-group-id'); deleteModal.classList.add('active'); }));
+
+    // Settings Button Logic
+    document.querySelectorAll('.btn-settings').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const groupId = btn.getAttribute('data-group-id');
+            const currentType = btn.getAttribute('data-group-type');
+            openSettingsModal(groupId, currentType);
+        });
+    });
+
+
 
     // Check for new messages
     let hasNewMessage = false;
@@ -616,3 +629,82 @@ document.addEventListener('click', (e) => {
         }
     }
 });
+
+// ========== GROUP SETTINGS LOGIC ==========
+const settingsModal = document.getElementById('group-settings-modal');
+const closeSettingsBtn = document.getElementById('close-settings');
+const cancelSettingsBtn = document.getElementById('btn-cancel-settings');
+const saveSettingsBtn = document.getElementById('btn-save-settings');
+const settingsWarning = document.getElementById('settings-warning');
+let currentSettingsGroupId = null;
+let currentSettingsGroupType = null;
+
+function openSettingsModal(groupId, type) {
+    currentSettingsGroupId = groupId;
+    currentSettingsGroupType = type;
+
+    const radio = document.querySelector(`input[name="settings-type"][value="${type}"]`);
+    if (radio) radio.checked = true;
+
+    settingsWarning.style.display = 'none'; // Reset warning
+    settingsModal.classList.add('active');
+}
+
+if (settingsModal) {
+    const closeSettings = () => {
+        settingsModal.classList.remove('active');
+        currentSettingsGroupId = null;
+    };
+
+    closeSettingsBtn.addEventListener('click', closeSettings);
+    cancelSettingsBtn.addEventListener('click', closeSettings);
+
+    document.querySelectorAll('input[name="settings-type"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (e.target.value === 'private' && currentSettingsGroupType === 'public') {
+                settingsWarning.style.display = 'block';
+            } else {
+                settingsWarning.style.display = 'none';
+            }
+        });
+    });
+
+    saveSettingsBtn.addEventListener('click', () => {
+        const newType = document.querySelector('input[name="settings-type"]:checked').value;
+        if (newType === currentSettingsGroupType) {
+            closeSettings();
+            return;
+        }
+
+        const originalText = saveSettingsBtn.textContent;
+        saveSettingsBtn.textContent = 'Saving...';
+        saveSettingsBtn.disabled = true;
+
+        fetch(`/api/groups/${currentSettingsGroupId}/update_type`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ group_type: newType }),
+            credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Refresh groups list
+                    loadGroups();
+                    closeSettings();
+                } else {
+                    alert(data.error || 'Failed to update settings');
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Failed to update settings');
+            })
+            .finally(() => {
+                saveSettingsBtn.textContent = originalText;
+                saveSettingsBtn.disabled = false;
+            });
+    });
+}

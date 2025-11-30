@@ -218,6 +218,42 @@
     </div>
   </div>
 
+  <div id="group-settings-modal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" id="close-settings">&times;</button>
+      <div class="modal-header">Group Settings</div>
+      <div id="settings-error"></div>
+
+      <div class="form-group">
+        <label>Group Type</label>
+        <div class="group-type-options">
+          <label class="group-type-label">
+            <input type="radio" name="settings-type" value="public">
+            <div class="group-type-card">
+              <div class="group-type-icon">🌐</div>
+              <div class="group-type-name">Public</div>
+            </div>
+          </label>
+          <label class="group-type-label">
+            <input type="radio" name="settings-type" value="private">
+            <div class="group-type-card">
+              <div class="group-type-icon">🔒</div>
+              <div class="group-type-name">Private</div>
+            </div>
+          </label>
+        </div>
+        <p id="settings-warning" style="color: #d13438; font-size: 12px; margin-top: 10px; display: none;">
+          ⚠️ Switching to Private will invalidate all existing invite links.
+        </p>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" id="btn-save-settings">Save Changes</button>
+        <button class="btn btn-secondary" id="btn-cancel-settings">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <audio id="notification-sound" src="/static/phasma_notification_sound.mp3" preload="auto"></audio>
   <script nonce="{{ nonce }}" src="/static/js/groups.js"></script>
 </body>
