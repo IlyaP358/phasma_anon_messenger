@@ -279,6 +279,7 @@ class User(db.Model):
     username = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=True)
     profile_pic = db.Column(db.String(256), nullable=True) # Stores filename in uploads/
+    allow_dms = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     def format_time(self):
@@ -446,6 +447,7 @@ class Group(db.Model):
     root_password_hash = db.Column(db.String(256), nullable=False)
     max_members = db.Column(db.Integer, default=100)
     group_type = db.Column(db.String(20), default='public', nullable=False)
+    is_dm = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
     
     def format_time(self):
@@ -501,6 +503,18 @@ class PushSubscription(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint('endpoint', name='unique_push_endpoint'),
+    )
+
+class DMRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender = db.Column(db.String(100), nullable=False, index=True)
+    receiver = db.Column(db.String(100), nullable=False, index=True)
+    status = db.Column(db.String(20), default='pending') # pending, accepted, declined
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        db.Index('ix_dm_request_sender', 'sender'),
+        db.Index('ix_dm_request_receiver', 'receiver'),
     )
 
 # ===============================================================
@@ -633,8 +647,11 @@ def notify_group_members(group_id, sender_username, message_text):
 # ---- Initialize database ----
 # ===============================================================
 with app.app_context():
-    db.create_all()
-    print("[OK] Database tables created (if missing)")
+    try:
+        db.create_all()
+        print("[OK] Database tables created (if missing)")
+    except Exception as e:
+        print(f"[WARN] Database creation warning (ignoring if tables exist): {e}")
     master_fernet = load_master_fernet()
 
     if Secret.query.filter_by(name="TOR_PASS_ENC").first() is None:
@@ -1624,16 +1641,28 @@ def get_user_groups(username: str) -> list:
                     Message.username != username  # Don't count user's own messages as unread
                 ).count()
 
+                group_name = group.name
+                if getattr(group, 'is_dm', False):
+                    other_member = GroupMember.query.filter(
+                        GroupMember.group_id == group.id,
+                        GroupMember.username != username
+                    ).first()
+                    if other_member:
+                        group_name = other_member.username
+                    else:
+                        group_name = "Unknown User"
+
                 groups_info.append({
                     'id': group.id,
-                    'name': group.name,
+                    'name': group_name,
                     'code': group.group_code,
                     'creator': group.creator,
                     'role': member.role,
                     'joined_at': member.format_time(),
                     'last_message_at': last_msg_time,
                     'unread_count': unread_count,
-                    'type': group.group_type
+                    'type': group.group_type,
+                    'is_dm': getattr(group, 'is_dm', False)
                 })
         
         # Sort by last_message_at descending (newest activity first)
@@ -3690,6 +3719,7 @@ def group_chat(group_id: int):
         group_id=group_id,
         group_name=group_name,
         group_type=group.group_type,
+        is_dm=group.is_dm if group else False,
         nonce=nonce
     ))
     
@@ -4841,6 +4871,222 @@ def subscribe():
     except Exception as e:
         print(f"[ERROR] Failed to save subscription: {e}")
         return jsonify({"error": "Database error"}), 500
+
+# ===============================================================
+# ---- Admin Password Change Route ----
+# ===============================================================
+@app.route('/api/groups/<int:group_id>/update_password', methods=['POST'])
+def update_group_password(group_id):
+    if 'username' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    username = session['username']
+    data = request.get_json()
+    root_password = data.get('root_password')
+    new_password = data.get('new_password')
+    
+    if not root_password or not new_password:
+        return jsonify({'error': 'Missing root password or new password'}), 400
+        
+    if len(new_password) < PASSWORD_MIN_LENGTH or len(new_password) > PASSWORD_MAX_LENGTH:
+        return jsonify({'error': f'Password must be between {PASSWORD_MIN_LENGTH} and {PASSWORD_MAX_LENGTH} characters'}), 400
+
+    group = Group.query.get(group_id)
+    if not group:
+        return jsonify({'error': 'Group not found'}), 404
+        
+    # Check if user is creator
+    if group.creator != username:
+        return jsonify({'error': 'Only the group creator can change the password'}), 403
+        
+    # Verify root password
+    try:
+        argon2Hasher.verify(group.root_password_hash, root_password)
+    except VerifyMismatchError:
+        return jsonify({'error': 'Invalid root password'}), 403
+        
+    # Update password
+    group.password_hash = argon2Hasher.hash(new_password)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+# ===============================================================
+# ---- DM System Routes ----
+# ===============================================================
+
+@app.route('/api/user/settings', methods=['GET', 'POST'])
+def update_user_settings():
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if request.method == 'GET':
+        user = User.query.filter_by(username=username).first()
+        if user:
+            return jsonify({
+                'allow_dms': user.allow_dms
+            })
+        return jsonify({'error': 'User not found'}), 404
+    
+    # POST method
+    data = request.get_json()
+    allow_dms = data.get('allow_dms')
+    
+    if allow_dms is not None:
+        user = User.query.filter_by(username=username).first()
+        if user:
+            user.allow_dms = bool(allow_dms)
+            db.session.commit()
+            print(f"[OK] Updated allow_dms={allow_dms} for user {username}")
+            return jsonify({'success': True})
+            
+    return jsonify({'error': 'Invalid data'}), 400
+
+@app.route('/api/users/search', methods=['GET'])
+def search_users():
+    token = extract_token_from_request()
+    current_user = verify_token(token)
+    
+    if not current_user:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    query = request.args.get('q', '').strip()
+    if not query or len(query) < 3:
+        return jsonify({'users': []})
+    
+    # Find users matching query who allow DMs and are NOT the current user
+    users = User.query.filter(
+        User.username.ilike(f'%{query}%'),
+        User.allow_dms == True,
+        User.username != current_user
+    ).limit(20).all()
+    
+    return jsonify({
+        'users': [{'username': u.username} for u in users]
+    })
+
+@app.route('/api/dm/request', methods=['POST'])
+def send_dm_request():
+    token = extract_token_from_request()
+    sender = verify_token(token)
+    
+    if not sender:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json()
+    receiver = data.get('username')
+    
+    if not receiver:
+        return jsonify({'error': 'Receiver username required'}), 400
+        
+    if sender == receiver:
+        return jsonify({'error': 'Cannot DM yourself'}), 400
+        
+    target_user = User.query.filter_by(username=receiver).first()
+    if not target_user:
+        return jsonify({'error': 'User not found'}), 404
+        
+    if not target_user.allow_dms:
+        return jsonify({'error': 'User does not accept DMs'}), 403
+        
+    # Check if request already exists
+    existing = DMRequest.query.filter(
+        ((DMRequest.sender == sender) & (DMRequest.receiver == receiver)) |
+        ((DMRequest.sender == receiver) & (DMRequest.receiver == sender)),
+        DMRequest.status == 'pending'
+    ).first()
+    
+    if existing:
+        return jsonify({'error': 'Pending request already exists'}), 400
+        
+    # Check if DM group already exists (optional, but good practice)
+    # For now, we rely on the request flow.
+    
+    req = DMRequest(sender=sender, receiver=receiver)
+    db.session.add(req)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/dm/requests', methods=['GET'])
+def get_dm_requests():
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    # Get incoming requests
+    requests = DMRequest.query.filter_by(receiver=username, status='pending').order_by(DMRequest.created_at.desc()).all()
+    
+    return jsonify({
+        'requests': [{
+            'id': r.id,
+            'sender': r.sender,
+            'created_at': r.created_at.isoformat() + 'Z'
+        } for r in requests]
+    })
+
+@app.route('/api/dm/respond', methods=['POST'])
+def respond_dm_request():
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json()
+    request_id = data.get('request_id')
+    action = data.get('action') # accept, decline
+    
+    if not request_id or action not in ['accept', 'decline']:
+        return jsonify({'error': 'Invalid request'}), 400
+        
+    dm_req = DMRequest.query.get(request_id)
+    if not dm_req or dm_req.receiver != username:
+        return jsonify({'error': 'Request not found'}), 404
+        
+    if dm_req.status != 'pending':
+        return jsonify({'error': 'Request already processed'}), 400
+        
+    dm_req.status = 'accepted' if action == 'accept' else 'declined'
+    
+    if action == 'accept':
+        # Create DM Group
+        # Name convention: dm_user1_user2 (sorted)
+        participants = sorted([dm_req.sender, dm_req.receiver])
+        group_name = f"dm_{participants[0]}_{participants[1]}"
+        
+        # Check if group exists (shouldn't if logic is correct, but safe to check)
+        existing_group = Group.query.filter_by(name=group_name, is_dm=True).first()
+        
+        if not existing_group:
+            # Create new DM group
+            # No passwords for DMs
+            dummy_pass = argon2Hasher.hash(secrets.token_hex(16))
+            
+            new_group = Group(
+                name=group_name,
+                group_code=secrets.token_hex(4).upper(),
+                creator=participants[0], # Arbitrary creator
+                password_hash=dummy_pass,
+                root_password_hash=dummy_pass,
+                max_members=2,
+                group_type='private',
+                is_dm=True
+            )
+            db.session.add(new_group)
+            db.session.flush() # Get ID
+            
+            # Add members
+            mem1 = GroupMember(group_id=new_group.id, username=participants[0], role='member')
+            mem2 = GroupMember(group_id=new_group.id, username=participants[1], role='member')
+            db.session.add(mem1)
+            db.session.add(mem2)
+            
+    db.session.commit()
+    return jsonify({'success': True})
 
 if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")

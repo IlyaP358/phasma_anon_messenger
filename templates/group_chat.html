@@ -136,6 +136,19 @@
             ⚠️ Switching to Private will invalidate all existing invite links.
           </p>
         </div>
+
+        <div class="form-group" id="settings-password-section"
+          style="margin-top: 20px; border-top: 1px solid #333; padding-top: 20px;">
+          <label style="display:block; margin-bottom:10px; font-weight: 500;">Change Join Password (Admin Only)</label>
+          <input type="password" id="settings-root-password" placeholder="Root Password"
+            style="width:100%; padding:8px; background:#222; border:1px solid #333; color:#fff; margin-bottom: 10px; border-radius: 4px;">
+          <input type="password" id="settings-new-password" placeholder="New Join Password"
+            style="width:100%; padding:8px; background:#222; border:1px solid #333; color:#fff; border-radius: 4px;">
+          <button class="modal-btn" id="btn-change-password"
+            style="margin-top: 10px; width: 100%; background: #333;">Update Password</button>
+          <div id="password-change-msg" style="margin-top: 5px; font-size: 12px;"></div>
+        </div>
+
         <div id="settings-error"></div>
       </div>
       <div class="modal-buttons">
@@ -245,6 +258,7 @@
     const TEMPLATE_GROUP_TOKEN = {{ auth_token| tojson }};
     const GROUP_NAME = {{ group_name| tojson }};
     const GROUP_TYPE = {{ group_type| tojson }};
+    const IS_DM = {{ is_dm| tojson }};
   </script>
   <audio id="notification-sound" src="/static/phasma_notification_sound.mp3" preload="auto"></audio>
   <script nonce="{{ nonce }}" src="/static/js/group_chat.js"></script>

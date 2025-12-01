@@ -32,6 +32,10 @@
           <button class="menu-item" id="menu-enable-notifications">
             <span class="menu-icon">🔔</span> Enable Notifications
           </button>
+          <button class="menu-item" id="menu-mailbox">
+            <span class="menu-icon">📬</span> Mailbox <span id="mailbox-badge" class="badge"
+              style="display:none; background:red; color:white; border-radius:50%; padding:2px 6px; font-size:10px; margin-left:5px;">0</span>
+          </button>
           <button class="menu-item" id="menu-profile-settings">
             <span class="menu-icon">👤</span> Profile Settings
           </button>
@@ -207,6 +211,12 @@
           </div>
         </div>
         <div class="profile-username" id="profile-username-display">Loading...</div>
+        <div class="form-group" style="margin-top: 15px; text-align: left;">
+          <label style="display: flex; align-items: center; cursor: pointer;">
+            <input type="checkbox" id="profile-allow-dms" style="margin-right: 10px;">
+            <span style="font-size: 14px; color: #ccc;">Allow people to find me and send DM requests</span>
+          </label>
+        </div>
       </div>
 
       <div id="profile-error"></div>
@@ -215,6 +225,31 @@
         <button class="btn btn-danger" id="menu-delete" style="margin-right: auto;">🗑️ Delete Account</button>
         <button class="btn btn-secondary" id="btn-close-profile">Close</button>
       </div>
+    </div>
+  </div>
+
+  <div id="mailbox-modal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" id="close-mailbox">&times;</button>
+      <div class="modal-header">
+        <span>📬 Mailbox</span>
+        <button class="btn btn-primary" id="btn-find-users"
+          style="font-size: 12px; padding: 4px 8px; margin-left: auto;">Find Users</button>
+      </div>
+      <div id="mailbox-list" style="max-height: 300px; overflow-y: auto; margin-top: 15px;">
+        <div style="text-align: center; color: #666; padding: 20px;">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="find-user-modal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" id="close-find-user">&times;</button>
+      <div class="modal-header">Find Users</div>
+      <div class="form-group">
+        <input type="text" id="user-search-input" placeholder="Search by username..." />
+      </div>
+      <div id="user-search-results" style="max-height: 200px; overflow-y: auto; margin-top: 10px;"></div>
     </div>
   </div>
 
@@ -245,6 +280,16 @@
         <p id="settings-warning" style="color: #d13438; font-size: 12px; margin-top: 10px; display: none;">
           ⚠️ Switching to Private will invalidate all existing invite links.
         </p>
+      </div>
+
+      <div class="form-group" id="settings-password-section"
+        style="margin-top: 20px; border-top: 1px solid #333; padding-top: 20px;">
+        <label>Change Join Password (Admin Only)</label>
+        <input type="password" id="settings-root-password" placeholder="Root Password" style="margin-bottom: 10px;">
+        <input type="password" id="settings-new-password" placeholder="New Join Password">
+        <button class="btn btn-secondary" id="btn-change-password" style="margin-top: 10px; width: 100%;">Update
+          Password</button>
+        <div id="password-change-msg" style="margin-top: 5px; font-size: 12px;"></div>
       </div>
 
       <div class="form-actions">

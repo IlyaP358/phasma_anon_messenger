@@ -553,9 +553,11 @@ function setupChat() {
     const btnCopyInvite = document.getElementById('btn-copy-invite');
 
     if (inviteBtn && inviteModal) {
-        // Show invite button only if group is public
-        if (typeof GROUP_TYPE !== 'undefined' && GROUP_TYPE === 'public') {
+        // Show invite button only if group is public AND NOT DM
+        if (typeof GROUP_TYPE !== 'undefined' && GROUP_TYPE === 'public' && !IS_DM) {
             inviteBtn.style.display = 'inline-block';
+        } else {
+            inviteBtn.style.display = 'none';
         }
 
         inviteBtn.addEventListener('click', () => {
@@ -583,6 +585,70 @@ function setupChat() {
             }, 2000);
         });
     }
+
+    // DM Specific UI Adjustments
+    if (IS_DM) {
+        // Hide settings button if it exists (or restrict options inside it)
+        // Actually, we might want settings for "Delete Chat" or similar, but for now let's hide the type switcher and password change
+        const typeOptions = document.querySelector('.group-type-options');
+        if (typeOptions) typeOptions.style.display = 'none';
+
+        const passSection = document.getElementById('settings-password-section');
+        if (passSection) passSection.style.display = 'none';
+
+        // Hide Group Code in sidebar list? handled in renderGroups
+    }
+}
+
+// ... (rest of file) ...
+
+// ========== PASSWORD CHANGE LOGIC ==========
+const btnChangePassword = document.getElementById('btn-change-password');
+if (btnChangePassword) {
+    btnChangePassword.addEventListener('click', () => {
+        const rootPass = document.getElementById('settings-root-password').value;
+        const newPass = document.getElementById('settings-new-password').value;
+        const msgDiv = document.getElementById('password-change-msg');
+
+        msgDiv.textContent = '';
+        msgDiv.className = '';
+
+        if (!rootPass || !newPass) {
+            msgDiv.textContent = 'Both passwords required';
+            msgDiv.className = 'error';
+            return;
+        }
+
+        btnChangePassword.disabled = true;
+        btnChangePassword.textContent = 'Updating...';
+
+        fetch(`/api/groups/${GROUP_ID}/update_password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ root_password: rootPass, new_password: newPass }),
+            credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    msgDiv.textContent = 'Password updated successfully';
+                    msgDiv.className = 'success';
+                    document.getElementById('settings-root-password').value = '';
+                    document.getElementById('settings-new-password').value = '';
+                } else {
+                    msgDiv.textContent = data.error || 'Failed';
+                    msgDiv.className = 'error';
+                }
+            })
+            .catch(err => {
+                msgDiv.textContent = 'Network error';
+                msgDiv.className = 'error';
+            })
+            .finally(() => {
+                btnChangePassword.disabled = false;
+                btnChangePassword.textContent = 'Update Password';
+            });
+    });
 }
 
 function loadInvite() {
@@ -841,7 +907,7 @@ function renderMembers(members, total) {
         // Kick Button (Only for creator, and cannot kick self)
         let kickBtn = '';
         if (amICreator && !isCurrentUser) {
-            kickBtn = `<button class="btn-kick-member" data-username="${escapeHtml(member.username)}" title="Kick Member">Kick🚫</button>`;
+            kickBtn = `<button class="btn-kick-member" data-username="${escapeHtml(member.username)}" title="Kick Member">Kick</button>`;
         }
 
         // Avatar for member

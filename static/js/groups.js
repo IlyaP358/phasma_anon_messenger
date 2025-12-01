@@ -293,14 +293,13 @@ function renderGroups(groups) {
         playNotificationSound();
     }
 
+    // Update username display if element exists
+    const usernameDisplay = document.getElementById('username-display');
     if (usernameDisplay) {
-        usernameDisplay.textContent = `Logged in as: ${username}`;
-        // Update header avatar
-        const headerAvatar = document.getElementById('header-avatar');
-        if (headerAvatar) {
-            headerAvatar.src = `/user/profile-pic/${username}?t=${new Date().getTime()}`;
-        }
+        // Username is stored globally or can be fetched from first group's data
+        // For now, we'll skip this as it's not critical
     }
+
     isFirstLoad = false;
 }
 
@@ -705,6 +704,265 @@ if (settingsModal) {
             .finally(() => {
                 saveSettingsBtn.textContent = originalText;
                 saveSettingsBtn.disabled = false;
+            });
+    });
+}
+
+// ========== MAILBOX & DM LOGIC ==========
+const mailboxModal = document.getElementById('mailbox-modal');
+const findUserModal = document.getElementById('find-user-modal');
+const mailboxList = document.getElementById('mailbox-list');
+const userSearchInput = document.getElementById('user-search-input');
+const userSearchResults = document.getElementById('user-search-results');
+
+if (document.getElementById('menu-mailbox')) {
+    document.getElementById('menu-mailbox').addEventListener('click', () => {
+        mailboxModal.classList.add('active');
+        userMenuDropdown.classList.remove('active');
+        loadMailbox();
+    });
+}
+
+if (document.getElementById('close-mailbox')) {
+    document.getElementById('close-mailbox').addEventListener('click', () => {
+        mailboxModal.classList.remove('active');
+    });
+}
+
+if (document.getElementById('btn-find-users')) {
+    document.getElementById('btn-find-users').addEventListener('click', () => {
+        mailboxModal.classList.remove('active');
+        findUserModal.classList.add('active');
+        userSearchInput.value = '';
+        userSearchResults.innerHTML = '';
+        userSearchInput.focus();
+    });
+}
+
+if (document.getElementById('close-find-user')) {
+    document.getElementById('close-find-user').addEventListener('click', () => {
+        findUserModal.classList.remove('active');
+    });
+}
+
+function loadMailbox() {
+    mailboxList.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">Loading...</div>';
+
+    fetch('/api/dm/requests', { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.requests && data.requests.length > 0) {
+                let html = '';
+                data.requests.forEach(req => {
+                    html += `
+                    <div class="mailbox-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333;">
+                        <div>
+                            <div style="font-weight: bold;">${escapeHtml(req.sender)}</div>
+                            <div style="font-size: 11px; color: #888;">${new Date(req.created_at).toLocaleString()}</div>
+                        </div>
+                        <div>
+                            <button class="btn btn-primary btn-accept-dm" data-id="${req.id}" style="font-size: 11px; padding: 4px 8px; margin-right: 5px;">Accept</button>
+                            <button class="btn btn-danger btn-decline-dm" data-id="${req.id}" style="font-size: 11px; padding: 4px 8px;">Decline</button>
+                        </div>
+                    </div>`;
+                });
+                mailboxList.innerHTML = html;
+
+                // Add listeners
+                document.querySelectorAll('.btn-accept-dm').forEach(btn => {
+                    btn.addEventListener('click', () => respondToDM(btn.getAttribute('data-id'), 'accept'));
+                });
+                document.querySelectorAll('.btn-decline-dm').forEach(btn => {
+                    btn.addEventListener('click', () => respondToDM(btn.getAttribute('data-id'), 'decline'));
+                });
+            } else {
+                mailboxList.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No pending requests</div>';
+            }
+
+            // Update badge
+            const badge = document.getElementById('mailbox-badge');
+            if (badge) {
+                if (data.requests && data.requests.length > 0) {
+                    badge.textContent = data.requests.length;
+                    badge.style.display = 'inline-block';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            mailboxList.innerHTML = '<div class="error">Failed to load requests</div>';
+        });
+}
+
+function respondToDM(requestId, action) {
+    fetch('/api/dm/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, action: action }),
+        credentials: 'include'
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                loadMailbox(); // Reload list
+                if (action === 'accept') {
+                    loadGroups(); // Reload groups to show new DM
+                }
+            } else {
+                alert(data.error || 'Failed');
+            }
+        })
+        .catch(err => alert('Network error'));
+}
+
+// User Search Logic
+let searchTimeout = null;
+if (userSearchInput) {
+    userSearchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        const query = userSearchInput.value.trim();
+
+        if (query.length < 3) {
+            userSearchResults.innerHTML = '<div style="padding: 10px; color: #666;">Type at least 3 characters...</div>';
+            return;
+        }
+
+        searchTimeout = setTimeout(() => {
+            userSearchResults.innerHTML = '<div style="padding: 10px; color: #666;">Searching...</div>';
+            fetch(`/api/users/search?q=${encodeURIComponent(query)}`, { credentials: 'include' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.users && data.users.length > 0) {
+                        let html = '';
+                        data.users.forEach(u => {
+                            html += `
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333;">
+                                <span>${escapeHtml(u.username)}</span>
+                                <button class="btn btn-primary btn-send-dm" data-username="${escapeHtml(u.username)}" style="font-size: 11px; padding: 4px 8px;">Send Request</button>
+                            </div>`;
+                        });
+                        userSearchResults.innerHTML = html;
+
+                        document.querySelectorAll('.btn-send-dm').forEach(btn => {
+                            btn.addEventListener('click', () => {
+                                const username = btn.getAttribute('data-username');
+                                sendDMRequest(username, btn);
+                            });
+                        });
+                    } else {
+                        userSearchResults.innerHTML = '<div style="padding: 10px; color: #666;">No users found (or they don\'t allow DMs)</div>';
+                    }
+                })
+                .catch(err => {
+                    userSearchResults.innerHTML = '<div class="error">Search failed</div>';
+                });
+        }, 500);
+    });
+}
+
+function sendDMRequest(username, btnElement) {
+    const originalText = btnElement.textContent;
+    btnElement.textContent = 'Sending...';
+    btnElement.disabled = true;
+
+    fetch('/api/dm/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username }),
+        credentials: 'include'
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                btnElement.textContent = 'Sent!';
+                btnElement.classList.remove('btn-primary');
+                btnElement.classList.add('btn-secondary');
+            } else {
+                btnElement.textContent = originalText;
+                btnElement.disabled = false;
+                alert(data.error || 'Failed to send request');
+            }
+        })
+        .catch(err => {
+            btnElement.textContent = originalText;
+            btnElement.disabled = false;
+            alert('Network error');
+        });
+}
+
+// ========== PROFILE SETTINGS UPDATE ==========
+document.getElementById('menu-profile-settings').addEventListener('click', () => {
+    // Load current user settings
+    fetch('/api/user/settings', {
+        credentials: 'include'
+    })
+        .then(r => r.json())
+        .then(data => {
+            const checkbox = document.getElementById('profile-allow-dms');
+            if (checkbox && data.allow_dms !== undefined) {
+                checkbox.checked = data.allow_dms;
+            }
+        })
+        .catch(err => console.error('Failed to load user settings:', err));
+});
+
+document.getElementById('profile-allow-dms').addEventListener('change', (e) => {
+    const allowed = e.target.checked;
+    fetch('/api/user/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_dms: allowed }),
+        credentials: 'include'
+    }).catch(err => console.error(err));
+});
+
+// ========== GROUP SETTINGS PASSWORD UPDATE ==========
+const btnChangePassword = document.getElementById('btn-change-password');
+if (btnChangePassword) {
+    btnChangePassword.addEventListener('click', () => {
+        const rootPass = document.getElementById('settings-root-password').value;
+        const newPass = document.getElementById('settings-new-password').value;
+        const msgDiv = document.getElementById('password-change-msg');
+
+        msgDiv.textContent = '';
+        msgDiv.className = '';
+
+        if (!rootPass || !newPass) {
+            msgDiv.textContent = 'Both passwords required';
+            msgDiv.className = 'error';
+            return;
+        }
+
+        btnChangePassword.disabled = true;
+        btnChangePassword.textContent = 'Updating...';
+
+        fetch(`/api/groups/${currentSettingsGroupId}/update_password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ root_password: rootPass, new_password: newPass }),
+            credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    msgDiv.textContent = 'Password updated successfully';
+                    msgDiv.className = 'success';
+                    document.getElementById('settings-root-password').value = '';
+                    document.getElementById('settings-new-password').value = '';
+                } else {
+                    msgDiv.textContent = data.error || 'Failed';
+                    msgDiv.className = 'error';
+                }
+            })
+            .catch(err => {
+                msgDiv.textContent = 'Network error';
+                msgDiv.className = 'error';
+            })
+            .finally(() => {
+                btnChangePassword.disabled = false;
+                btnChangePassword.textContent = 'Update Password';
             });
     });
 }
