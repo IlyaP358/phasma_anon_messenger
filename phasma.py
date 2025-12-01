@@ -4877,10 +4877,11 @@ def subscribe():
 # ===============================================================
 @app.route('/api/groups/<int:group_id>/update_password', methods=['POST'])
 def update_group_password(group_id):
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
+    token = extract_token_from_request()
+    username = verify_token(token)
     
-    username = session['username']
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
     data = request.get_json()
     root_password = data.get('root_password')
     new_password = data.get('new_password')
