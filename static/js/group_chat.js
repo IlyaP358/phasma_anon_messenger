@@ -718,6 +718,7 @@ function renderGroups(groups) {
         const isActive = group.id === GROUP_ID;
         const activeClass = isActive ? ' active' : '';
         const isCreator = group.role === 'creator';
+        const isDM = group.is_dm || false;
 
         let badgeHtml = '';
         if (group.unread_count > 0 && !isActive) {
@@ -725,17 +726,28 @@ function renderGroups(groups) {
             badgeHtml = `<span class="unread-badge">${countText}</span>`;
         }
 
-        const deleteBtnHtml = isCreator ? `<button class="btn-delete-group fluent-btn secondary" style="font-size:10px; padding:4px 8px; min-height:24px;" data-group-id="${group.id}">Delete</button>` : '';
+        // Avatar for DM groups
+        let avatarHtml = '';
+        if (isDM && group.opponent_avatar) {
+            avatarHtml = `<img src="/uploads/${group.opponent_avatar}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
+        } else if (isDM) {
+            avatarHtml = `<img src="/static/unknown_user_phasma_icon.png" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
+        }
 
-        html += `<div class="group-item${activeClass}" data-group-id="${group.id}">
-          <div class="group-name">
-              <span>${escapeHtml(group.name)}</span>
-              <div style="display:flex; align-items:center;">
-                  ${badgeHtml}
-                  ${deleteBtnHtml}
+        const deleteBtnHtml = (isCreator && !isDM) ? `<button class="btn-delete-group fluent-btn secondary" style="font-size:10px; padding:4px 8px; min-height:24px;" data-group-id="${group.id}">Delete</button>` : '';
+
+        html += `<div class="group-item${activeClass}" data-group-id="${group.id}" style="display: flex; align-items: center;">
+          ${avatarHtml}
+          <div style="flex: 1; min-width: 0;">
+              <div class="group-name">
+                  <span>${escapeHtml(group.name)}</span>
+                  <div style="display:flex; align-items:center;">
+                      ${badgeHtml}
+                      ${deleteBtnHtml}
+                  </div>
               </div>
+              ${!isDM ? `<div class="group-code">#${group.code}</div>` : ''}
           </div>
-          <div class="group-code">#${group.code}</div>
         </div>`;
     });
     list.innerHTML = html;

@@ -1642,6 +1642,9 @@ def get_user_groups(username: str) -> list:
                 ).count()
 
                 group_name = group.name
+                opponent_avatar = None
+                opponent_username = None
+                
                 if getattr(group, 'is_dm', False):
                     other_member = GroupMember.query.filter(
                         GroupMember.group_id == group.id,
@@ -1649,8 +1652,26 @@ def get_user_groups(username: str) -> list:
                     ).first()
                     if other_member:
                         group_name = other_member.username
+                        opponent_username = other_member.username
                     else:
-                        group_name = "Unknown User"
+                        # Fallback: try to parse username from group name (dm_user1_user2)
+                        parts = group.name.split('_')
+                        if len(parts) == 3:
+                            # parts[1] and parts[2] are usernames. Pick the one that isn't me.
+                            if parts[1] == username:
+                                group_name = parts[2]
+                                opponent_username = parts[2]
+                            else:
+                                group_name = parts[1]
+                                opponent_username = parts[1]
+                        else:
+                            group_name = "Unknown User"
+                    
+                    # Get opponent's avatar
+                    if opponent_username:
+                        opponent_user = User.query.filter_by(username=opponent_username).first()
+                        if opponent_user and opponent_user.profile_pic:
+                            opponent_avatar = opponent_user.profile_pic
 
                 groups_info.append({
                     'id': group.id,
@@ -1662,7 +1683,8 @@ def get_user_groups(username: str) -> list:
                     'last_message_at': last_msg_time,
                     'unread_count': unread_count,
                     'type': group.group_type,
-                    'is_dm': getattr(group, 'is_dm', False)
+                    'is_dm': getattr(group, 'is_dm', False),
+                    'opponent_avatar': opponent_avatar
                 })
         
         # Sort by last_message_at descending (newest activity first)
@@ -3485,6 +3507,15 @@ def api_leave_group(group_id: int):
     # Удаляешь из группы
     remove_user_from_group(group_id, username)
     
+    # Check if group is empty and delete if so
+    try:
+        remaining_count = GroupMember.query.filter_by(group_id=group_id).count()
+        if remaining_count == 0:
+            print(f"[INFO] Group {group_id} is empty. Auto-deleting.")
+            delete_group(group_id)
+    except Exception as e:
+        print(f"[ERROR] Failed to auto-delete empty group {group_id}: {e}")
+    
     print(f"[OK] User {username} left group {group_id}")
     
     return jsonify({"success": True, "message": "Left the group"}), 200
@@ -3698,6 +3729,29 @@ def group_chat(group_id: int):
     
     group = Group.query.filter_by(id=group_id).first()
     group_name = group.name if group else "Unknown Group"
+    display_name = group_name
+    opponent_avatar = None
+    
+    # For DM groups, show opponent's name and avatar
+    if group and getattr(group, 'is_dm', False):
+        other_member = GroupMember.query.filter(
+            GroupMember.group_id == group_id,
+            GroupMember.username != username
+        ).first()
+        if other_member:
+            display_name = other_member.username
+            opponent_user = User.query.filter_by(username=other_member.username).first()
+            if opponent_user and opponent_user.profile_pic:
+                opponent_avatar = opponent_user.profile_pic
+        else:
+            # Fallback: parse from group name
+            parts = group.name.split('_')
+            if len(parts) == 3:
+                opponent_username = parts[2] if parts[1] == username else parts[1]
+                display_name = opponent_username
+                opponent_user = User.query.filter_by(username=opponent_username).first()
+                if opponent_user and opponent_user.profile_pic:
+                    opponent_avatar = opponent_user.profile_pic
     
     # Проверяем, есть ли уже сессия для этого пользователя в этой группе
     existing_session_bytes = r.get(f"user_group_session:{username}:{group_id}")
@@ -3717,9 +3771,10 @@ def group_chat(group_id: int):
         auth_token=group_session_token,
         user=username, 
         group_id=group_id,
-        group_name=group_name,
-        group_type=group.group_type,
-        is_dm=group.is_dm if group else False,
+        group_name=display_name,
+        group_type=group.group_type if group else 'public',
+        opponent_avatar=opponent_avatar,
+        is_dm=getattr(group, 'is_dm', False) if group else False,
         nonce=nonce
     ))
     
@@ -5002,9 +5057,6 @@ def send_dm_request():
     if existing:
         return jsonify({'error': 'Pending request already exists'}), 400
         
-    # Check if DM group already exists (optional, but good practice)
-    # For now, we rely on the request flow.
-    
     req = DMRequest(sender=sender, receiver=receiver)
     db.session.add(req)
     db.session.commit()
@@ -5018,6 +5070,23 @@ def get_dm_requests():
     
     if not username:
         return jsonify({'error': 'Unauthorized'}), 401
+    
+    # Cleanup old pending requests (older than 7 days)
+    try:
+        seven_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+        old_requests = DMRequest.query.filter(
+            DMRequest.status == 'pending',
+            DMRequest.created_at < seven_days_ago
+        ).all()
+        
+        if old_requests:
+            for req in old_requests:
+                db.session.delete(req)
+            db.session.commit()
+            print(f"[INFO] Cleaned up {len(old_requests)} old DM requests")
+    except Exception as e:
+        print(f"[ERROR] Failed to cleanup old DM requests: {e}")
+        db.session.rollback()
     
     # Get incoming requests
     requests = DMRequest.query.filter_by(receiver=username, status='pending').order_by(DMRequest.created_at.desc()).all()
@@ -5051,18 +5120,23 @@ def respond_dm_request():
     if dm_req.status != 'pending':
         return jsonify({'error': 'Request already processed'}), 400
         
-    dm_req.status = 'accepted' if action == 'accept' else 'declined'
-    
     if action == 'accept':
         # Create DM Group
         # Name convention: dm_user1_user2 (sorted)
         participants = sorted([dm_req.sender, dm_req.receiver])
         group_name = f"dm_{participants[0]}_{participants[1]}"
         
-        # Check if group exists (shouldn't if logic is correct, but safe to check)
+        # Check if group exists
         existing_group = Group.query.filter_by(name=group_name, is_dm=True).first()
         
-        if not existing_group:
+        if existing_group:
+            # Ensure both participants are members (handle case where one left)
+            for p in participants:
+                is_member = GroupMember.query.filter_by(group_id=existing_group.id, username=p).first()
+                if not is_member:
+                    new_member = GroupMember(group_id=existing_group.id, username=p, role='member')
+                    db.session.add(new_member)
+        else:
             # Create new DM group
             # No passwords for DMs
             dummy_pass = argon2Hasher.hash(secrets.token_hex(16))
@@ -5085,6 +5159,9 @@ def respond_dm_request():
             mem2 = GroupMember(group_id=new_group.id, username=participants[1], role='member')
             db.session.add(mem1)
             db.session.add(mem2)
+            
+    # Delete the request instead of keeping it
+    db.session.delete(dm_req)
             
     db.session.commit()
     return jsonify({'success': True})

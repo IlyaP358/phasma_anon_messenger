@@ -170,10 +170,19 @@
     <div class="chat-main">
       <div class="chat-header">
         <button id="btn-toggle-groups" class="input-button mobile-only" style="margin-right: 10px;">☰</button>
-        <div class="chat-header-left">
-          <h3 id="group-name">Loading...</h3>
-          <div class="chat-user-badge">Logged as:
-            <span id="chat-user">...</span>
+        <div class="chat-header-left" style="display: flex; align-items: center; gap: 10px; flex: 1;">
+          {% if is_dm and opponent_avatar %}
+          <img src="/uploads/{{ opponent_avatar }}" alt="Avatar"
+            style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color); flex-shrink: 0;">
+          {% elif is_dm %}
+          <img src="/static/unknown_user_phasma_icon.png" alt="Avatar"
+            style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color); flex-shrink: 0;">
+          {% endif %}
+          <div style="flex: 1; min-width: 0;">
+            <h3 id="group-name" style="margin: 0; font-size: 16px;">Loading...</h3>
+            <div class="chat-user-badge" style="margin: 0; font-size: 12px;">Logged as:
+              <span id="chat-user">...</span>
+            </div>
           </div>
         </div>
         <button id="btn-toggle-members" class="input-button">👥</button>

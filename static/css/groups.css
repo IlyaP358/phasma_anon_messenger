@@ -600,7 +600,7 @@ input:focus {
     border-color: rgba(255, 255, 255, 0.2);
 }
 
-.group-type-label input:checked + .group-type-card {
+.group-type-label input:checked+.group-type-card {
     background: rgba(var(--primary-color-rgb), 0.1);
     border-color: var(--primary-color);
     box-shadow: 0 4px 12px rgba(var(--primary-color-rgb), 0.15);
@@ -613,7 +613,7 @@ input:focus {
     transition: color 0.2s;
 }
 
-.group-type-label input:checked + .group-type-card .group-type-icon {
+.group-type-label input:checked+.group-type-card .group-type-icon {
     color: var(--primary-color);
 }
 
@@ -627,4 +627,28 @@ input:focus {
     font-size: 11px;
     color: var(--text-secondary);
     margin-top: 4px;
+}
+
+/* Settings Gear Button */
+.btn-settings-gear {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 10;
+}
+
+.btn-settings-gear:hover {
+    background: rgba(var(--primary-color-rgb), 0.1);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    transform: rotate(90deg);
+    box-shadow: 0 2px 8px rgba(var(--primary-color-rgb), 0.2);
 }

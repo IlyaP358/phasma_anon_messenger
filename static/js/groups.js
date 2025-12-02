@@ -240,6 +240,7 @@ function renderGroups(groups) {
     let html = '';
     groups.forEach(group => {
         const isCreator = group.role === 'creator';
+        const isDM = group.is_dm || false;
 
         let badgeHtml = '';
         if (group.unread_count > 0) {
@@ -247,17 +248,34 @@ function renderGroups(groups) {
             badgeHtml = `<span class="unread-badge">${countText}</span>`;
         }
 
-        html += `<div class="group-item">
-          <div class="group-name-container">
-              <div class="group-name">${escapeHtml(group.name)}</div>
+        // Avatar for DM groups
+        let avatarHtml = '';
+        if (isDM && group.opponent_avatar) {
+            avatarHtml = `<img src="/uploads/${group.opponent_avatar}" alt="Avatar" class="dm-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
+        } else if (isDM) {
+            avatarHtml = `<img src="/static/unknown_user_phasma_icon.png" alt="Avatar" class="dm-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
+        }
+
+        // Settings gear icon for creators (top-right corner)
+        let settingsIconHtml = '';
+        if (isCreator && !isDM) {
+            settingsIconHtml = `<button class="btn-settings-gear" data-group-id="${group.id}" data-group-type="${group.type || 'public'}" title="Settings">⚙️</button>`;
+        }
+
+        html += `<div class="group-item" style="position: relative;">
+          ${settingsIconHtml}
+          <div class="group-name-container" style="display: flex; align-items: center;">
+              ${avatarHtml}
+              <div style="flex: 1;">
+                  <div class="group-name">${escapeHtml(group.name)}</div>
+                  ${!isDM ? `<div class="group-code">#${group.code}</div>` : ''}
+              </div>
               ${badgeHtml}
           </div>
-          <div class="group-code">#${group.code}</div>
-          <div class="group-info">👤 ${isCreator ? '(Creator)' : '(Member)'}</div>
+          ${!isDM ? `<div class="group-info">👤 ${isCreator ? '(Creator)' : '(Member)'}</div>` : ''}
           <div class="group-buttons">
             <button class="btn btn-enter" data-group-id="${group.id}">Enter</button>
-            ${isCreator ? `<button class="btn btn-secondary btn-settings" data-group-id="${group.id}" data-group-type="${group.type || 'public'}" style="margin-right:5px;">Settings</button>` : ''}
-            ${isCreator ? '<button class="btn btn-danger btn-delete" data-group-id="' + group.id + '">Delete</button>' : ''}
+            ${isCreator && !isDM ? '<button class="btn btn-danger btn-delete" data-group-id="' + group.id + '">Delete</button>' : ''}
           </div>
         </div>`;
     });
@@ -265,8 +283,8 @@ function renderGroups(groups) {
     document.querySelectorAll('.btn-enter').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); window.location.href = '/group/' + btn.getAttribute('data-group-id') + '/chat'; }));
     document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); currentDeleteGroupId = btn.getAttribute('data-group-id'); deleteModal.classList.add('active'); }));
 
-    // Settings Button Logic
-    document.querySelectorAll('.btn-settings').forEach(btn => {
+    // Settings Gear Icon Logic
+    document.querySelectorAll('.btn-settings-gear').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             const groupId = btn.getAttribute('data-group-id');
