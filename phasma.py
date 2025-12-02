@@ -1684,7 +1684,7 @@ def get_user_groups(username: str) -> list:
                     'unread_count': unread_count,
                     'type': group.group_type,
                     'is_dm': getattr(group, 'is_dm', False),
-                    'opponent_avatar': opponent_avatar
+                    'opponent_username': opponent_username  # Changed from opponent_avatar
                 })
         
         # Sort by last_message_at descending (newest activity first)
@@ -3732,26 +3732,23 @@ def group_chat(group_id: int):
     display_name = group_name
     opponent_avatar = None
     
-    # For DM groups, show opponent's name and avatar
+    # Get opponent username for DM groups
+    opponent_username = None
     if group and getattr(group, 'is_dm', False):
+        # Find the other member
         other_member = GroupMember.query.filter(
-            GroupMember.group_id == group_id,
+            GroupMember.group_id == group.id,
             GroupMember.username != username
         ).first()
         if other_member:
-            display_name = other_member.username
-            opponent_user = User.query.filter_by(username=other_member.username).first()
-            if opponent_user and opponent_user.profile_pic:
-                opponent_avatar = opponent_user.profile_pic
+            opponent_username = other_member.username
+            display_name = other_member.username # Update display_name for DM groups
         else:
             # Fallback: parse from group name
             parts = group.name.split('_')
             if len(parts) == 3:
                 opponent_username = parts[2] if parts[1] == username else parts[1]
-                display_name = opponent_username
-                opponent_user = User.query.filter_by(username=opponent_username).first()
-                if opponent_user and opponent_user.profile_pic:
-                    opponent_avatar = opponent_user.profile_pic
+                display_name = opponent_username # Update display_name for DM groups
     
     # Проверяем, есть ли уже сессия для этого пользователя в этой группе
     existing_session_bytes = r.get(f"user_group_session:{username}:{group_id}")
@@ -3760,8 +3757,10 @@ def group_chat(group_id: int):
         group_session_token = existing_session_bytes.decode("utf-8")
         print(f"[OK] Reusing existing group session for {username} in group {group_id}")
     else:
-        # Создаем новую сессию
-        group_session_token = generate_group_session_token(username, group_id)
+        # Создаём новую сессию
+        group_session_token = secrets.token_urlsafe(32)
+        r.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, group_session_token)
+        print(f"[OK] Created new group session for {username} in group {group_id}")
     
     nonce = generate_nonce()
     request._csp_nonce = nonce
@@ -3773,6 +3772,7 @@ def group_chat(group_id: int):
         group_id=group_id,
         group_name=display_name,
         group_type=group.group_type if group else 'public',
+        opponent_username=opponent_username,
         opponent_avatar=opponent_avatar,
         is_dm=getattr(group, 'is_dm', False) if group else False,
         nonce=nonce

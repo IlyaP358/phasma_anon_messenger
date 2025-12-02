@@ -728,8 +728,8 @@ function renderGroups(groups) {
 
         // Avatar for DM groups
         let avatarHtml = '';
-        if (isDM && group.opponent_avatar) {
-            avatarHtml = `<img src="/uploads/${group.opponent_avatar}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
+        if (isDM && group.opponent_username) {
+            avatarHtml = `<img src="/user/profile-pic/${group.opponent_username}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
         } else if (isDM) {
             avatarHtml = `<img src="/static/unknown_user_phasma_icon.png" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
         }

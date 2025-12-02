@@ -171,8 +171,8 @@
       <div class="chat-header">
         <button id="btn-toggle-groups" class="input-button mobile-only" style="margin-right: 10px;">☰</button>
         <div class="chat-header-left" style="display: flex; align-items: center; gap: 10px; flex: 1;">
-          {% if is_dm and opponent_avatar %}
-          <img src="/uploads/{{ opponent_avatar }}" alt="Avatar"
+          {% if is_dm and opponent_username %}
+          <img src="/user/profile-pic/{{ opponent_username }}" alt="Avatar"
             style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color); flex-shrink: 0;">
           {% elif is_dm %}
           <img src="/static/unknown_user_phasma_icon.png" alt="Avatar"

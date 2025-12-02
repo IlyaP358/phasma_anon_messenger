@@ -250,8 +250,8 @@ function renderGroups(groups) {
 
         // Avatar for DM groups
         let avatarHtml = '';
-        if (isDM && group.opponent_avatar) {
-            avatarHtml = `<img src="/uploads/${group.opponent_avatar}" alt="Avatar" class="dm-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
+        if (isDM && group.opponent_username) {
+            avatarHtml = `<img src="/user/profile-pic/${group.opponent_username}" alt="Avatar" class="dm-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
         } else if (isDM) {
             avatarHtml = `<img src="/static/unknown_user_phasma_icon.png" alt="Avatar" class="dm-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
         }
