@@ -3760,7 +3760,30 @@ def group_chat(group_id: int):
     else:
         # Создаём новую сессию
         group_session_token = secrets.token_urlsafe(32)
-        r.setex(f"user_group_session:{username}:{group_id}", AUTH_TOKEN_TTL, group_session_token)
+        
+        # Сохраняем данные сессии в правильном формате для verify_group_session
+        session_data = {
+            'username': username,
+            'group_id': group_id,
+            'ip_subnet': get_client_ip_subnet(),
+            'created_at': int(time.time()),
+            'last_activity': int(time.time())
+        }
+        
+        # Сохраняем сессию с ключом group_session:{token}
+        r.setex(
+            f"group_session:{group_session_token}", 
+            AUTH_TOKEN_TTL, 
+            json.dumps(session_data).encode("utf-8")
+        )
+        
+        # Также сохраняем маппинг user->token для быстрого поиска
+        r.setex(
+            f"user_group_session:{username}:{group_id}", 
+            AUTH_TOKEN_TTL, 
+            group_session_token
+        )
+        
         print(f"[OK] Created new group session for {username} in group {group_id}")
     
     nonce = generate_nonce()
