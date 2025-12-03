@@ -2170,6 +2170,29 @@ function stopAndSendRecording() {
 }
 
 // Event Listeners for Voice Messages
-if (btnMic) btnMic.addEventListener('click', startRecording);
-if (btnCancelRecording) btnCancelRecording.addEventListener('click', cancelRecording);
-if (btnSendRecording) btnSendRecording.addEventListener('click', stopAndSendRecording);
+console.log('[Voice] Attaching event listeners...');
+console.log('[Voice] btnMic:', btnMic);
+console.log('[Voice] btnCancelRecording:', btnCancelRecording);
+console.log('[Voice] btnSendRecording:', btnSendRecording);
+
+if (btnMic) {
+    btnMic.addEventListener('click', startRecording);
+    console.log('[Voice] Microphone button listener attached');
+} else {
+    console.error('[Voice] Microphone button not found!');
+}
+
+if (btnCancelRecording) {
+    btnCancelRecording.addEventListener('click', cancelRecording);
+    console.log('[Voice] Cancel button listener attached');
+} else {
+    console.error('[Voice] Cancel button not found!');
+}
+
+if (btnSendRecording) {
+    btnSendRecording.addEventListener('click', stopAndSendRecording);
+    console.log('[Voice] Send button listener attached');
+} else {
+    console.error('[Voice] Send button not found!');
+}
+
