@@ -262,7 +262,7 @@ function renderGroups(groups) {
             settingsIconHtml = `<button class="btn-settings-gear" data-group-id="${group.id}" data-group-type="${group.type || 'public'}" title="Settings">⚙️</button>`;
         }
 
-        html += `<div class="group-item" style="position: relative;">
+        html += `<div class="group-item" data-group-id="${group.id}" style="position: relative; cursor: pointer;">
           ${settingsIconHtml}
           <div class="group-name-container" style="display: flex; align-items: center;">
               ${avatarHtml}
@@ -273,15 +273,18 @@ function renderGroups(groups) {
               ${badgeHtml}
           </div>
           ${!isDM ? `<div class="group-info">👤 ${isCreator ? '(Creator)' : '(Member)'}</div>` : ''}
-          <div class="group-buttons">
-            <button class="btn btn-enter" data-group-id="${group.id}">Enter</button>
-            ${isCreator && !isDM ? '<button class="btn btn-danger btn-delete" data-group-id="' + group.id + '">Delete</button>' : ''}
-          </div>
         </div>`;
     });
     list.innerHTML = html;
-    document.querySelectorAll('.btn-enter').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); window.location.href = '/group/' + btn.getAttribute('data-group-id') + '/chat'; }));
-    document.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); currentDeleteGroupId = btn.getAttribute('data-group-id'); deleteModal.classList.add('active'); }));
+
+    // Make entire item clickable
+    document.querySelectorAll('.group-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            // Ignore if clicked on settings gear
+            if (e.target.closest('.btn-settings-gear')) return;
+            window.location.href = '/group/' + item.getAttribute('data-group-id') + '/chat';
+        });
+    });
 
     // Settings Gear Icon Logic
     document.querySelectorAll('.btn-settings-gear').forEach(btn => {
@@ -724,6 +727,21 @@ if (settingsModal) {
                 saveSettingsBtn.disabled = false;
             });
     });
+
+    // Delete Button Logic in Settings Modal
+    const btnSettingsDelete = document.getElementById('btn-settings-delete');
+    if (btnSettingsDelete) {
+        btnSettingsDelete.addEventListener('click', () => {
+            if (currentSettingsGroupId) {
+                currentDeleteGroupId = currentSettingsGroupId;
+                // Close settings modal
+                settingsModal.classList.remove('active');
+                currentSettingsGroupId = null;
+
+                deleteModal.classList.add('active'); // Open delete modal
+            }
+        });
+    }
 }
 
 // ========== MAILBOX & DM LOGIC ==========
@@ -857,7 +875,10 @@ if (userSearchInput) {
                         data.users.forEach(u => {
                             html += `
                             <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333;">
-                                <span>${escapeHtml(u.username)}</span>
+                                <div style="display: flex; align-items: center;">
+                                    <img src="/user/profile-pic/${u.username}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; object-fit: cover;">
+                                    <span>${escapeHtml(u.username)}</span>
+                                </div>
                                 <button class="btn btn-primary btn-send-dm" data-username="${escapeHtml(u.username)}" style="font-size: 11px; padding: 4px 8px;">Send Request</button>
                             </div>`;
                         });

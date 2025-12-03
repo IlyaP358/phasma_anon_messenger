@@ -53,7 +53,7 @@
       <button id="btn-toggle-sessions" class="btn-menu mobile-only">☰</button>
     </div>
 
-    <h1>💬 phasma groups</h1>
+    <h1>💬 phasma</h1>
 
     <div class="header-actions">
       <button class="btn btn-primary" id="btn-create">+ Create Group</button>
@@ -62,7 +62,7 @@
     </div>
 
     <div class="section">
-      <h2>Your Groups</h2>
+      <h2>Chats & Channels</h2>
       <div id="groups-list"></div>
     </div>
   </div>
@@ -291,9 +291,12 @@
         <div id="password-change-msg" style="margin-top: 5px; font-size: 12px;"></div>
       </div>
 
-      <div class="form-actions">
-        <button class="btn btn-primary" id="btn-save-settings">Save Changes</button>
-        <button class="btn btn-secondary" id="btn-cancel-settings">Cancel</button>
+      <div class="form-actions" style="justify-content: space-between;">
+        <button class="btn btn-danger" id="btn-settings-delete" style="margin-right: auto;">Delete Group</button>
+        <div>
+          <button class="btn btn-primary" id="btn-save-settings">Save Changes</button>
+          <button class="btn btn-secondary" id="btn-cancel-settings">Cancel</button>
+        </div>
       </div>
     </div>
   </div>

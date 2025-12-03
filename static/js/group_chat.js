@@ -1236,6 +1236,7 @@ function createURLPreviewCard(url, preview) {
     const urlDiv = document.createElement("div");
     urlDiv.className = "url-preview-url";
     urlDiv.style.cursor = 'pointer';
+    urlDiv.style.color = '#3BACFF';
     urlDiv.textContent = url.substring(0, 60) + (url.length > 60 ? '...' : '');
     card.appendChild(urlDiv);
     if (preview.title) {
@@ -1385,7 +1386,26 @@ function createMessageElement(data, messageId) {
     else {
         const textDiv = document.createElement("div");
         textDiv.className = "message-text";
-        textDiv.textContent = parsed.content;
+
+        // Check if content is a URL
+        const urlRegex = /^(https?:\/\/[^\s]+)$/;
+        if (urlRegex.test(parsed.content)) {
+            const link = document.createElement("a");
+            link.href = parsed.content;
+            link.textContent = parsed.content;
+            link.target = "_blank";
+            link.style.color = "#0078d4"; // Blue color
+            link.style.textDecoration = "underline";
+            link.onclick = (e) => e.stopPropagation();
+            textDiv.appendChild(link);
+
+            if (parsed.urls && parsed.urls[parsed.content]) {
+                textDiv.style.display = 'none'; // Hide text if preview exists
+            }
+        } else {
+            textDiv.textContent = parsed.content;
+        }
+
         mainContent.appendChild(textDiv);
 
         if (parsed.urls && Object.keys(parsed.urls).length > 0) {
