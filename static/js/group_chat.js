@@ -1,3 +1,15 @@
+// ========== VOICE MESSAGES ==========
+let mediaRecorder = null;
+let audioChunks = [];
+let recordingStartTime = null;
+let recordingInterval = null;
+const recordingContainer = document.getElementById('recording-container');
+const inputRow = document.getElementById('input-row');
+const recordingTimeDisplay = document.getElementById('recording-time');
+const btnMic = document.getElementById('btn-mic');
+const btnCancelRecording = document.getElementById('btn-cancel-recording');
+const btnSendRecording = document.getElementById('btn-send-recording');
+
 // ========== EMOJI LOGIC STARTS HERE ==========
 const EMOJI_DB_URL = '/static/emoji_database.json';
 let emojiData = [];
@@ -2071,3 +2083,93 @@ if (isWindowActive) {
 // Initialize SSE and Push Notifications
 initSSE();
 initPushNotifications();
+
+// ========== VOICE MESSAGE FUNCTIONS ==========
+async function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showError("⚠️ Microphone not supported. HTTPS or localhost required.");
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); // Prefer webm
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = event => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.start();
+
+        // UI Updates
+        if (inputRow) inputRow.style.display = 'none';
+        if (recordingContainer) recordingContainer.style.display = 'flex';
+        recordingStartTime = Date.now();
+        updateRecordingTimer();
+        recordingInterval = setInterval(updateRecordingTimer, 100);
+
+    } catch (err) {
+        console.error("Error accessing microphone:", err);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            showError("⚠️ Access denied. Please tap the lock icon 🔒 in your address bar and Allow Microphone.");
+        } else if (err.name === 'NotFoundError') {
+            showError("⚠️ No microphone found on this device.");
+        } else {
+            showError(`⚠️ Microphone error: ${err.message || err.name}`);
+        }
+    }
+}
+
+function updateRecordingTimer() {
+    const elapsed = Date.now() - recordingStartTime;
+    const seconds = Math.floor(elapsed / 1000);
+    const ms = Math.floor((elapsed % 1000) / 10); // 2 digits
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (recordingTimeDisplay) {
+        recordingTimeDisplay.textContent = `${minutes}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(2, '0')}`;
+    }
+}
+
+function cancelRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
+    stopRecordingUI();
+}
+
+function stopRecordingUI() {
+    clearInterval(recordingInterval);
+    if (inputRow) inputRow.style.display = 'flex';
+    if (recordingContainer) recordingContainer.style.display = 'none';
+    if (mediaRecorder && mediaRecorder.stream) {
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+    }
+    mediaRecorder = null;
+    audioChunks = [];
+}
+
+function stopAndSendRecording() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+    mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        // Use .weba extension as planned
+        const audioFile = new File([audioBlob], "voice.weba", { type: "audio/webm" });
+
+        // Send file
+        selectedFile = audioFile;
+        sendFile();
+        stopRecordingUI();
+    };
+
+    mediaRecorder.stop();
+}
+
+// Event Listeners for Voice Messages
+if (btnMic) btnMic.addEventListener('click', startRecording);
+if (btnCancelRecording) btnCancelRecording.addEventListener('click', cancelRecording);
+if (btnSendRecording) btnSendRecording.addEventListener('click', stopAndSendRecording);

@@ -118,8 +118,8 @@ FILE_CATEGORIES = {
         'display': 'download'
     },
     'audio': {
-        'extensions': {'mp3', 'm4a', 'ogg', 'wav'},
-        'mimetypes': {'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/x-wav'},
+        'extensions': {'mp3', 'm4a', 'ogg', 'wav', 'weba'},
+        'mimetypes': {'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm'},
         'max_size': 50 * 1024 * 1024,  # 50 MB
         'display': 'download'
     },
@@ -163,6 +163,7 @@ EXT_TO_MIME = {
     'm4a': 'audio/mp4',
     'ogg': 'audio/ogg',
     'wav': 'audio/wav',
+    'weba': 'audio/webm',
     'pdf': 'application/pdf',
     'txt': 'text/plain'
 }

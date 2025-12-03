@@ -212,10 +212,24 @@
           </div>
         </div>
 
-        <div class="input-row">
+        <div id="recording-container"
+          style="display: none; align-items: center; background: #2b2b2b; padding: 10px; border-radius: 8px; flex: 1; margin-bottom: 10px;">
+          <div class="recording-timer"
+            style="flex: 1; display: flex; align-items: center; color: white; font-family: monospace; font-size: 16px;">
+            <span style="color: #ff4b4b; margin-right: 10px; animation: pulse 1s infinite;">●</span>
+            <span id="recording-time">0:00,00</span>
+          </div>
+          <button id="btn-cancel-recording" class="input-button"
+            style="color: #ff4b4b; margin-right: 10px; background: none; border: none; font-size: 20px; cursor: pointer;">🗑️</button>
+          <button id="btn-send-recording" class="input-button"
+            style="color: #3BACFF; background: none; border: none; font-size: 24px; cursor: pointer;">➤</button>
+        </div>
+
+        <div class="input-row" id="input-row">
           <input type="text" id="in" autocomplete="off" placeholder="Type a message" />
           <button type="button" class="input-button" id="upload-btn">+ File</button>
           <button type="button" class="input-button" id="emoji-btn">😂</button>
+          <button type="button" class="input-button" id="btn-mic">🎤</button>
           <button type="button" class="input-button" id="send-btn">↳</button>
         </div>
 
