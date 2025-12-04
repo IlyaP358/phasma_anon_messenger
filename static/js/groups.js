@@ -605,6 +605,28 @@ function initSSE() {
             // Play sound
             playNotificationSound();
         }
+
+        if (data.type === 'dm_request') {
+            console.log("Received DM request:", data);
+            // Update mailbox badge
+            const badge = document.getElementById('mailbox-badge');
+            if (badge) {
+                const current = parseInt(badge.textContent || '0');
+                badge.textContent = current + 1;
+                badge.style.display = 'inline-block';
+            }
+            playNotificationSound();
+        }
+
+        if (data.type === 'dm_response') {
+            console.log("Received DM response:", data);
+            if (data.action === 'accept') {
+                loadGroups(); // New DM group should appear
+                // Show notification
+                // If we had a toast system we would use it, for now just sound
+                playNotificationSound();
+            }
+        }
     };
 
     eventSource.onerror = function (err) {

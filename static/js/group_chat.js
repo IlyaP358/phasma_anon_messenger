@@ -1616,6 +1616,59 @@ function startSSE() {
                             return;
                         }
 
+                        if (data.startsWith('USER_ONLINE:')) {
+                            const username = data.substring(12).trim();
+                            updateMemberStatus(username, true);
+                            return;
+                        }
+
+                        if (data.startsWith('USER_OFFLINE:')) {
+                            const username = data.substring(13).trim();
+                            updateMemberStatus(username, false);
+                            return;
+                        }
+
+                        if (data.startsWith('USER_JOINED:')) {
+                            const username = data.substring(12).trim();
+                            // Add to member list if not exists (reload members)
+                            loadMembers();
+                            // Show system message
+                            const msgElement = createSystemMessage(`${username} joined the group`);
+                            messagesContainer.appendChild(msgElement);
+                            return;
+                        }
+
+                        if (data.startsWith('USER_LEFT:')) {
+                            const username = data.substring(10).trim();
+                            // Remove from member list
+                            const memberElement = document.querySelector(`.member-item[data-username="${username}"]`);
+                            if (memberElement) memberElement.remove();
+                            // Show system message
+                            const msgElement = createSystemMessage(`${username} left the group`);
+                            messagesContainer.appendChild(msgElement);
+                            return;
+                        }
+
+                        if (data.startsWith('USER_KICKED:')) {
+                            const username = data.substring(12).trim();
+                            // Remove from member list
+                            const memberElement = document.querySelector(`.member-item[data-username="${username}"]`);
+                            if (memberElement) memberElement.remove();
+
+                            if (username === CURRENT_USER) {
+                                alert('You have been kicked from the group.');
+                                window.location.href = '/groups';
+                            }
+                            return;
+                        }
+
+                        if (data.startsWith('GROUP_UPDATE:')) {
+                            // Reload page or update UI
+                            // For type change, reload is safest to update invite UI etc
+                            window.location.reload();
+                            return;
+                        }
+
                         const parsed = parseMessageData(data);
                         const msgId = (parsed && parsed.id) ? parsed.id : (Date.now() + Math.random());
                         const msgElement = createMessageElement(data, msgId);
@@ -2196,3 +2249,25 @@ if (btnSendRecording) {
     console.error('[Voice] Send button not found!');
 }
 
+
+// ========== ONLINE STATUS UPDATES ==========
+function updateMemberStatus(username, isOnline) {
+    const memberElement = document.querySelector(`.member-item[data-username="${username}"]`);
+    if (memberElement) {
+        const statusDot = memberElement.querySelector('.status-dot');
+        if (statusDot) {
+            statusDot.className = `status-dot ${isOnline ? 'online' : 'offline'}`;
+        }
+    }
+}
+
+function createSystemMessage(text) {
+    const msg = document.createElement("div");
+    msg.className = "message system-message";
+    msg.style.textAlign = "center";
+    msg.style.color = "#888";
+    msg.style.fontSize = "0.8em";
+    msg.style.margin = "10px 0";
+    msg.textContent = text;
+    return msg;
+}

@@ -2,9 +2,6 @@ venv
 __pycache__
 uploads
 .env
-migrate_db.py
-migrate_profile_pic.py
-migrate_profile_pic_pg.py
-phasma_anon_messenger
-migrate_group_type.py
-migrate_dm_features_pg.py
+
+test_performance.py
+reproduce_issue.py

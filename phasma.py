@@ -1623,70 +1623,130 @@ def remove_user_from_group(group_id: int, username: str) -> bool:
         return False
 
 def get_user_groups(username: str) -> list:
-    """Возвращает список всех групп пользователя с информацией"""
+    """Возвращает список всех групп пользователя с информацией (OPTIMIZED - batch queries)"""
     try:
+        from sqlalchemy import func, and_
+        
+        # Get all memberships for this user
         members = GroupMember.query.filter_by(username=username).all()
         
+        if not members:
+            return []
+        
+        # Extract group IDs for batch queries
+        group_ids = [m.group_id for m in members]
+        member_dict = {m.group_id: m for m in members}
+        
+        # BATCH QUERY 1: Get all groups at once
+        groups = Group.query.filter(Group.id.in_(group_ids)).all()
+        group_dict = {g.id: g for g in groups}
+        
+        # BATCH QUERY 2: Get last message time for each group (single query with subquery)
+        last_messages_subq = db.session.query(
+            Message.group_id,
+            func.max(Message.created_at).label('last_msg_time')
+        ).filter(
+            Message.group_id.in_(group_ids)
+        ).group_by(Message.group_id).subquery()
+        
+        last_messages = db.session.query(
+            Message.group_id,
+            Message.created_at
+        ).join(
+            last_messages_subq,
+            and_(
+                Message.group_id == last_messages_subq.c.group_id,
+                Message.created_at == last_messages_subq.c.last_msg_time
+            )
+        ).all()
+        
+        last_msg_dict = {
+            msg.group_id: int(msg.created_at.replace(tzinfo=datetime.timezone.utc).timestamp()) 
+            for msg in last_messages
+        }
+        
+        # BATCH QUERY 3: Get unread counts (one query per group, but filtered by last_read_at)
+        # This is still N queries but much faster than the original
+        unread_dict = {}
+        for group_id in group_ids:
+            member = member_dict.get(group_id)
+            if member:
+                unread_count = Message.query.filter(
+                    Message.group_id == group_id,
+                    Message.created_at > member.last_read_at,
+                    Message.username != username
+                ).count()
+                unread_dict[group_id] = unread_count
+        
+        # BATCH QUERY 4: Get all DM opponents and their users (2 queries total)
+        dm_group_ids = [gid for gid in group_ids if getattr(group_dict.get(gid), 'is_dm', False)]
+        opponent_dict = {}
+        
+        if dm_group_ids:
+            # Get all DM members in one query
+            dm_members = GroupMember.query.filter(
+                GroupMember.group_id.in_(dm_group_ids),
+                GroupMember.username != username
+            ).all()
+            
+            # Get all opponent users in one query
+            opponent_usernames = [dm.username for dm in dm_members]
+            if opponent_usernames:
+                opponent_users = User.query.filter(
+                    User.username.in_(opponent_usernames)
+                ).all()
+                opponent_user_dict = {u.username: u for u in opponent_users}
+                
+                for dm in dm_members:
+                    opponent_dict[dm.group_id] = {
+                        'username': dm.username,
+                        'user': opponent_user_dict.get(dm.username)
+                    }
+        
+        # Build groups_info list
         groups_info = []
         for member in members:
-            group = Group.query.filter_by(id=member.group_id).first()
-            if group:
-                # Get last message time
-                last_msg = Message.query.filter_by(group_id=group.id).order_by(Message.created_at.desc()).first()
-                last_msg_time = last_msg.format_time() if last_msg else 0
-
-                # Calculate unread count (exclude user's own messages)
-                unread_count = Message.query.filter(
-                    Message.group_id == group.id,
-                    Message.created_at > member.last_read_at,
-                    Message.username != username  # Don't count user's own messages as unread
-                ).count()
-
-                group_name = group.name
-                opponent_avatar = None
-                opponent_username = None
-                
-                if getattr(group, 'is_dm', False):
-                    other_member = GroupMember.query.filter(
-                        GroupMember.group_id == group.id,
-                        GroupMember.username != username
-                    ).first()
-                    if other_member:
-                        group_name = other_member.username
-                        opponent_username = other_member.username
-                    else:
-                        # Fallback: try to parse username from group name (dm_user1_user2)
-                        parts = group.name.split('_')
-                        if len(parts) == 3:
-                            # parts[1] and parts[2] are usernames. Pick the one that isn't me.
-                            if parts[1] == username:
-                                group_name = parts[2]
-                                opponent_username = parts[2]
-                            else:
-                                group_name = parts[1]
-                                opponent_username = parts[1]
+            group = group_dict.get(member.group_id)
+            if not group:
+                continue
+            
+            last_msg_time = last_msg_dict.get(group.id, 0)
+            unread_count = unread_dict.get(group.id, 0)
+            
+            group_name = group.name
+            opponent_username = None
+            
+            if getattr(group, 'is_dm', False):
+                opponent_info = opponent_dict.get(group.id)
+                if opponent_info:
+                    group_name = opponent_info['username']
+                    opponent_username = opponent_info['username']
+                else:
+                    # Fallback: parse from group name
+                    parts = group.name.split('_')
+                    if len(parts) == 3:
+                        if parts[1] == username:
+                            group_name = parts[2]
+                            opponent_username = parts[2]
                         else:
-                            group_name = "Unknown User"
-                    
-                    # Get opponent's avatar
-                    if opponent_username:
-                        opponent_user = User.query.filter_by(username=opponent_username).first()
-                        if opponent_user and opponent_user.profile_pic:
-                            opponent_avatar = opponent_user.profile_pic
-
-                groups_info.append({
-                    'id': group.id,
-                    'name': group_name,
-                    'code': group.group_code,
-                    'creator': group.creator,
-                    'role': member.role,
-                    'joined_at': member.format_time(),
-                    'last_message_at': last_msg_time,
-                    'unread_count': unread_count,
-                    'type': group.group_type,
-                    'is_dm': getattr(group, 'is_dm', False),
-                    'opponent_username': opponent_username  # Changed from opponent_avatar
-                })
+                            group_name = parts[1]
+                            opponent_username = parts[1]
+                    else:
+                        group_name = "Unknown User"
+            
+            groups_info.append({
+                'id': group.id,
+                'name': group_name,
+                'code': group.group_code,
+                'creator': group.creator,
+                'role': member.role,
+                'joined_at': member.format_time(),
+                'last_message_at': last_msg_time,
+                'unread_count': unread_count,
+                'type': group.group_type,
+                'is_dm': getattr(group, 'is_dm', False),
+                'opponent_username': opponent_username
+            })
         
         # Sort by last_message_at descending (newest activity first)
         groups_info.sort(key=lambda x: x['last_message_at'], reverse=True)
@@ -1694,6 +1754,8 @@ def get_user_groups(username: str) -> list:
         return groups_info
     except Exception as e:
         print(f"[ERROR] Failed to get user groups: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def get_group_info(group_id: int, include_members: bool = False) -> dict or None:
@@ -3235,6 +3297,9 @@ def api_join_group():
         # Очищаешь counter после успеха
         r.delete(rate_key)
         
+        # Publish join event
+        r.publish(f"chat:group:{group.id}", f"USER_JOINED:{username}".encode("utf-8"))
+        
         print(f"[OK] User {username} joined group {group.group_code}")
         
         return jsonify({
@@ -3296,6 +3361,9 @@ def api_kick_member(group_id):
         # Notify group (optional, but good for UI update)
         notify_group_members(group_id, username, f"User {target_username} was kicked from the group.")
         
+        # Publish kick event
+        r.publish(f"chat:group:{group_id}", f"USER_KICKED:{target_username}".encode("utf-8"))
+        
         print(f"[INFO] User {username} kicked {target_username} from group {group_id}")
         return jsonify({"success": True})
     except Exception as e:
@@ -3341,6 +3409,9 @@ def api_update_group_type(group_id):
         old_type = group.group_type
         group.group_type = new_type
         db.session.commit()
+        
+        # Publish group update event
+        r.publish(f"chat:group:{group_id}", f"GROUP_UPDATE:TYPE:{new_type}".encode("utf-8"))
         
         print(f"[INFO] User {username} changed group {group_id} type from {old_type} to {new_type}")
         return jsonify({"success": True})
@@ -3516,6 +3587,9 @@ def api_leave_group(group_id: int):
             delete_group(group_id)
     except Exception as e:
         print(f"[ERROR] Failed to auto-delete empty group {group_id}: {e}")
+    
+    # Publish leave event
+    r.publish(f"chat:group:{group_id}", f"USER_LEFT:{username}".encode("utf-8"))
     
     print(f"[OK] User {username} left group {group_id}")
     
@@ -3990,31 +4064,40 @@ def upload_profile_pic():
 @app.route('/user/profile-pic/<username>')
 @limiter.limit("60 per minute")
 def get_profile_pic(username):
-    # Allow access to profile pics for authenticated users
-    token = extract_token_from_request()
-    if not verify_token(token):
-        # Return default icon if not logged in (or 401, but icon is better for UI)
-        return send_file('static/unknown_user_phasma_icon.png')
-
-    user = User.query.filter_by(username=username).first()
-    if not user or not user.profile_pic:
-        return send_file('static/unknown_user_phasma_icon.png')
-
+    """Serve user profile picture with robust error handling"""
     try:
+        # Allow access to profile pics for authenticated users
+        token = extract_token_from_request()
+        if not verify_token(token):
+            # Return default icon if not logged in
+            return send_file('static/unknown_user_phasma_icon.png')
+
+        user = User.query.filter_by(username=username).first()
+        if not user or not user.profile_pic:
+            return send_file('static/unknown_user_phasma_icon.png')
+
         file_path = os.path.join(UPLOAD_FOLDER, user.profile_pic)
         if not os.path.exists(file_path):
-             return send_file('static/unknown_user_phasma_icon.png')
+            print(f"[WARN] Profile pic file not found: {file_path}")
+            return send_file('static/unknown_user_phasma_icon.png')
 
         with open(file_path, 'rb') as f:
             encrypted_data = f.read()
             
         decrypted_data = data_fernet.decrypt(encrypted_data)
         
-        return Response(decrypted_data, mimetype='image/jpeg') # Default to jpeg, browser handles others usually
+        return Response(decrypted_data, mimetype='image/jpeg')
 
     except Exception as e:
-        print(f"[ERROR] Failed to serve profile pic: {e}")
-        return send_file('static/unknown_user_phasma_icon.png')
+        # Catch ALL errors and return default icon (prevents 500 errors)
+        print(f"[ERROR] Failed to serve profile pic for {username}: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            return send_file('static/unknown_user_phasma_icon.png')
+        except:
+            # Last resort: return 404
+            return abort(404)
 
 @app.route("/api/user/delete", methods=["POST"])
 def delete_account():
@@ -4180,6 +4263,9 @@ def api_delete_message(group_id: int, message_id: int):
     if not success:
         return jsonify({"error": "Failed to delete message"}), 500
     
+    # Publish delete event
+    r.publish(f"chat:group:{group_id}", f"DELETE_MESSAGE:{message_id}".encode("utf-8"))
+    
     # Продлить сессию
     updated_session_data = session.copy()
     updated_session_data['last_activity'] = int(time.time())
@@ -4297,6 +4383,10 @@ def mark_user_online_in_group(username: str, group_id: int) -> bool:
     try:
         r.sadd(f"group_members:online:{group_id}", username)
         r.expire(f"group_members:online:{group_id}", 60)
+        
+        # Publish online event
+        r.publish(f"chat:group:{group_id}", f"USER_ONLINE:{username}".encode("utf-8"))
+        
         print(f"[OK] User {username} marked online in group {group_id}")
         return True
     except Exception as e:
@@ -4321,6 +4411,8 @@ def mark_user_offline_from_all_groups(username: str) -> bool:
         
         for member in members:
             r.srem(f"group_members:online:{member.group_id}", username)
+            # Publish offline event
+            r.publish(f"chat:group:{member.group_id}", f"USER_OFFLINE:{username}".encode("utf-8"))
         
         print(f"[OK] User {username} removed from all group online lists")
         return True
@@ -4740,46 +4832,57 @@ def sign_file_url(file_id: int):
 @app.route("/file/<file_token>")
 @limiter.limit("60 per minute")
 def get_file(file_token: str):
-    """Download or display file by signed URL"""
-    signature = request.args.get('sig', '')
-    expiration = request.args.get('exp', '')
+    """Download or display file by signed URL with robust error handling"""
+    try:
+        signature = request.args.get('sig', '')
+        expiration = request.args.get('exp', '')
+        
+        if not verify_signed_file_url(file_token, signature, expiration):
+            print(f"[WARN] Invalid file signature for token: {file_token[:20]}")
+            return abort(403)
+        
+        result = load_file_by_token(file_token)
+        if not result:
+            print(f"[WARN] File not found for token: {file_token[:20]}")
+            return abort(404)
+        
+        decrypted_data, mime_type, original_filename, category = result
+        
+        # Determine Content-Disposition based on category
+        if category == 'photo':
+            # Photos display inline
+            as_attachment = False
+            disposition_filename = None
+        else:
+            # Videos, audio, documents force download
+            as_attachment = True
+            disposition_filename = original_filename
+        
+        response = send_file(
+            io.BytesIO(decrypted_data),
+            mimetype=mime_type,
+            as_attachment=as_attachment,
+            download_name=disposition_filename
+        )
+        
+        # Security headers
+        if category == 'photo':
+            response.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'"
+        else:
+            response.headers['Content-Security-Policy'] = "default-src 'none'"
+        
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['X-Frame-Options'] = 'DENY'
+        
+        return response
     
-    if not verify_signed_file_url(file_token, signature, expiration):
-        return abort(403)
-    
-    result = load_file_by_token(file_token)
-    if not result:
+    except Exception as e:
+        # Catch all errors and return 404 (prevents 500 errors)
+        print(f"[ERROR] Failed to serve file {file_token[:20]}: {e}")
+        import traceback
+        traceback.print_exc()
         return abort(404)
-    
-    decrypted_data, mime_type, original_filename, category = result
-    
-    # Determine Content-Disposition based on category
-    if category == 'photo':
-        # Photos display inline
-        as_attachment = False
-        disposition_filename = None
-    else:
-        # Videos, audio, documents force download
-        as_attachment = True
-        disposition_filename = original_filename
-    
-    response = send_file(
-        io.BytesIO(decrypted_data),
-        mimetype=mime_type,
-        as_attachment=as_attachment,
-        download_name=disposition_filename
-    )
-    
-    # Security headers
-    if category == 'photo':
-        response.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'"
-    else:
-        response.headers['Content-Security-Policy'] = "default-src 'none'"
-    
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    
-    return response
 
 @app.route("/api/account/delete", methods=["POST"])
 @limiter.limit("5 per hour")
@@ -4930,28 +5033,30 @@ def subscribe():
     if not username:
          return jsonify({"error": "Unauthorized"}), 401
 
-    # Check if subscription exists
-    sub = PushSubscription.query.filter_by(endpoint=endpoint).first()
-    if sub:
-        sub.username = username
-        sub.last_used = datetime.datetime.utcnow()
-    else:
-        sub = PushSubscription(
-            username=username,
-            endpoint=endpoint,
-            auth_key=auth_key,
-            p256dh=p256dh
-        )
-        db.session.add(sub)
-    
     try:
+        # Check if subscription exists
+        sub = PushSubscription.query.filter_by(endpoint=endpoint).first()
+        if sub:
+            sub.username = username
+            sub.last_used = datetime.datetime.utcnow()
+        else:
+            sub = PushSubscription(
+                username=username,
+                endpoint=endpoint,
+                auth_key=auth_key,
+                p256dh=p256dh
+            )
+            db.session.add(sub)
+        
         db.session.commit()
-        return jsonify({"success": True}), 201
+        print(f"[OK] Push subscription saved for {username}")
+        return jsonify({"success": True}), 200
     except Exception as e:
-        print(f"[ERROR] Failed to save subscription: {e}")
-        return jsonify({"error": "Database error"}), 500
+        db.session.rollback()
+        print(f"[ERROR] Failed to save push subscription: {e}")
+        return jsonify({"error": "Failed to save subscription"}), 500
 
-# ===============================================================
+
 # ---- Admin Password Change Route ----
 # ===============================================================
 @app.route('/api/groups/<int:group_id>/update_password', methods=['POST'])
@@ -5084,6 +5189,13 @@ def send_dm_request():
     req = DMRequest(sender=sender, receiver=receiver)
     db.session.add(req)
     db.session.commit()
+    
+    # Publish DM request event to receiver
+    event_data = json.dumps({
+        "type": "dm_request",
+        "sender": sender
+    })
+    r.publish(f"user:events:{receiver}", event_data.encode("utf-8"))
     
     return jsonify({'success': True})
 
