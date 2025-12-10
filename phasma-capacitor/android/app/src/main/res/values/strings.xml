@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Phasma Messenger</string>
+    <string name="title_activity_main">Phasma Messenger</string>
+    <string name="package_name">cloud.secweb.phasma</string>
+    <string name="custom_url_scheme">cloud.secweb.phasma</string>
+</resources>

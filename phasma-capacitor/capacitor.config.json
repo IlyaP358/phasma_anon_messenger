@@ -1,0 +1,41 @@
+{
+  "appId": "cloud.secweb.phasma",
+  "appName": "Phasma Messenger",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true,
+    "allowNavigation": [
+      "phasma.secweb.cloud",
+      "*.secweb.cloud"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#1a1a1a",
+    "webContentsDebuggingEnabled": false,
+    "captureInput": true,
+    "allowNavigation": [
+      "phasma.secweb.cloud"
+    ],
+    "buildOptions": {
+      "keystorePath": "",
+      "keystoreAlias": "",
+      "releaseType": "APK"
+    }
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "backgroundColor": "#1a1a1a",
+      "showSpinner": false
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon_config_sample",
+      "iconColor": "#ffffff"
+    }
+  }
+}
