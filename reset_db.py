@@ -1,4 +1,4 @@
-from phasma import app, db, User, Message, File, URLPreview
+from phasma import app, db, User, Message, File, URLPreview, Group, GroupMember, PushSubscription, DMRequest, Secret
 from sqlalchemy import inspect
 import os
 import glob
@@ -50,6 +50,14 @@ if option == "1":
         print("[OK] Table 'file' deleted.")
     else:
         print("[INFO] Table 'file' does not exist.")
+
+    # Delete other tables
+    for model in [URLPreview, GroupMember, PushSubscription, DMRequest, Group, Secret]:
+        if inspector.has_table(model.__tablename__):
+            model.__table__.drop(db.engine)
+            print(f"[OK] Table '{model.__tablename__}' deleted.")
+        else:
+            print(f"[INFO] Table '{model.__tablename__}' does not exist.")
     
     # Recreate tables
     db.create_all()

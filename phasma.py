@@ -508,8 +508,8 @@ class PushSubscription(db.Model):
 
 class DMRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    sender = db.Column(db.String(100), nullable=False, index=True)
-    receiver = db.Column(db.String(100), nullable=False, index=True)
+    sender = db.Column(db.String(100), nullable=False)
+    receiver = db.Column(db.String(100), nullable=False)
     status = db.Column(db.String(20), default='pending') # pending, accepted, declined
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 

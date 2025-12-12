@@ -254,12 +254,12 @@ body {
 }
 
 .input-button {
-    background: transparent;
+    background: #94b9ff12;
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    padding: 8px;
-    border-radius: 50%;
+    padding: 5px;
+    border-radius: 15%;
     transition: all 0.2s;
     font-size: 18px;
     width: 40px;
