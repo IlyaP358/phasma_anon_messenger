@@ -5,3 +5,4 @@ uploads
 test_performance.py
 reproduce_issue.py
 #phasma-electron
+update_icons.py

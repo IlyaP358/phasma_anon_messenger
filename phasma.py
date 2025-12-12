@@ -223,6 +223,13 @@ URL_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({
+        "error": "File too large",
+        "message": "The file you are trying to upload is too large. Please try a smaller file (max 500MB)."
+    }), 413
+
 
 # ===============================================================
 # ---- Database and Redis ----
