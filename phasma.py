@@ -63,6 +63,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/phasma"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB limit to prevent 413 errors
 
 # ===============================================================
 # ---- CAPTCHA Configuration ----
@@ -108,25 +109,25 @@ FILE_CATEGORIES = {
     'photo': {
         'extensions': {'jpg', 'jpeg', 'png', 'gif', 'webp'},
         'mimetypes': {'image/jpeg', 'image/png', 'image/gif', 'image/webp'},
-        'max_size': 10 * 1024 * 1024,  # 10 MB
+        'max_size': 15 * 1024 * 1024,  # 15 MB (Increased from 10)
         'display': 'inline'
     },
     'video': {
         'extensions': {'mp4', 'mov', 'webm'},
         'mimetypes': {'video/mp4', 'video/quicktime', 'video/webm'},
-        'max_size': 100 * 1024 * 1024,  # 100 MB
+        'max_size': 150 * 1024 * 1024,  # 150 MB (Increased from 100)
         'display': 'download'
     },
     'audio': {
         'extensions': {'mp3', 'm4a', 'ogg', 'wav', 'weba'},
         'mimetypes': {'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm'},
-        'max_size': 50 * 1024 * 1024,  # 50 MB
+        'max_size': 75 * 1024 * 1024,  # 75 MB (Increased from 50)
         'display': 'download'
     },
     'document': {
         'extensions': {'pdf', 'txt'},
         'mimetypes': {'application/pdf', 'text/plain'},
-        'max_size': 25 * 1024 * 1024,  # 25 MB
+        'max_size': 50 * 1024 * 1024,  # 50 MB (Increased from 25)
         'display': 'download'
     }
 }
