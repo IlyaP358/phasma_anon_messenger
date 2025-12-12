@@ -11,12 +11,12 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         
         // Автоматически разрешаем веб-разрешения (микрофон, камера)
-        this.bridge.getWebView().setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(final PermissionRequest request) {
-                // Автоматически разрешаем все запросы от веб-страницы
-                request.grant(request.getResources());
-            }
-        });
+        // this.bridge.getWebView().setWebChromeClient(new WebChromeClient() {
+        //     @Override
+        //     public void onPermissionRequest(final PermissionRequest request) {
+        //         // Автоматически разрешаем все запросы от веб-страницы
+        //         request.grant(request.getResources());
+        //     }
+        // });
     }
 }
