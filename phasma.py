@@ -565,11 +565,12 @@ def get_secret_decrypted(name: str):
 # ===============================================================
 # ---- Push Notification Helper ----
 # ===============================================================
-def send_push_notification(subscription_info, message_body):
+def send_push_notification(subscription_info, message_body, extra_data=None):
     """
     Send a push notification to a single subscription.
     subscription_info: dict or PushSubscription object
     message_body: str (text to display)
+    extra_data: dict (optional extra data to send in payload)
     """
     try:
         vapid_private = os.environ.get("VAPID_PRIVATE_KEY")
@@ -588,10 +589,15 @@ def send_push_notification(subscription_info, message_body):
         else:
             subscription_data = subscription_info
 
+        # Prepare payload
+        payload = {"body": message_body}
+        if extra_data:
+            payload.update(extra_data)
+
         # Send the notification
         webpush(
             subscription_info=subscription_data,
-            data=json.dumps({"body": message_body}),
+            data=json.dumps(payload),
             vapid_private_key=vapid_private,
             vapid_claims=vapid_claims
         )
@@ -635,7 +641,7 @@ def notify_group_members(group_id, sender_username, message_text):
                 # Run in thread to not block
                 threading.Thread(
                     target=send_push_notification,
-                    args=(sub, message_text)
+                    args=(sub, message_text, {"group_id": group_id})
                 ).start()
         
         # SSE Notification (Real-time)
