@@ -623,6 +623,11 @@ def notify_group_members(group_id, sender_username, message_text):
     Send push notifications to all group members except the sender.
     """
     try:
+        # Get group info for title
+        group = Group.query.get(group_id)
+        if not group:
+            return
+
         # Get all group members except sender
         members = GroupMember.query.filter(
             GroupMember.group_id == group_id,
@@ -638,10 +643,29 @@ def notify_group_members(group_id, sender_username, message_text):
             ).all()
             
             for sub in subscriptions:
+                # Determine title based on group type and subscriber
+                notification_title = group.name
+                
+                if group.is_dm:
+                    # Parse dm_UserA_UserB
+                    parts = group.name.split('_')
+                    if len(parts) >= 3:
+                        # Find the part that is NOT the subscriber
+                        # parts[0] is 'dm'
+                        users = parts[1:]
+                        opponent = None
+                        for u in users:
+                            if u != sub.username:
+                                opponent = u
+                                break
+                        
+                        if opponent:
+                            notification_title = opponent
+                
                 # Run in thread to not block
                 threading.Thread(
                     target=send_push_notification,
-                    args=(sub, message_text, {"group_id": group_id})
+                    args=(sub, message_text, {"group_id": group_id, "title": notification_title})
                 ).start()
         
         # SSE Notification (Real-time)
@@ -4339,7 +4363,12 @@ def save_message_to_group(username: str, group_id: int, content: str):
     # ---- PUSH NOTIFICATIONS ----
     group = Group.query.get(group_id)
     group_name = group.name if group else f"Group {group_id}"
-    notify_group_members(group_id, username, f"New message in {group_name}")
+    
+    notification_body = f"New message in {group_name}"
+    if group and group.is_dm:
+        notification_body = f"New message from {username}"
+        
+    notify_group_members(group_id, username, notification_body)
     # ----------------------------
     
     increment_message_count()
@@ -4786,7 +4815,12 @@ def upload_to_group(group_id: int):
         group = Group.query.get(group_id)
         group_name = group.name if group else f"Group {group_id}"
         file_type = file_record.file_category.capitalize() if file_record.file_category else "File"
-        notify_group_members(group_id, username, f"New {file_type} in {group_name}")
+        
+        notification_body = f"New {file_type} in {group_name}"
+        if group and group.is_dm:
+            notification_body = f"New {file_type} from {username}"
+            
+        notify_group_members(group_id, username, notification_body)
     except Exception as e:
         print(f"[WARN] Failed to trigger push for file upload: {e}")
     # ----------------------------

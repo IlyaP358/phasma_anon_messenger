@@ -13,7 +13,7 @@ self.addEventListener('push', function (event) {
     }
 
     const tag = data.group_id ? `group-${data.group_id}` : 'default';
-    const title = 'Phasma Messenger';
+    const title = data.title || 'Phasma Messenger';
 
     event.waitUntil(
         self.registration.getNotifications({ tag: tag }).then(function (notifications) {

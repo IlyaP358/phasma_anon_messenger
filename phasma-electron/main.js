@@ -28,7 +28,7 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    
+
     setTimeout(() => {
       mainWindow.loadURL('https://phasma.secweb.cloud');
     }, 1000);
@@ -59,7 +59,7 @@ function createWindow() {
           input.removeAttribute('disabled');
         });
       }, 100);
-    `).catch(err => {});
+    `).catch(err => { });
   });
 
   mainWindow.webContents.on('did-navigate-in-page', () => {
@@ -71,7 +71,7 @@ function createWindow() {
           input.removeAttribute('disabled');
         });
       }, 100);
-    `).catch(err => {});
+    `).catch(err => { });
   });
 
   // mainWindow.webContents.openDevTools();
@@ -93,7 +93,18 @@ function createWindow() {
   });
 }
 
-app.on('ready', createWindow);
+app.on('ready', () => {
+  createWindow();
+
+  const { globalShortcut } = require('electron');
+  globalShortcut.register('CommandOrControl+R', () => {
+    if (mainWindow) {
+      mainWindow.webContents.session.clearCache().then(() => {
+        mainWindow.reload();
+      });
+    }
+  });
+});
 
 app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') {

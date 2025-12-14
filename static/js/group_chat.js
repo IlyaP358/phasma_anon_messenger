@@ -389,7 +389,7 @@ let GROUP_SESSION_TOKEN = null;
 let MEMBERS_UPDATE_INTERVAL = null;
 let ONLINE_HEARTBEAT_INTERVAL = null;
 let isUnloading = false;
-let selectedFile = null;
+let selectedFiles = [];
 let isUploadingFile = false;
 let messageIdToElementMap = new Map();
 let pendingDeleteMessageId = null;
@@ -1351,13 +1351,41 @@ function createMessageElement(data, messageId) {
         if (photoMatch) {
             const photoDiv = document.createElement("div");
             photoDiv.className = "photo-msg";
+
+            // Loading container
+            const loadingContainer = document.createElement("div");
+            loadingContainer.className = "image-loading-container";
+
+            // Spinner
+            const spinner = document.createElement("div");
+            spinner.className = "image-spinner";
+            loadingContainer.appendChild(spinner);
+
             const img = document.createElement("img");
             img.src = photoMatch[2];
             img.alt = "Photo";
             img.loading = "lazy";
+            img.className = "loading"; // Start with opacity 0
             img.style.cursor = "pointer";
+
+            img.onload = () => {
+                spinner.remove();
+                loadingContainer.classList.remove("image-loading-container");
+                loadingContainer.style.minHeight = "auto";
+                loadingContainer.style.background = "transparent";
+                img.classList.remove("loading");
+                img.classList.add("loaded");
+            };
+
+            img.onerror = () => {
+                spinner.remove();
+                loadingContainer.innerHTML = '<span style="color: #ff4b4b; font-size: 12px;">⚠️ Failed to load image</span>';
+            };
+
             img.onclick = () => window.open(photoMatch[2], '_blank');
-            photoDiv.appendChild(img);
+
+            loadingContainer.appendChild(img);
+            photoDiv.appendChild(loadingContainer);
             mainContent.appendChild(photoDiv);
         }
     }
@@ -1706,7 +1734,7 @@ function sendMessageOrFile() {
         return;
     }
 
-    if (selectedFile) {
+    if (selectedFiles.length > 0) {
         sendFile();
         return;
     }
@@ -1743,44 +1771,65 @@ function sendMessageOrFile() {
 }
 
 async function sendFile() {
-    if (!selectedFile) return;
+    if (!selectedFiles || selectedFiles.length === 0) return;
     if (isUploadingFile) return;
     isUploadingFile = true;
 
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    $.ajax({
-        url: `/group/${GROUP_ID}/upload`,
-        type: 'POST',
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-        data: formData,
-        processData: false,
-        contentType: false,
-        success: function (response) {
-            console.log('[Upload] File sent successfully');
-            hideFilePreview();
-            isUploadingFile = false;
-        },
-        error: function (xhr) {
-            isUploadingFile = false;
-            try {
-                const response = JSON.parse(xhr.responseText);
-                const message = response.message || response.error || 'Unknown error';
-                showError(`✗ Upload failed: ${message}`);
-            } catch (e) {
-                if (xhr.status === 429) {
-                    showError('✗ Too many requests. Try again later.');
-                } else if (xhr.status === 401) {
-                    showError('✗ Session expired. Please login again.');
-                    handleSessionExpired();
-                } else if (xhr.status === 400) {
-                    showError('✗ Invalid file. Please check the file and try again.');
-                } else {
-                    showError(`✗ Upload failed (${xhr.status})`);
+    const totalFiles = selectedFiles.length;
+    let uploadedCount = 0;
+    let errorCount = 0;
+
+    // Helper to upload single file
+    const uploadSingle = (file) => {
+        return new Promise((resolve, reject) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            $.ajax({
+                url: `/group/${GROUP_ID}/upload`,
+                type: 'POST',
+                headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function (response) {
+                    resolve(response);
+                },
+                error: function (xhr) {
+                    reject(xhr);
                 }
+            });
+        });
+    };
+
+    for (let i = 0; i < totalFiles; i++) {
+        const file = selectedFiles[i];
+        try {
+            await uploadSingle(file);
+            uploadedCount++;
+        } catch (e) {
+            console.error(`Failed to upload ${file.name}`, e);
+            errorCount++;
+
+            // Try to extract error message
+            let errMsg = 'Unknown error';
+            if (e.responseText) {
+                try {
+                    const resp = JSON.parse(e.responseText);
+                    errMsg = resp.message || resp.error || errMsg;
+                } catch (jsonErr) { }
             }
+            showError(`✗ Failed to upload ${file.name}: ${errMsg}`);
         }
-    });
+    }
+
+    isUploadingFile = false;
+    hideFilePreview();
+
+    if (errorCount === 0) {
+        console.log(`[Upload] All ${totalFiles} files sent successfully`);
+    } else {
+        showError(`Uploaded ${uploadedCount}/${totalFiles} files. ${errorCount} failed.`);
+    }
 }
 
 document.getElementById('send-btn').addEventListener('click', sendMessageOrFile);
@@ -1826,30 +1875,51 @@ function formatFileSize(bytes) {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }
 
-function processFileUpload(file, source = 'upload') {
-    const ext = getFileExtension(file.name);
-    if (!validateFileExtension(ext)) {
-        const allowedExts = Object.keys(ALLOWED_EXTENSIONS).join(', ');
-        showError(`✗ File format ".${ext}" not allowed. Allowed: ${allowedExts}`);
+function processFileUpload(filesInput, source = 'upload') {
+    let files = [];
+    if (filesInput instanceof FileList) {
+        files = Array.from(filesInput);
+    } else if (Array.isArray(filesInput)) {
+        files = filesInput;
+    } else if (filesInput instanceof File) {
+        files = [filesInput];
+    }
+
+    if (files.length === 0) return;
+
+    if (files.length > 10) {
+        showError('✗ Maximum 10 files allowed.');
         return;
     }
 
-    if (!validateFileSize(file, ext)) {
-        const maxSize = MAX_FILE_SIZES[ext] || 10;
-        showError(`✗ File too large. Maximum size: ${maxSize}MB`);
-        return;
+    const validFiles = [];
+    for (const file of files) {
+        const ext = getFileExtension(file.name);
+        if (!validateFileExtension(ext)) {
+            showError(`✗ File format ".${ext}" not allowed.`);
+            continue;
+        }
+
+        if (!validateFileSize(file, ext)) {
+            const maxSize = MAX_FILE_SIZES[ext] || 10;
+            showError(`✗ File ${file.name} too large. Max: ${maxSize}MB`);
+            continue;
+        }
+
+        if (file.size < 100) {
+            showError(`✗ File ${file.name} too small.`);
+            continue;
+        }
+        validFiles.push(file);
     }
 
-    if (file.size < 100) {
-        showError('✗ File is too small (minimum 100 bytes)');
-        return;
+    if (validFiles.length > 0) {
+        showFilesPreview(validFiles, source);
     }
-
-    showFilePreview(file, source);
 }
 
-function showFilePreview(file, source = 'upload') {
-    selectedFile = file;
+function showFilesPreview(files, source = 'upload') {
+    selectedFiles = files;
     const container = document.getElementById('file-preview-container');
     const filename = document.getElementById('preview-filename');
     const filesize = document.getElementById('preview-filesize');
@@ -1857,48 +1927,89 @@ function showFilePreview(file, source = 'upload') {
     const previewImg = document.getElementById('preview-img');
     const previewVideo = document.getElementById('preview-video');
     const previewIcon = document.getElementById('preview-file-icon');
+    container.innerHTML = ''; // Clear existing
 
-    previewImg.style.display = 'none';
-    previewVideo.style.display = 'none';
-    previewIcon.style.display = 'none';
-    if (source === 'drag-drop') {
-        sourceLabel.textContent = '📥 Dropped';
-    } else if (source === 'paste') {
-        sourceLabel.textContent = '📋 Pasted';
-    } else {
-        sourceLabel.textContent = '📄 From Device';
+    if (files.length === 0) {
+        container.classList.remove('active');
+        return;
     }
 
-    filename.textContent = file.name;
-    filesize.textContent = formatFileSize(file.size);
-    const ext = getFileExtension(file.name);
+    files.forEach((file, index) => {
+        const item = document.createElement('div');
+        item.className = 'preview-item';
 
-    if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            previewImg.src = e.target.result;
-            previewImg.style.display = 'block';
+        // Remove button
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'preview-remove-btn';
+        removeBtn.innerHTML = '✕';
+        removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            removeFile(index);
         };
-        reader.readAsDataURL(file);
-    } else if (file.type.startsWith('video/')) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            previewVideo.src = e.target.result;
-            previewVideo.style.display = 'block';
-        };
-        reader.readAsDataURL(file);
-    } else {
-        previewIcon.style.display = 'block';
-    }
+        item.appendChild(removeBtn);
+
+        // Content
+        if (file.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            item.appendChild(img);
+        } else if (file.type.startsWith('video/')) {
+            const video = document.createElement('video');
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                video.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            item.appendChild(video);
+        } else {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'file-icon-placeholder';
+
+            const icon = document.createElement('img');
+            icon.src = '/static/phasma_file.png';
+
+            const name = document.createElement('div');
+            name.textContent = file.name.length > 10 ? file.name.substring(0, 8) + '...' : file.name;
+
+            const size = document.createElement('div');
+            size.textContent = formatFileSize(file.size);
+            size.style.fontSize = '9px';
+            size.style.color = '#888';
+
+            placeholder.appendChild(icon);
+            placeholder.appendChild(name);
+            placeholder.appendChild(size);
+            item.appendChild(placeholder);
+        }
+
+        container.appendChild(item);
+    });
 
     container.classList.add('active');
-    console.log('[Preview] File selected:', file.name, formatFileSize(file.size));
+    console.log('[Preview] Files selected:', files.length);
+}
+
+function removeFile(index) {
+    if (index >= 0 && index < selectedFiles.length) {
+        selectedFiles.splice(index, 1);
+        showFilesPreview(selectedFiles, 'update');
+
+        // Update file input if empty (optional, but good for consistency)
+        if (selectedFiles.length === 0) {
+            document.getElementById('file-input').value = '';
+        }
+    }
 }
 
 function hideFilePreview() {
-    selectedFile = null;
+    selectedFiles = [];
     const container = document.getElementById('file-preview-container');
     container.classList.remove('active');
+    container.innerHTML = '';
     document.getElementById('file-input').value = '';
 }
 
@@ -1906,25 +2017,26 @@ document.getElementById('in').addEventListener('paste', function (e) {
     const items = e.clipboardData?.items;
     if (!items) return;
 
+    const files = [];
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
-
         if (item.kind === 'file') {
             const file = item.getAsFile();
-            if (file) {
-                e.preventDefault();
-                processFileUpload(file, 'paste');
-                break;
-            }
+            if (file) files.push(file);
         }
+    }
+
+    if (files.length > 0) {
+        e.preventDefault();
+        processFileUpload(files, 'paste');
     }
 });
 document.getElementById('file-input').addEventListener('change', function () {
     if (this.files.length > 0) {
-        processFileUpload(this.files[0], 'upload');
+        processFileUpload(this.files, 'upload');
     }
 });
-document.getElementById('preview-remove-btn').addEventListener('click', hideFilePreview);
+// Removed static listener for preview-remove-btn since it's dynamic now
 document.getElementById('upload-btn').addEventListener('click', function () {
     document.getElementById('file-input').click();
 });
@@ -1961,8 +2073,7 @@ document.addEventListener('drop', (e) => {
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
 
-    const file = files[0];
-    processFileUpload(file, 'drag-drop');
+    processFileUpload(files, 'drag-drop');
 });
 
 
@@ -2270,4 +2381,68 @@ function createSystemMessage(text) {
     msg.style.margin = "10px 0";
     msg.textContent = text;
     return msg;
+}
+
+// Auto-resize textarea
+const input = document.getElementById('in');
+// inputRow is already defined globally
+
+function autoResize() {
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = input.scrollHeight + 'px';
+
+    // Toggle expanded class based on content or focus
+    if (window.innerWidth <= 900) {
+        if (input.value.trim().length > 0 || document.activeElement === input) {
+            inputRow.classList.add('input-expanded');
+        } else {
+            inputRow.classList.remove('input-expanded');
+        }
+    }
+}
+
+if (input) {
+    input.addEventListener('input', autoResize);
+    input.addEventListener('focus', () => {
+        if (window.innerWidth <= 900) inputRow.classList.add('input-expanded');
+    });
+    input.addEventListener('blur', () => {
+        // Delay to allow click on send button
+        setTimeout(() => {
+            if (input.value.trim().length === 0) {
+                inputRow.classList.remove('input-expanded');
+            }
+        }, 200);
+    });
+
+    // Initial resize
+    autoResize();
+}
+
+// Capacitor Back Button
+if (window.Capacitor) {
+    const App = window.Capacitor.Plugins.App;
+    if (App) {
+        App.addListener('backButton', ({ canGoBack }) => {
+            // If sidebar is open, close it
+            if (groupsSidebar && groupsSidebar.classList.contains('active')) {
+                groupsSidebar.classList.remove('active');
+                return;
+            }
+            if (membersSidebar && membersSidebar.classList.contains('active')) {
+                membersSidebar.classList.remove('active');
+                return;
+            }
+
+            // If emoji modal is open, close it
+            if (emojiModal && emojiModal.classList.contains('active')) {
+                emojiModal.classList.remove('active');
+                return;
+            }
+
+            // Default behavior: go back to groups list
+            window.location.href = '/groups';
+        });
+    }
 }

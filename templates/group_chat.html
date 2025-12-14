@@ -196,21 +196,7 @@
       </div>
 
       <div id="input-container">
-        <div id="file-preview-container">
-          <div class="preview-thumbnail" id="preview-thumbnail">
-            <img id="preview-img" style="display: none;" />
-            <video id="preview-video" style="display: none;"></video>
-            <img id="preview-file-icon" class="file-icon" style="display: none;" src="/static/phasma_file.png" />
-          </div>
-          <div class="preview-info">
-            <div class="preview-source" id="preview-source"></div>
-            <div class="preview-filename" id="preview-filename"></div>
-            <div class="preview-filesize" id="preview-filesize"></div>
-          </div>
-          <div class="preview-actions">
-            <button type="button" class="preview-btn" id="preview-remove-btn">✕ Remove</button>
-          </div>
-        </div>
+        <div id="file-preview-container"></div>
 
         <div id="recording-container"
           style="display: none; align-items: center; background: #2b2b2b; padding: 10px; border-radius: 8px; flex: 1; margin-bottom: 10px;">
@@ -226,15 +212,15 @@
         </div>
 
         <div class="input-row" id="input-row">
-          <input type="text" id="in" autocomplete="off" placeholder="Type a message" inputmode="text"
-            spellcheck="true" />
+          <textarea id="in" rows="1" autocomplete="off" placeholder="Type a message..." inputmode="text"
+            spellcheck="true"></textarea>
           <button type="button" class="input-button" id="upload-btn">+</button>
           <button type="button" class="input-button" id="emoji-btn">😂</button>
           <button type="button" class="input-button" id="btn-mic">🎤</button>
           <button type="button" class="input-button" id="send-btn">↳</button>
         </div>
 
-        <input id="file-input" type="file" accept="image/*,video/*,audio/*,application/pdf,text/plain" />
+        <input id="file-input" type="file" accept="image/*,video/*,audio/*,application/pdf,text/plain" multiple />
       </div>
     </div>
 
