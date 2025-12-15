@@ -1226,16 +1226,25 @@ function parseMessageData(data) {
     const urlsSplit = rest.split('|URLS:');
     const content = urlsSplit[0];
     let urls = {};
+    let nonce = null;
 
     if (urlsSplit.length > 1) {
+        // Check for NONCE in the second part
+        const nonceSplit = urlsSplit[1].split('|NONCE:');
+        const jsonStr = nonceSplit[0];
+
+        if (nonceSplit.length > 1) {
+            nonce = nonceSplit[1].trim();
+        }
+
         try {
-            urls = JSON.parse(urlsSplit[1]);
+            urls = JSON.parse(jsonStr);
         } catch (e) {
             urls = {};
         }
     }
 
-    return { id: messageId, timestamp, username, content, urls };
+    return { id: messageId, timestamp, username, content, urls, nonce };
 }
 
 function createURLPreviewCard(url, preview) {
@@ -1624,7 +1633,7 @@ function startSSE() {
                 lines.forEach(line => {
                     if (line.startsWith('data: ')) {
                         const data = line.slice(6).trim();
-                        if (!data) return;
+                        if (!data || data === '{}' || data.startsWith('{"type": "ping"')) return;
 
                         if (data.startsWith('DELETE_MESSAGE:')) {
                             const messageId = parseInt(data.substring(15), 10);
@@ -1697,9 +1706,30 @@ function startSSE() {
                             window.location.reload();
                             return;
                         }
-
                         const parsed = parseMessageData(data);
-                        const msgId = (parsed && parsed.id) ? parsed.id : (Date.now() + Math.random());
+                        if (!parsed) return; // Skip if parsing failed (e.g. ping)
+
+                        const msgId = parsed.id;
+                        const msgNonce = parsed.nonce; // We need to update parseMessageData to extract this
+
+                        // Check if message already exists (deduplication)
+                        // Check by ID OR by Nonce
+                        let existing = document.querySelector(`[data-message-id="${msgId}"]`);
+                        if (!existing && msgNonce) {
+                            existing = document.querySelector(`[data-nonce="${msgNonce}"]`);
+                        }
+
+                        if (existing) {
+                            // If it exists and was "sending", update it
+                            if (existing.classList.contains('sending')) {
+                                existing.classList.remove('sending');
+                                existing.style.opacity = '1';
+                                existing.setAttribute('data-message-id', msgId); // Ensure ID is correct
+                                existing.removeAttribute('data-nonce'); // Cleanup nonce
+                            }
+                            return;
+                        }
+
                         const msgElement = createMessageElement(data, msgId);
                         messagesContainer.appendChild(msgElement);
 
@@ -1729,6 +1759,11 @@ function startSSE() {
 }
 
 // ========== SENDING MESSAGES & FILES ==========
+function scrollToBottom() {
+    const out = document.getElementById('out');
+    out.scrollTop = out.scrollHeight;
+}
+
 function sendMessageOrFile() {
     if (isUploadingFile) {
         showError('⏳ Upload in progress. Please wait...');
@@ -1742,40 +1777,75 @@ function sendMessageOrFile() {
 
     if (isSendingMessage) return;
 
-    const text = document.getElementById('in').value;
+    const textInput = document.getElementById('in');
+    const text = textInput.value;
     if (!text.trim()) return;
-    $.ajax({
-        url: `/group/${GROUP_ID}/post`,
-        type: 'POST',
-        headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-        data: { message: text },
-        beforeSend: function () {
-            isSendingMessage = true;
+
+    // Optimistic UI
+    const tempId = Date.now();
+    const nonce = `nonce_${tempId}_${Math.random().toString(36).substr(2, 9)}`;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const optimisticData = `[ID:${tempId}][${timestamp}] ${CURRENT_USER}: ${text}`;
+
+    const msgElement = createMessageElement(optimisticData, tempId);
+    if (msgElement) {
+        msgElement.classList.add('sending');
+        msgElement.setAttribute('data-nonce', nonce); // Store nonce
+        msgElement.style.opacity = '0.7';
+        messagesContainer.appendChild(msgElement);
+        scrollToBottom();
+    }
+
+    textInput.value = '';
+    isSendingMessage = true;
+
+    fetch(`/group/${GROUP_ID}/post`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${GROUP_SESSION_TOKEN}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
         },
-        success: function () {
-            document.getElementById('in').value = '';
-            isSendingMessage = false;
-        },
-        error: function (xhr) {
-            isSendingMessage = false;
-            if (xhr.status === 429) {
-                showError('✗ You are sending requests too quickly. Try again later.');
-            } else if (xhr.status === 401) {
-                handleSessionExpired();
-            } else if (xhr.status === 400) {
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    if (response.error === 'Message too long') {
-                        showError(`✗ Message too long! Maximum: ${response.max_length} characters.`);
-                    }
-                } catch (e) {
-                    showError('✗ Invalid request.');
+        body: new URLSearchParams({ message: text, nonce: nonce }) // Send nonce
+    })
+        .then(async response => {
+            if (!response.ok) {
+                if (response.status === 429) throw new Error('You are sending requests too quickly.');
+                if (response.status === 401) {
+                    handleSessionExpired();
+                    throw new Error('Session expired');
                 }
-            } else {
-                showError('✗ Failed to send message.');
+                throw new Error('Failed to send message');
             }
-        }
-    });
+
+            // Success - update ID if returned
+            try {
+                const data = await response.json();
+                if (data.message_id && msgElement) {
+                    msgElement.setAttribute('data-message-id', data.message_id);
+                    // Also update our map if we use it
+                    messageIdToElementMap.set(data.message_id, msgElement);
+                }
+            } catch (e) {
+                // Ignore JSON parse error if 204 or empty
+            }
+
+            if (msgElement) {
+                msgElement.classList.remove('sending');
+                msgElement.style.opacity = '1';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            if (msgElement) {
+                msgElement.classList.add('error');
+                msgElement.style.borderLeft = '3px solid red';
+                showError(err.message || 'Failed to send message');
+            }
+            // Restore input if needed, but maybe annoying if they typed more
+        })
+        .finally(() => {
+            isSendingMessage = false;
+        });
 }
 
 async function sendFile() {
@@ -1788,25 +1858,25 @@ async function sendFile() {
     let errorCount = 0;
 
     // Helper to upload single file
-    const uploadSingle = (file) => {
-        return new Promise((resolve, reject) => {
-            const formData = new FormData();
-            formData.append('file', file);
-            $.ajax({
-                url: `/group/${GROUP_ID}/upload`,
-                type: 'POST',
-                headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-                data: formData,
-                processData: false,
-                contentType: false,
-                success: function (response) {
-                    resolve(response);
-                },
-                error: function (xhr) {
-                    reject(xhr);
-                }
-            });
+    const uploadSingle = async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`/group/${GROUP_ID}/upload`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+            body: formData
         });
+
+        if (!response.ok) {
+            let errMsg = 'Unknown error';
+            try {
+                const resp = await response.json();
+                errMsg = resp.message || resp.error || errMsg;
+            } catch (e) { }
+            throw new Error(errMsg);
+        }
+        return response.json();
     };
 
     for (let i = 0; i < totalFiles; i++) {
@@ -1817,16 +1887,7 @@ async function sendFile() {
         } catch (e) {
             console.error(`Failed to upload ${file.name}`, e);
             errorCount++;
-
-            // Try to extract error message
-            let errMsg = 'Unknown error';
-            if (e.responseText) {
-                try {
-                    const resp = JSON.parse(e.responseText);
-                    errMsg = resp.message || resp.error || errMsg;
-                } catch (jsonErr) { }
-            }
-            showError(`✗ Failed to upload ${file.name}: ${errMsg}`);
+            showError(`✗ Failed to upload ${file.name}: ${e.message}`);
         }
     }
 
@@ -2190,7 +2251,7 @@ function initSSE() {
         return;
     }
 
-    const eventSource = new EventSource("/api/user/events");
+    const eventSource = new EventSource("/api/user/events", { withCredentials: true });
 
     eventSource.onmessage = function (event) {
         const data = JSON.parse(event.data);

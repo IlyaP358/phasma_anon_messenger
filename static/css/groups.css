@@ -8,8 +8,13 @@ body {
     background: radial-gradient(circle at center, #1a2a3a, #0f0f0f);
     color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
+    width: 100vw;
+    overflow: hidden;
     display: flex;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .main-container {
@@ -19,6 +24,8 @@ body {
     max-width: 900px;
     margin: 0 auto;
     padding: 2em;
+    overflow-y: auto;
+    height: 100%;
 }
 
 .sessions-sidebar {

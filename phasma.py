@@ -4320,7 +4320,7 @@ def api_delete_message(group_id: int, message_id: int):
 # ---- Chat message routes (для групп) ----
 # ===============================================================
 
-def save_message_to_group(username: str, group_id: int, content: str):
+def save_message_to_group(username: str, group_id: int, content: str, nonce: str = None):
     """Save text message to group with URL preview extraction"""
     sanitized_content = sanitize_text(content)
 
@@ -4358,6 +4358,10 @@ def save_message_to_group(username: str, group_id: int, content: str):
     # Publish to Redis для этой группы
     ts = msg.format_time()
     message_text = f"[ID:{msg.id}][{ts}] {username}: {sanitized_content}|URLS:{json.dumps(url_previews)}"
+    
+    if nonce:
+        message_text += f"|NONCE:{nonce}"
+        
     r.publish(f"chat:group:{group_id}", message_text.encode("utf-8"))
     
     # ---- PUSH NOTIFICATIONS ----
@@ -4380,14 +4384,19 @@ def event_stream_group(group_id: int):
     pubsub = r.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe(f"chat:group:{group_id}")
     
-    for message in pubsub.listen():
-        data = message.get("data")
-        if isinstance(data, bytes):
-            try:
-                data = data.decode("utf-8")
-            except Exception:
-                data = str(data)
-        yield f"data: {data}\n\n"
+    while True:
+        message = pubsub.get_message(timeout=15.0)
+        if message:
+            data = message.get("data")
+            if isinstance(data, bytes):
+                try:
+                    data = data.decode("utf-8")
+                except Exception:
+                    data = str(data)
+            yield f"data: {data}\n\n"
+        else:
+            # Timeout -> Send ping
+            yield f"event: ping\ndata: {{}}\n\n"
 
 def event_stream_user(username: str):
     """SSE stream - for global user events"""
@@ -4397,14 +4406,18 @@ def event_stream_user(username: str):
     # Send initial ping
     yield f"data: {json.dumps({'type': 'ping'})}\n\n"
     
-    for message in pubsub.listen():
-        data = message.get("data")
-        if isinstance(data, bytes):
-            try:
-                data = data.decode("utf-8")
-            except Exception:
-                data = str(data)
-        yield f"data: {data}\n\n"
+    while True:
+        message = pubsub.get_message(timeout=20.0)
+        if message:
+            data = message.get("data")
+            if isinstance(data, bytes):
+                try:
+                    data = data.decode("utf-8")
+                except Exception:
+                    data = str(data)
+            yield f"data: {data}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'ping'})}\n\n"
 
 # ===============================================================
 # ---- ONLINE STATUS MANAGEMENT ----
@@ -4501,13 +4514,15 @@ def post_to_group(group_id: int):
         return abort(403)
     
     text = request.form.get("message", "").strip()
+    nonce = request.form.get("nonce", "").strip()
+    
     if not text:
         return ("", 204)
     
     if len(text) > MAX_MESSAGE_LENGTH:
         return jsonify({"error": "Message too long", "max_length": MAX_MESSAGE_LENGTH}), 400
     
-    msg = save_message_to_group(username, group_id, text)
+    msg = save_message_to_group(username, group_id, text, nonce)
     if not msg:
         return ("", 204)
     
@@ -4537,7 +4552,7 @@ def post_to_group(group_id: int):
     except Exception as e:
         print(f"[WARN] Failed to update session metadata: {e}")
     
-    return ("", 204)
+    return jsonify({"success": True, "message_id": msg.id}), 200
 
 @app.route("/group/<int:group_id>/stream")
 @limiter.limit("100 per minute")

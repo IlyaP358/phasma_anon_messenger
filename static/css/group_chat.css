@@ -2,10 +2,24 @@ body {
     display: flex;
     height: 100vh;
     height: 100dvh;
-    /* Dynamic viewport height for mobile browsers */
+    width: 100vw;
     overflow: hidden;
     background: radial-gradient(circle at center, #1a2a3a, #0f0f0f);
     color: var(--text-primary);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+* {
+    -webkit-tap-highlight-color: transparent;
+}
+
+button,
+.group-item,
+.member-item,
+.emoji-item {
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 /* Layout */
@@ -203,6 +217,35 @@ body {
     background: var(--msg-in-bg);
     color: #fff;
     border-bottom-left-radius: 2px;
+}
+
+.msg.sending {
+    opacity: 0.7;
+    position: relative;
+}
+
+.msg.sending::after {
+    content: '';
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.msg.error {
+    border: 1px solid #ff4444;
+    opacity: 1;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .msg-header {
