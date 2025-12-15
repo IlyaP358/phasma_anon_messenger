@@ -1,11 +1,43 @@
+:root {
+    /* Dark Glass Palette */
+    --bg-main: #0a0a0a;
+    --bg-glass: rgba(20, 20, 20, 0.55);
+    --bg-glass-heavy: rgba(20, 20, 20, 0.85);
+
+    --text-primary: rgba(255, 255, 255, 0.9);
+    --text-secondary: rgba(255, 255, 255, 0.55);
+    --text-dim: rgba(255, 255, 255, 0.35);
+
+    --accent-blue: rgba(120, 120, 255, 0.08);
+    --accent-cyan: rgba(0, 255, 200, 0.06);
+    --primary-color: #64b5f6;
+
+    --border-glass: rgba(255, 255, 255, 0.06);
+    --shadow-deep: 0 20px 40px rgba(0, 0, 0, 0.6);
+
+    --radius-md: 12px;
+    --radius-lg: 16px;
+
+    --font-main: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+    /* Chat specific */
+    --msg-in-bg: rgba(255, 255, 255, 0.08);
+    --msg-out-bg: rgba(100, 181, 246, 0.15);
+}
+
 body {
     display: flex;
     height: 100vh;
     height: 100dvh;
     width: 100vw;
     overflow: hidden;
-    background: radial-gradient(circle at center, #1a2a3a, #0f0f0f);
+    background: radial-gradient(800px circle at 10% 10%, var(--accent-blue), transparent 40%),
+        radial-gradient(800px circle at 90% 90%, var(--accent-cyan), transparent 40%),
+        var(--bg-main);
+    background-attachment: fixed;
     color: var(--text-primary);
+    font-family: var(--font-main);
+    letter-spacing: 0.01em;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
 }
@@ -34,10 +66,10 @@ button,
 .groups-sidebar,
 .members-sidebar {
     width: 300px;
-    background: rgba(20, 20, 20, 0.8);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-right: 1px solid var(--border-color);
+    background: var(--bg-glass);
+    backdrop-filter: blur(18px) saturate(120%);
+    -webkit-backdrop-filter: blur(18px) saturate(120%);
+    border-right: 1px solid var(--border-glass);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
@@ -65,7 +97,7 @@ button,
     display: flex;
     align-items: center;
     padding: 0 20px;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-glass);
     font-weight: 600;
 }
 
@@ -184,39 +216,45 @@ button,
 /* Message Bubbles */
 .msg {
     max-width: 70%;
-    padding: 6px 10px;
+    padding: 8px 12px;
     border-radius: var(--radius-md);
     position: relative;
     word-wrap: break-word;
-    animation: fadeIn 0.2s ease;
+    animation: messageSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     font-size: 14px;
-    line-height: 1.4;
+    line-height: 1.5;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border: 1px solid transparent;
 }
 
-@keyframes fadeIn {
+@keyframes messageSlideIn {
     from {
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(10px) scale(0.98);
     }
 
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translateY(0) scale(1);
     }
 }
 
 .msg.my-msg {
     align-self: flex-end;
-    background: var(--msg-out-bg);
-    color: #000;
+    background: linear-gradient(135deg, rgba(100, 181, 246, 0.15), rgba(33, 150, 243, 0.1));
+    color: var(--text-primary);
     border-bottom-right-radius: 2px;
+    border-color: rgba(100, 181, 246, 0.1);
 }
 
 .msg.other-msg {
     align-self: flex-start;
-    background: var(--msg-in-bg);
-    color: #fff;
+    background: var(--bg-glass);
+    color: var(--text-primary);
     border-bottom-left-radius: 2px;
+    border-color: var(--border-glass);
 }
 
 .msg.sending {
@@ -539,6 +577,36 @@ button,
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+.input-area {
+    padding: 15px 20px;
+    background: var(--bg-glass-heavy);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-glass);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 20;
+}
+
+#in {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    padding: 12px 16px;
+    border-radius: 24px;
+    font-size: 15px;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+#in:focus {
+    background: rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 0 2px rgba(100, 181, 246, 0.1);
 }
 
 .emoji-picker-header {
@@ -1134,4 +1202,59 @@ button,
 #btn-close-invite:hover {
     background: rgba(255, 255, 255, 0.05);
     border-color: #fff;
+}
+
+/* App Loader */
+#app-loader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-main);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+#app-loader.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.loader-logo {
+    width: 80px;
+    height: 80px;
+    margin-bottom: 20px;
+    animation: pulse 2s infinite;
+}
+
+.loader-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.05);
+        opacity: 0.8;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
 }

@@ -28,8 +28,11 @@
         </div>
         <div class="form-group">
           <label for="password">Password</label>
-          <input type="password" name="password" id="password" class="fluent-input" required
-            autocomplete="current-password" placeholder="Enter your password" />
+          <div class="password-wrapper">
+            <input type="password" name="password" id="password" class="fluent-input" required
+              autocomplete="current-password" placeholder="Enter your password" />
+            <button type="button" class="toggle-password" data-target="password">👁️</button>
+          </div>
         </div>
         <div class="form-actions">
           <input type="submit" value="Log in" id="submit-btn" class="fluent-btn primary full-width" />

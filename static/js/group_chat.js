@@ -398,6 +398,15 @@ let isSendingMessage = false;
 
 console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
 
+// App Loader
+window.addEventListener('load', () => {
+    // Minimum load time for effect
+    setTimeout(() => {
+        const loader = document.getElementById('app-loader');
+        if (loader) loader.classList.add('hidden');
+    }, 800);
+});
+
 function showError(message, duration = 5000) {
     const notification = document.getElementById('error-notification');
     notification.textContent = message;

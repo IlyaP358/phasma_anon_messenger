@@ -3,7 +3,9 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: radial-gradient(circle at top left, #1a2a3a, #0f0f0f);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-main);
 }
 
 .login-wrapper {
@@ -15,6 +17,11 @@ body {
 .login-card {
   padding: 40px;
   text-align: center;
+  background: var(--bg-glass-heavy);
+  backdrop-filter: blur(30px);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-deep);
 }
 
 .logo-container {
@@ -41,7 +48,29 @@ h2 {
   display: block;
   margin-bottom: 8px;
   font-size: 14px;
+  color: var(--text-primary);
+}
+
+.password-wrapper {
+  position: relative;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
   color: var(--text-secondary);
+  background: none;
+  border: none;
+  font-size: 16px;
+  padding: 0;
+  z-index: 10;
+}
+
+.toggle-password:hover {
+  color: var(--primary-color);
 }
 
 .form-actions {

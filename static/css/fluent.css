@@ -29,6 +29,14 @@
     --radius-md: 10px;
     --radius-lg: 16px;
     --radius-xl: 20px;
+
+    /* Dark Glass Palette (Global) */
+    --bg-main: #0a0a0a;
+    --bg-glass: rgba(20, 20, 20, 0.55);
+    --bg-glass-heavy: rgba(20, 20, 20, 0.85);
+    --border-glass: rgba(255, 255, 255, 0.06);
+    --shadow-deep: 0 20px 40px rgba(0, 0, 0, 0.6);
+    --font-main: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
@@ -72,7 +80,7 @@ button.btn-danger,
 .input-button,
 .session-button,
 .btn-terminate-all {
-    background: var(--primary-color);
+    background: #455977;
     border: none;
     color: #fff;
     padding: 12px 24px;

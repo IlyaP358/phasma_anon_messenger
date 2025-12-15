@@ -1,5 +1,22 @@
 console.log('[Init] Login page loaded');
 
+// Toggle Password Visibility
+document.querySelectorAll('.toggle-password').forEach(button => {
+    button.addEventListener('click', function () {
+        const targetId = this.getAttribute('data-target');
+        const input = document.getElementById(targetId);
+        if (input) {
+            if (input.type === "password") {
+                input.type = "text";
+                this.textContent = "🔒"; // Icon for hiding
+            } else {
+                input.type = "password";
+                this.textContent = "👁️"; // Icon for showing
+            }
+        }
+    });
+});
+
 // Проверяем есть ли уже валидная сессия в cookie
 function verifyExistingSession() {
     console.log('[Login] Checking for existing session...');

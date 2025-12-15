@@ -11,6 +11,25 @@ const messageBox = document.getElementById('message-box');
 const submitBtn = document.getElementById('submit-btn');
 const usernameReqs = document.getElementById('username-requirements');
 const passwordReqs = document.getElementById('password-requirements');
+const confirmPasswordInput = document.getElementById('confirm_password');
+const confirmPasswordError = document.getElementById('confirm-password-error');
+
+// Toggle Password Visibility
+document.querySelectorAll('.toggle-password').forEach(button => {
+    button.addEventListener('click', function () {
+        const targetId = this.getAttribute('data-target');
+        const input = document.getElementById(targetId);
+        if (input) {
+            if (input.type === "password") {
+                input.type = "text";
+                this.textContent = "🔒"; // Icon for hiding
+            } else {
+                input.type = "password";
+                this.textContent = "👁️"; // Icon for showing
+            }
+        }
+    });
+});
 
 // Проверка требований username в реальном времени
 usernameInput.addEventListener('input', function () {
@@ -124,6 +143,15 @@ document.getElementById('register-form').addEventListener('submit', function (e)
     if (password.length > PASSWORD_MAX) {
         messageBox.innerHTML = `<div class="error">✗ Password must not exceed ${PASSWORD_MAX} characters</div>`;
         return;
+    }
+
+    const confirmPassword = confirmPasswordInput.value;
+    if (password !== confirmPassword) {
+        messageBox.innerHTML = '<div class="error">✗ Passwords do not match</div>';
+        confirmPasswordError.textContent = "Passwords do not match";
+        return;
+    } else {
+        confirmPasswordError.textContent = "";
     }
 
     // Show Modal instead of submitting immediately
