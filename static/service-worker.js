@@ -45,7 +45,7 @@ self.addEventListener('push', function (event) {
                 data: {
                     dateOfArrival: Date.now(),
                     primaryKey: 1,
-                    url: data.group_id ? `/group/${data.group_id}` : '/',
+                    url: data.group_id ? `/group/${data.group_id}/chat` : '/',
                     count: count // Store count for next time
                 }
             };

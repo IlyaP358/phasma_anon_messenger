@@ -394,6 +394,7 @@ let isUploadingFile = false;
 let messageIdToElementMap = new Map();
 let pendingDeleteMessageId = null;
 let memberProfilePics = new Map(); // Stores username -> has_profile_pic (bool)
+let isSendingMessage = false;
 
 console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
 
@@ -1739,6 +1740,8 @@ function sendMessageOrFile() {
         return;
     }
 
+    if (isSendingMessage) return;
+
     const text = document.getElementById('in').value;
     if (!text.trim()) return;
     $.ajax({
@@ -1746,10 +1749,15 @@ function sendMessageOrFile() {
         type: 'POST',
         headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
         data: { message: text },
+        beforeSend: function () {
+            isSendingMessage = true;
+        },
         success: function () {
             document.getElementById('in').value = '';
+            isSendingMessage = false;
         },
         error: function (xhr) {
+            isSendingMessage = false;
             if (xhr.status === 429) {
                 showError('✗ You are sending requests too quickly. Try again later.');
             } else if (xhr.status === 401) {
@@ -2325,7 +2333,7 @@ function stopAndSendRecording() {
         const audioFile = new File([audioBlob], "voice.weba", { type: "audio/webm" });
 
         // Send file
-        selectedFile = audioFile;
+        selectedFiles = [audioFile];
         sendFile();
         stopRecordingUI();
     };
