@@ -11,49 +11,56 @@
 </head>
 
 <body>
-  <div class="register-wrapper">
-    <div class="register-card glass-panel">
-      <div class="logo-container">
-        <img src="/static/phisma_title.png" alt="phasma" class="logo">
+  <div class="split-container">
+    <div class="left-panel">
+      <div class="brand-content">
+        <img src="/static/phisma_title.png" alt="phasma" class="brand-logo">
+        <h1>Join Phasma</h1>
+        <p>Create your anonymous account today.</p>
       </div>
-      <h2>Create Account</h2>
+    </div>
+    <div class="right-panel glass-panel">
+      <div class="register-form-container">
+        <h2>Sign Up</h2>
+        <p class="subtitle">Start your secure journey.</p>
 
-      <div id="message-box"></div>
+        <div id="message-box"></div>
 
-      <form id="register-form">
-        <div class="form-group">
-          <label for="username">Username</label>
-          <input type="text" name="user" id="username" class="fluent-input" required autocomplete="username"
-            placeholder="Choose a username" />
-          <div id="username-requirements" class="requirements"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="password">Password</label>
-          <div class="password-wrapper">
-            <input type="password" name="password" id="password" class="fluent-input" required
-              autocomplete="new-password" placeholder="Choose a password" />
-            <button type="button" class="toggle-password" data-target="password">👁️</button>
+        <form id="register-form">
+          <div class="form-group floating-label">
+            <input type="text" name="user" id="username" class="fluent-input" required autocomplete="username"
+              placeholder=" " />
+            <label for="username">Username</label>
+            <div id="username-requirements" class="requirements"></div>
           </div>
-          <div id="password-requirements" class="requirements"></div>
-        </div>
 
-        <div class="form-group">
-          <label for="confirm_password">Confirm Password</label>
-          <div class="password-wrapper">
-            <input type="password" name="confirm_password" id="confirm_password" class="fluent-input" required
-              autocomplete="new-password" placeholder="Re-enter your password" />
-            <button type="button" class="toggle-password" data-target="confirm_password">👁️</button>
+          <div class="form-group floating-label">
+            <div class="password-wrapper">
+              <input type="password" name="password" id="password" class="fluent-input" required
+                autocomplete="new-password" placeholder=" " />
+              <label for="password">Password</label>
+              <button type="button" class="toggle-password" data-target="password">👁️</button>
+            </div>
+            <div id="password-requirements" class="requirements"></div>
           </div>
-          <div id="confirm-password-error" class="error-msg" style="font-size: 12px; margin-top: 5px;"></div>
-        </div>
 
-        <div class="form-actions">
-          <input type="submit" value="Create account" id="submit-btn" class="fluent-btn primary full-width" />
+          <div class="form-group floating-label">
+            <div class="password-wrapper">
+              <input type="password" name="confirm_password" id="confirm_password" class="fluent-input" required
+                autocomplete="new-password" placeholder=" " />
+              <label for="confirm_password">Confirm Password</label>
+              <button type="button" class="toggle-password" data-target="confirm_password">👁️</button>
+            </div>
+            <div id="confirm-password-error" class="error-msg" style="font-size: 12px; margin-top: 5px;"></div>
+          </div>
+
+          <div class="form-actions">
+            <input type="submit" value="Create account" id="submit-btn" class="fluent-btn primary full-width" />
+          </div>
+        </form>
+        <div class="auth-footer">
+          <p>Already have an account? <a href="/login">Log in</a></p>
         </div>
-      </form>
-      <div class="auth-footer">
-        <p>Already have an account? <a href="/login">Log in</a></p>
       </div>
     </div>
   </div>

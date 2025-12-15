@@ -37,16 +37,20 @@ self.addEventListener('push', function (event) {
             const options = {
                 body: body,
                 icon: '/static/icon.png',
-                badge: '/static/badge.png',
-                vibrate: [100, 50, 100],
+                badge: '/static/badge.png', // Android small icon in status bar
+                vibrate: [200, 100, 200],
                 sound: '/static/phasma_notification_sound.mp3',
                 tag: tag,
-                renotify: true,
+                renotify: true, // Vibrate/Sound again even if same tag
+                requireInteraction: true, // Keep in tray until user interacts
+                actions: [
+                    { action: 'open', title: 'Open Chat' }
+                ],
                 data: {
                     dateOfArrival: Date.now(),
                     primaryKey: 1,
                     url: data.group_id ? `/group/${data.group_id}/chat` : '/',
-                    count: count // Store count for next time
+                    count: count
                 }
             };
 
