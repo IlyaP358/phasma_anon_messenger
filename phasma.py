@@ -563,6 +563,52 @@ def get_secret_decrypted(name: str):
         return None
 
 # ===============================================================
+# ---- VAPID Key Management ----
+# ===============================================================
+def generate_vapid_keys():
+    """Generate VAPID keys if not present in environment"""
+    if not os.environ.get("VAPID_PRIVATE_KEY") or not os.environ.get("VAPID_PUBLIC_KEY"):
+        print("[INFO] VAPID keys not found. Generating new keys...")
+        try:
+            # Generate keys using pywebpush (if available via CLI or library)
+            # Since we import webpush, we might not have a direct keygen function exposed easily without CLI
+            # But we can use cryptography or similar if needed. 
+            # However, for simplicity in this environment, let's try to use a helper or just warn.
+            # Actually, pywebpush doesn't have a simple python API for keygen in older versions?
+            # Let's try to use the library if possible, or just use a placeholder/warn user to run CLI.
+            # BETTER: Let's use a simple EC key generation if possible or rely on user.
+            # For this agentic context, I will generate them using a small helper if I can, 
+            # but usually `vapid-keygen` CLI is used.
+            # Let's try to run the CLI command and capture output?
+            import subprocess
+            try:
+                # Try running vapid-keygen
+                output = subprocess.check_output(["vapid-keygen"], stderr=subprocess.STDOUT).decode()
+                # Output format is usually:
+                # Public Key: ...
+                # Private Key: ...
+                import re
+                pub_match = re.search(r"Public Key:\s+([^\s]+)", output)
+                priv_match = re.search(r"Private Key:\s+([^\s]+)", output)
+                
+                if pub_match and priv_match:
+                    os.environ["VAPID_PUBLIC_KEY"] = pub_match.group(1)
+                    os.environ["VAPID_PRIVATE_KEY"] = priv_match.group(1)
+                    print(f"[OK] Generated VAPID keys temporarily in memory.")
+                    print(f"[IMPORTANT] Add these to your .env for persistence:")
+                    print(f"VAPID_PUBLIC_KEY={pub_match.group(1)}")
+                    print(f"VAPID_PRIVATE_KEY={priv_match.group(1)}")
+                else:
+                    print("[WARN] Could not parse vapid-keygen output.")
+            except Exception as e:
+                print(f"[WARN] Could not run vapid-keygen: {e}. Push notifications might fail.")
+        except Exception as e:
+            print(f"[WARN] Failed to generate VAPID keys: {e}")
+
+# Call on startup
+generate_vapid_keys()
+
+# ===============================================================
 # ---- Push Notification Helper ----
 # ===============================================================
 def send_push_notification(subscription_info, message_body, extra_data=None):
@@ -4606,6 +4652,66 @@ def stream_user_events():
         
     return Response(event_stream_user(username), mimetype="text/event-stream")
 
+    return Response(event_stream_user(username), mimetype="text/event-stream")
+
+
+@app.route("/api/subscribe", methods=["POST"])
+@limiter.limit("10 per minute")
+def api_subscribe():
+    """
+    Save or update a push subscription
+    """
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    data = request.get_json()
+    if not data or 'subscription_info' not in data:
+        return jsonify({"error": "Invalid data"}), 400
+        
+    sub_info = data['subscription_info']
+    endpoint = sub_info.get('endpoint')
+    keys = sub_info.get('keys', {})
+    auth_key = keys.get('auth')
+    p256dh = keys.get('p256dh')
+    
+    if not endpoint or not auth_key or not p256dh:
+        return jsonify({"error": "Incomplete subscription data"}), 400
+        
+    try:
+        # Check if subscription exists
+        existing_sub = PushSubscription.query.filter_by(endpoint=endpoint).first()
+        
+        if existing_sub:
+            existing_sub.username = username # Update user if changed
+            existing_sub.auth_key = auth_key
+            existing_sub.p256dh = p256dh
+            existing_sub.last_used = datetime.datetime.utcnow()
+        else:
+            new_sub = PushSubscription(
+                username=username,
+                endpoint=endpoint,
+                auth_key=auth_key,
+                p256dh=p256dh
+            )
+            db.session.add(new_sub)
+            
+        db.session.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"[ERROR] Failed to save subscription: {e}")
+        return jsonify({"error": "Server error"}), 500
+
+
+@app.route("/api/vapid-public-key", methods=["GET"])
+def api_vapid_public_key():
+    """Return VAPID Public Key for frontend"""
+    key = os.environ.get("VAPID_PUBLIC_KEY")
+    if not key:
+        return jsonify({"error": "VAPID keys not configured"}), 500
+    return jsonify({"publicKey": key})
 
 @app.route("/group/<int:group_id>/history")
 @limiter.limit("30 per minute")
