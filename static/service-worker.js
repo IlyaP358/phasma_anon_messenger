@@ -69,10 +69,11 @@ self.addEventListener('notificationclick', function (event) {
             type: 'window',
             includeUncontrolled: true
         }).then((windowClients) => {
-            // Check if there is already a window/tab open with the target URL
+            // Priority 1: Find an existing standalone window
             for (let i = 0; i < windowClients.length; i++) {
                 const client = windowClients[i];
-                // Check if client is our app (same origin)
+                // Check if client is our app and is standalone if possible (though we can't easily check display-mode here)
+                // Just checking scope and focus capability is usually enough for WebAPK
                 if (client.url.startsWith(self.registration.scope) && 'focus' in client) {
                     if (client.url !== urlToOpen) {
                         client.navigate(urlToOpen);
@@ -80,7 +81,7 @@ self.addEventListener('notificationclick', function (event) {
                     return client.focus();
                 }
             }
-            // If not, open a new window
+            // Priority 2: Open a new window (Android WebAPK handles this by opening the app)
             if (clients.openWindow) {
                 return clients.openWindow(urlToOpen);
             }
