@@ -134,17 +134,42 @@ h2 {
 }
 
 .toggle-password {
+  position: absolute;
   right: 0;
+  top: 10px;
+  /* Align with input text */
+  background: none;
+  border: none;
+  cursor: pointer;
   color: var(--text-secondary);
+  font-size: 1.2rem;
+  padding: 0 5px;
+  z-index: 10;
+  transition: color 0.3s;
 }
 
 .toggle-password:hover {
   color: var(--primary-color);
 }
 
-.auth-footer {
-  text-align: center;
-  margin-top: 30px;
+#error-msg {
+  color: #ff8a80;
+  background: rgba(255, 82, 82, 0.1);
+  border: 1px solid rgba(255, 82, 82, 0.2);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 20px;
+  min-height: 20px;
+  position: relative;
+  z-index: 5;
+  word-wrap: break-word;
+  font-size: 0.9rem;
+  display: none;
+  /* Hide by default, show via JS */
+}
+
+#error-msg:not(:empty) {
+  display: block;
 }
 
 /* Mobile Responsive */
