@@ -98,23 +98,13 @@ document.getElementById('login-form').addEventListener('submit', function (e) {
                 document.getElementById('username').value = '';
                 document.getElementById('password').value = '';
 
-                errorDiv.innerHTML = '<div class="loading">✓ Login successful! Setting up notifications...</div>';
+                errorDiv.innerHTML = '<div class="loading">✓ Login successful! Redirecting...</div>';
 
-                // Initialize push notifications BEFORE redirect (PWA fix)
-                initPushNotificationsOnLogin().then(() => {
-                    errorDiv.innerHTML = '<div class="loading">✓ Login successful! Redirecting...</div>';
-                    console.log('[Login] Redirecting to:', data.redirect || '/groups');
-                    setTimeout(() => {
-                        window.location.href = data.redirect || '/groups';
-                    }, 500);
-                }).catch(err => {
-                    console.warn('[Login] Push notification setup failed, continuing anyway:', err);
-                    errorDiv.innerHTML = '<div class="loading">✓ Login successful! Redirecting...</div>';
-                    console.log('[Login] Redirecting to:', data.redirect || '/groups');
-                    setTimeout(() => {
-                        window.location.href = data.redirect || '/groups';
-                    }, 500);
-                });
+                // Редирект на страницу групп
+                console.log('[Login] Redirecting to:', data.redirect || '/groups');
+                setTimeout(() => {
+                    window.location.href = data.redirect || '/groups';
+                }, 500);
             } else {
                 console.error('[Login] Invalid response:', data);
                 throw new Error('Invalid response from server');
@@ -126,66 +116,3 @@ document.getElementById('login-form').addEventListener('submit', function (e) {
             submitBtn.disabled = false;
         });
 });
-
-// ========== PUSH NOTIFICATION HELPERS ==========
-function urlBase64ToUint8Array(base64String) {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding)
-        .replace(/\-/g, '+')
-        .replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-}
-
-async function initPushNotificationsOnLogin() {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        console.log('[Login] Push messaging not supported');
-        return;
-    }
-
-    try {
-        console.log('[Login] Registering service worker...');
-        const registration = await navigator.serviceWorker.register('/static/service-worker.js');
-        await navigator.serviceWorker.ready;
-        console.log('[Login] Service worker ready');
-
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-            console.log('[Login] Notification permission denied');
-            return;
-        }
-        console.log('[Login] Notification permission granted');
-
-        const response = await fetch('/api/vapid-public-key');
-        const data = await response.json();
-        const vapidPublicKey = data.publicKey;
-
-        if (!vapidPublicKey) {
-            console.error('[Login] No VAPID public key');
-            return;
-        }
-
-        const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
-        const subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: convertedVapidKey
-        });
-        console.log('[Login] Push subscription created');
-
-        await fetch('/api/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ subscription_info: subscription }),
-            credentials: 'include'
-        });
-
-        console.log('[Login] Push notification subscription completed successfully');
-    } catch (error) {
-        console.error('[Login] Push notification error:', error);
-        throw error;
-    }
-}

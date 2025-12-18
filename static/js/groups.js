@@ -541,27 +541,17 @@ async function initPushNotifications() {
         const registration = await navigator.serviceWorker.register('/static/service-worker.js');
         console.log('Service Worker registered:', registration);
 
-        // CRITICAL: Wait for service worker to be ready (PWA fix)
-        await navigator.serviceWorker.ready;
-        console.log('Service Worker is ready');
-
         // Request permission
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
             console.log('Notification permission denied');
             return;
         }
-        console.log('Notification permission granted');
 
         // Get VAPID key
         const response = await fetch('/api/vapid-public-key');
         const data = await response.json();
         const vapidPublicKey = data.publicKey;
-
-        if (!vapidPublicKey) {
-            console.error('No VAPID public key found');
-            return;
-        }
 
         const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
 
@@ -570,7 +560,6 @@ async function initPushNotifications() {
             userVisibleOnly: true,
             applicationServerKey: convertedVapidKey
         });
-        console.log('Push subscription created');
 
         // ALWAYS send to server to ensure it's up to date and refresh last_used
         await fetch('/api/subscribe', {
@@ -580,11 +569,10 @@ async function initPushNotifications() {
             },
             body: JSON.stringify({
                 subscription_info: subscription
-            }),
-            credentials: 'include'  // CRITICAL: Include cookies for authentication
+            })
         });
 
-        console.log('Push notification subscription updated/verified successfully');
+        console.log('Push notification subscription updated/verified');
 
     } catch (error) {
         console.error('Push notification error:', error);

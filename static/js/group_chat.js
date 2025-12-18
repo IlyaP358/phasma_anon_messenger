@@ -1359,10 +1359,16 @@ function createMessageElement(data, messageId) {
             videoDiv.className = "video-msg";
             const video = document.createElement("video");
             video.className = "video-player";
-            video.src = videoMatch[2];
             video.controls = true;
-            video.setAttribute('playsinline', ''); // Critical for iOS PWA
-            video.setAttribute('preload', 'metadata');
+            video.preload = 'metadata';  // Load metadata to show thumbnail
+
+            // Add load handler to ensure video shows first frame
+            video.addEventListener('loadeddata', function () {
+                // Video is ready, first frame should be visible
+                console.log('[Video] Loaded:', videoMatch[2]);
+            });
+
+            video.src = videoMatch[2];
             videoDiv.appendChild(video);
             mainContent.appendChild(videoDiv);
         }
@@ -2039,15 +2045,18 @@ function showFilesPreview(files, source = 'upload') {
             item.appendChild(img);
         } else if (file.type.startsWith('video/')) {
             const video = document.createElement('video');
-            video.setAttribute('playsinline', ''); // Critical for iOS PWA
-            video.setAttribute('preload', 'metadata');
-            video.setAttribute('controls', '');
+            video.controls = true;
+            video.preload = 'metadata';  // Load metadata to show thumbnail
             video.style.maxWidth = '100%';
             video.style.maxHeight = '200px';
 
             const reader = new FileReader();
             reader.onload = (e) => {
                 video.src = e.target.result;
+                // Seek to first frame to show thumbnail
+                video.addEventListener('loadedmetadata', function () {
+                    video.currentTime = 0.1;  // Seek to 0.1s to ensure frame loads
+                });
             };
             reader.readAsDataURL(file);
             item.appendChild(video);
@@ -2196,17 +2205,12 @@ async function initPushNotifications() {
         const registration = await navigator.serviceWorker.register('/static/service-worker.js');
         console.log('Service Worker registered:', registration);
 
-        // CRITICAL: Wait for service worker to be ready (PWA fix)
-        await navigator.serviceWorker.ready;
-        console.log('Service Worker is ready');
-
         // Request permission
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
             console.log('Notification permission denied');
             return;
         }
-        console.log('Notification permission granted');
 
         // Get VAPID key
         const response = await fetch('/api/vapid-public-key');
@@ -2235,11 +2239,10 @@ async function initPushNotifications() {
             },
             body: JSON.stringify({
                 subscription_info: subscription
-            }),
-            credentials: 'include'  // CRITICAL: Include cookies for authentication
+            })
         });
 
-        console.log('Push notification subscription updated/verified successfully');
+        console.log('Push notification subscription updated/verified');
 
     } catch (error) {
         console.error('Push notification error:', error);
