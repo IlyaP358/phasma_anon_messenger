@@ -1361,6 +1361,8 @@ function createMessageElement(data, messageId) {
             video.className = "video-player";
             video.src = videoMatch[2];
             video.controls = true;
+            video.setAttribute('playsinline', ''); // Critical for iOS PWA
+            video.setAttribute('preload', 'metadata');
             videoDiv.appendChild(video);
             mainContent.appendChild(videoDiv);
         }
@@ -2037,6 +2039,12 @@ function showFilesPreview(files, source = 'upload') {
             item.appendChild(img);
         } else if (file.type.startsWith('video/')) {
             const video = document.createElement('video');
+            video.setAttribute('playsinline', ''); // Critical for iOS PWA
+            video.setAttribute('preload', 'metadata');
+            video.setAttribute('controls', '');
+            video.style.maxWidth = '100%';
+            video.style.maxHeight = '200px';
+
             const reader = new FileReader();
             reader.onload = (e) => {
                 video.src = e.target.result;

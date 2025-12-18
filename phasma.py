@@ -27,7 +27,7 @@ from cryptography.fernet import Fernet, InvalidToken
 import mimetypes
 import io
 from zoneinfo import ZoneInfo
-from PIL import Image
+from PIL import Image, ImageOps
 import bleach
 import hmac
 import hashlib
@@ -803,8 +803,7 @@ FFMPEG_AVAILABLE = check_ffmpeg()
 
 def strip_image_metadata(file_data: bytes, image_format: str) -> bytes or None:
     """
-    Remove metadata from images without re-encoding (preserves animation perfectly).
-    Uses binary-level manipulation to strip EXIF/metadata while keeping image data intact.
+    Remove metadata from images.
     """
     try:
         if image_format in ("GIF", "WEBP"):
@@ -826,26 +825,39 @@ def strip_image_metadata(file_data: bytes, image_format: str) -> bytes or None:
                 return file_data
         
         elif image_format == "PNG":
-            print("[INFO] Processing PNG - stripping EXIF and ancillary chunks")
+            print("[INFO] Processing PNG - applying orientation and stripping metadata")
             try:
                 img = Image.open(io.BytesIO(file_data))
-                output = io.BytesIO()
                 
+                # This rotates the image data to match the EXIF orientation tag
+                # exif_transpose returns None if no EXIF orientation data exists
+                transposed = ImageOps.exif_transpose(img)
+                if transposed is not None:
+                    img = transposed
+                
+                output = io.BytesIO()
                 data = {"optimize": True}
                 img.save(output, format="PNG", **data)
                 
                 clean_data = output.getvalue()
-                print(f"[OK] PNG metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
+                print(f"[OK] PNG orientation applied and metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
                 return clean_data
             except Exception as e:
                 print(f"[WARN] PNG strip failed: {e}")
                 return file_data
         
-        # Для JPEG — удаляем EXIF на бинарном уровне
+        # Для JPEG — применяем ориентацию и удаляем EXIF
         elif image_format == "JPEG":
-            print("[INFO] Processing JPEG - stripping EXIF data")
+            print("[INFO] Processing JPEG - applying orientation and stripping EXIF data")
             try:
                 img = Image.open(io.BytesIO(file_data))
+                
+                # This rotates the image data to match the EXIF orientation tag
+                # exif_transpose returns None if no EXIF orientation data exists
+                transposed = ImageOps.exif_transpose(img)
+                if transposed is not None:
+                    img = transposed
+                
                 output = io.BytesIO()
                 
                 # Конвертируем RGBA в RGB если нужно
@@ -856,11 +868,11 @@ def strip_image_metadata(file_data: bytes, image_format: str) -> bytes or None:
                     background.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
                     img = background
                 
-                # Сохраняем БЕЗ exif data
+                # Сохраняем БЕЗ exif data (ориентация уже применена к пикселям)
                 img.save(output, format="JPEG", quality=IMAGE_QUALITY, progressive=True)
                 
                 clean_data = output.getvalue()
-                print(f"[OK] JPEG metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
+                print(f"[OK] JPEG orientation applied and metadata stripped: {len(file_data)} -> {len(clean_data)} bytes")
                 return clean_data
             except Exception as e:
                 print(f"[WARN] JPEG strip failed: {e}")
