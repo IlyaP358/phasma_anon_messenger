@@ -218,15 +218,19 @@
             <span style="font-size: 14px; color: #ccc;">Allow people to find me and send DM requests</span>
           </label>
         </div>
-      </div>
-
-      <div id="profile-error"></div>
-
-      <div class="form-actions">
-        <button class="btn btn-danger" id="menu-delete" style="margin-right: auto;">🗑️ Delete Account</button>
-        <button class="btn btn-secondary" id="btn-close-profile">Close</button>
+        <div style="margin-top: 15px;">
+          <button class="btn btn-secondary" id="btn-show-dm-qr" style="width: 100%;">📱 Show My DM QR</button>
+        </div>
       </div>
     </div>
+
+    <div id="profile-error"></div>
+
+    <div class="form-actions">
+      <button class="btn btn-danger" id="menu-delete" style="margin-right: auto;">🗑️ Delete Account</button>
+      <button class="btn btn-secondary" id="btn-close-profile">Close</button>
+    </div>
+  </div>
   </div>
 
   <div id="mailbox-modal" class="modal">
@@ -257,6 +261,17 @@
       <button class="modal-close" id="close-settings">&times;</button>
       <div class="modal-header">Group Settings</div>
       <div id="settings-error"></div>
+
+      <div class="form-group" style="text-align: center;">
+        <div class="profile-pic-container" style="margin: 0 auto 15px;">
+          <img id="group-avatar-preview" src="/static/unknown_user_phasma_icon.png" alt="Group Avatar">
+          <div class="profile-pic-overlay">
+            <span>Change</span>
+            <input type="file" id="group-avatar-input" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
+          </div>
+        </div>
+        <div style="font-size: 12px; color: #888;">Group Photo (Admin Only)</div>
+      </div>
 
       <div class="form-group">
         <label>Group Type</label>
@@ -297,6 +312,25 @@
           <button class="btn btn-primary" id="btn-save-settings">Save Changes</button>
           <button class="btn btn-secondary" id="btn-cancel-settings">Cancel</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="dm-qr-modal" class="modal">
+    <div class="modal-content" style="text-align: center;">
+      <button class="modal-close" id="close-dm-qr">&times;</button>
+      <div class="modal-header">My DM QR Code</div>
+      <div id="dm-qr-loading" class="loading">Generating...</div>
+      <div id="dm-qr-content" style="display: none;">
+        <img id="dm-qr-img" src="" alt="DM QR"
+          style="width: 200px; height: 200px; margin: 10px auto; display: block; border: 5px solid white; border-radius: 10px;">
+        <div style="margin-top: 15px;">
+          <input type="text" id="dm-invite-link" readonly
+            style="width: 100%; padding: 8px; background: #222; border: 1px solid #333; color: #fff; border-radius: 4px; text-align: center;">
+          <button class="btn btn-primary" id="btn-copy-dm-link" style="margin-top: 10px; width: 100%;">Copy
+            Link</button>
+        </div>
+        <p style="color: #888; font-size: 12px; margin-top: 10px;">Link expires in 1 hour</p>
       </div>
     </div>
   </div>

@@ -112,6 +112,19 @@
     <div class="modal-dialog">
       <div class="modal-title">Group Settings</div>
       <div class="modal-message">
+        <div class="form-group" style="text-align: center;">
+          <div class="profile-pic-container"
+            style="margin: 0 auto 15px; width: 100px; height: 100px; border-radius: 50%; overflow: hidden; position: relative; border: 2px solid var(--primary-color); cursor: pointer;">
+            <img id="group-avatar-preview" src="/group/avatar/{{ group_id }}" alt="Group Avatar"
+              style="width: 100%; height: 100%; object-fit: cover;">
+            <div class="profile-pic-overlay"
+              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s;">
+              <span style="color: white; font-size: 12px;">Change</span>
+              <input type="file" id="group-avatar-input" accept="image/*" hidden>
+            </div>
+          </div>
+          <div style="font-size: 12px; color: #888;">Group Photo (Admin Only)</div>
+        </div>
         <div class="form-group">
           <label style="display:block; margin-bottom:15px; font-weight: 500;">Group Type</label>
           <div class="group-type-options" style="display: flex; gap: 15px;">
@@ -177,6 +190,9 @@
           {% elif is_dm %}
           <img src="/static/unknown_user_phasma_icon.png" alt="Avatar"
             style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color); flex-shrink: 0;">
+          {% else %}
+          <img id="header-group-avatar" src="/group/avatar/{{ group_id }}" alt="Avatar"
+            style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary-color); flex-shrink: 0;">
           {% endif %}
           <div style="flex: 1; min-width: 0;">
             <h3 id="group-name" style="margin: 0; font-size: 16px;">Loading...</h3>
@@ -214,10 +230,11 @@
         <div class="input-row" id="input-row">
           <textarea id="in" rows="1" autocomplete="off" placeholder="Type a message..." inputmode="text"
             spellcheck="true"></textarea>
+          <button type="button" class="input-button" id="btn-file-manager" title="File Manager">📁</button>
           <button type="button" class="input-button" id="upload-btn">+</button>
           <button type="button" class="input-button" id="emoji-btn">😂</button>
           <button type="button" class="input-button" id="btn-mic">🎤</button>
-          <button type="button" class="input-button" id="send-btn">↳</button>
+          <button type="button" class="input-button" id="send-btn">➤</button>
         </div>
 
         <input id="file-input" type="file" accept="image/*,video/*,audio/*,application/pdf,text/plain" multiple />
@@ -245,22 +262,18 @@
         <input type="text" id="emoji-search" class="emoji-search" placeholder="Search emoji..." />
         <button type="button" class="emoji-close-btn" id="emoji-close-btn">x</button>
       </div>
-
       <div class="emoji-categories-tabs" id="emoji-categories-tabs">
         <!-- Categories will be injected here -->
       </div>
-
       <div class="emoji-picker-content">
         <div id="emoji-grid" class="emoji-grid"></div>
       </div>
-
       <!-- Variant Popup -->
       <div id="emoji-variant-popup" class="emoji-variant-popup" style="display: none;">
         <div class="emoji-variant-grid" id="emoji-variant-grid"></div>
       </div>
     </div>
   </div>
-
   <script nonce="{{ nonce }}">
     const GROUP_ID = {{ group_id| tojson }};
     const TEMPLATE_USER = {{ user| tojson }};
@@ -269,6 +282,58 @@
     const GROUP_TYPE = {{ group_type| tojson }};
     const IS_DM = {{ is_dm| tojson }};
   </script>
+  <div id="file-manager-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-title">📁 File Manager</div>
+      <div class="modal-message">
+        <div class="file-manager-options" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <button class="modal-btn" id="btn-fm-camera"
+            style="display: flex; flex-direction: column; align-items: center; padding: 20px; background: #333;">
+            <span style="font-size: 24px; margin-bottom: 5px;">📷</span>
+            <span>Take Photo</span>
+          </button>
+          <button class="modal-btn" id="btn-fm-video"
+            style="display: flex; flex-direction: column; align-items: center; padding: 20px; background: #333;">
+            <span style="font-size: 24px; margin-bottom: 5px;">🎥</span>
+            <span>Record Video</span>
+          </button>
+          <button class="modal-btn" id="btn-fm-system"
+            style="display: flex; flex-direction: column; align-items: center; padding: 20px; background: #333; grid-column: span 2;">
+            <span style="font-size: 24px; margin-bottom: 5px;">📂</span>
+            <span>System Files</span>
+          </button>
+        </div>
+
+        <div id="camera-container" style="display: none; margin-top: 15px;">
+          <video id="fm-video-preview" autoplay playsinline muted
+            style="width: 100%; border-radius: 8px; background: #000;"></video>
+          <div style="display: flex; justify-content: center; gap: 10px; margin-top: 10px;">
+            <button class="modal-btn" id="btn-fm-capture">📸 Capture</button>
+            <button class="modal-btn modal-btn-cancel" id="btn-fm-stop">Stop</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-cancel" id="btn-close-fm">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="media-viewer-modal" class="modal-overlay" style="background: rgba(0,0,0,0.95);">
+    <div class="media-viewer-content"
+      style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+      <button id="btn-close-viewer"
+        style="position: absolute; top: 20px; right: 20px; background: none; border: none; color: white; font-size: 30px; cursor: pointer; z-index: 100;">&times;</button>
+      <div id="viewer-container"
+        style="max-width: 95%; max-height: 95%; display: flex; align-items: center; justify-content: center;">
+        <!-- Media will be injected here -->
+      </div>
+      <div id="viewer-caption"
+        style="position: absolute; bottom: 20px; left: 0; width: 100%; text-align: center; color: white; background: rgba(0,0,0,0.5); padding: 10px;">
+      </div>
+    </div>
+  </div>
+
   <audio id="notification-sound" src="/static/phasma_notification_sound.mp3" preload="auto"></audio>
   <script nonce="{{ nonce }}" src="/static/js/group_chat.js"></script>
 </body>

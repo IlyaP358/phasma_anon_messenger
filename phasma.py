@@ -457,6 +457,7 @@ class Group(db.Model):
     max_members = db.Column(db.Integer, default=100)
     group_type = db.Column(db.String(20), default='public', nullable=False)
     is_dm = db.Column(db.Boolean, default=False)
+    profile_pic = db.Column(db.String(256), nullable=True) # Stores filename in uploads/
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
     
     def format_time(self):
@@ -2885,9 +2886,9 @@ def format_message_for_sse(msg: Message) -> str:
             if file_record:
                 signed_data = generate_signed_file_url(file_record.file_token)
                 file_url = f"/file/{signed_data['token']}?sig={signed_data['signature']}&exp={signed_data['expires']}"
-                return f"[ID:{msg.id}][{ts}] {msg.username}: [PHOTO:{file_id}:{file_url}]"
+                return f"[ID:{msg.id}][{ts}] {msg.username}: [PHOTO:{file_id}:{file_record.original_filename}:{file_url}]"
             else:
-                return f"[ID:{msg.id}][{ts}] {msg.username}: [PHOTO:{file_id}]"
+                return f"[ID:{msg.id}][{ts}] {msg.username}: [PHOTO:{file_id}:unknown]"
         return f"[ID:{msg.id}][{ts}] {msg.username}: [PHOTO]"
     
     elif msg.message_type == 'file':
@@ -2902,11 +2903,11 @@ def format_message_for_sse(msg: Message) -> str:
                 category = plain.get('category', 'file')
                 
                 if category == 'audio':
-                    return f"[ID:{msg.id}][{ts}] {msg.username}: [AUDIO:{file_id}:{file_url}]"
+                    return f"[ID:{msg.id}][{ts}] {msg.username}: [AUDIO:{file_id}:{file_record.original_filename}:{file_url}]"
                 elif category == 'video':
-                    return f"[ID:{msg.id}][{ts}] {msg.username}: [VIDEO:{file_id}:{file_url}]"
+                    return f"[ID:{msg.id}][{ts}] {msg.username}: [VIDEO:{file_id}:{file_record.original_filename}:{file_url}]"
                 else:
-                    filename = plain.get('filename', 'file')
+                    filename = plain.get('filename', file_record.original_filename)
                     return f"[ID:{msg.id}][{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_url}]"
             else:
                 category = plain.get('category', 'file')
@@ -3582,6 +3583,81 @@ def api_generate_invite(group_id: int):
         "expires_in": INVITE_TTL
     })
 
+@app.route("/api/user/dm-invite", methods=["GET"])
+@limiter.limit("10 per minute")
+def api_generate_dm_invite():
+    """Generate DM invite link and QR code"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    if not username:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+        
+    # Reuse invite token logic but for DM
+    # We'll prefix the token to distinguish it
+    invite_token = secrets.token_urlsafe(16)
+    redis_client.setex(f"dm_invite:{invite_token}", INVITE_TTL, username)
+    
+    invite_url = f"{request.host_url}dm-invite/{invite_token}"
+    
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(invite_url)
+    qr.make(fit=True)
+    
+    img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+    
+    # Add Logo
+    try:
+        logo_path = os.path.join(app.static_folder, 'phasma_logo.png')
+        if os.path.exists(logo_path):
+            logo = Image.open(logo_path)
+            qr_width, qr_height = img.size
+            logo_size = int(qr_width * 0.2)
+            logo = logo.resize((logo_size, logo_size), Image.LANCZOS)
+            pos = ((qr_width - logo_size) // 2, (qr_height - logo_size) // 2)
+            img.paste(logo, pos)
+    except:
+        pass
+    
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    qr_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+    
+    return jsonify({
+        "invite_url": invite_url,
+        "qr_code": f"data:image/png;base64,{qr_base64}",
+        "expires_in": INVITE_TTL
+    })
+
+@app.route("/dm-invite/<token>", methods=["GET"])
+def join_via_dm_invite(token):
+    """Handle joining via DM invite link"""
+    auth_token = extract_token_from_request() or request.cookies.get('auth_token', '').strip()
+    my_username = verify_token(auth_token, strict_ip_check=False)
+    
+    if not my_username:
+        return redirect(f"/login?next={request.url}")
+        
+    opponent_username = redis_client.get(f"dm_invite:{token}")
+    if not opponent_username:
+        return render_template("error.html", message="Invite link expired or invalid"), 404
+        
+    opponent_username = opponent_username.decode('utf-8')
+    if my_username == opponent_username:
+        return redirect("/groups") # Can't DM yourself
+        
+    # Logic to create/open DM chat
+    # This is similar to the logic in find_users but server-side redirect
+    return redirect(f"/groups?dm_with={opponent_username}")
+
 @app.route("/invite/<token>", methods=["GET"])
 def join_via_invite(token):
     """Handle joining via invite link"""
@@ -4156,6 +4232,89 @@ def upload_profile_pic():
     except Exception as e:
         print(f"[ERROR] Profile upload failed: {e}")
         return jsonify({'error': 'Upload failed'}), 500
+
+@app.route('/api/groups/<int:group_id>/avatar', methods=['POST'])
+def upload_group_avatar(group_id):
+    token = extract_token_from_request()
+    username = verify_token(token)
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    group = Group.query.get(group_id)
+    if not group:
+        return jsonify({'error': 'Group not found'}), 404
+        
+    if group.creator != username:
+        return jsonify({'error': 'Only creator can change group avatar'}), 403
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    try:
+        from PIL import Image, ImageOps
+        import io
+        
+        img = Image.open(file)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        img = ImageOps.fit(img, (256, 256), method=Image.Resampling.LANCZOS)
+        
+        data = list(img.getdata())
+        image_without_exif = Image.new(img.mode, img.size)
+        image_without_exif.putdata(data)
+        
+        output = io.BytesIO()
+        image_without_exif.save(output, format='JPEG', quality=90)
+        file_data = output.getvalue()
+        
+        encrypted_data = data_fernet.encrypt(file_data)
+        new_filename = f"group_{group.id}_{uuid.uuid4().hex}.bin"
+        save_path = os.path.join(UPLOAD_FOLDER, new_filename)
+        
+        # Delete old group avatars
+        import glob
+        old_pattern = os.path.join(os.path.abspath(UPLOAD_FOLDER), f"group_{group.id}_*.bin")
+        for old_file in glob.glob(old_pattern):
+            try: os.remove(old_file)
+            except: pass
+            
+        with open(save_path, 'wb') as f:
+            f.write(encrypted_data)
+
+        group.profile_pic = new_filename
+        db.session.commit()
+        
+        return jsonify({'success': True, 'filename': new_filename})
+    except Exception as e:
+        print(f"[ERROR] Group avatar upload failed: {e}")
+        return jsonify({'error': 'Upload failed'}), 500
+
+@app.route('/group/avatar/<int:group_id>')
+@limiter.limit("60 per minute")
+def get_group_avatar(group_id):
+    try:
+        token = extract_token_from_request()
+        if not verify_token(token):
+            return send_file('static/unknown_user_phasma_icon.png')
+
+        group = Group.query.get(group_id)
+        if not group or not group.profile_pic:
+            return send_file('static/unknown_user_phasma_icon.png')
+
+        file_path = os.path.join(UPLOAD_FOLDER, group.profile_pic)
+        if not os.path.exists(file_path):
+            return send_file('static/unknown_user_phasma_icon.png')
+
+        with open(file_path, 'rb') as f:
+            encrypted_data = f.read()
+        decrypted_data = data_fernet.decrypt(encrypted_data)
+        return Response(decrypted_data, mimetype='image/jpeg')
+    except:
+        return send_file('static/unknown_user_phasma_icon.png')
 
 @app.route('/user/profile-pic/<username>')
 @limiter.limit("60 per minute")
@@ -4809,7 +4968,8 @@ def history_group(group_id: int):
             if isinstance(plain, dict) and 'file_id' in plain:
                 file_id = plain['file_id']
                 if file_id in file_urls:
-                    message_text = f"[{ts}] {msg.username}: [PHOTO:{file_id}:{file_urls[file_id]['url']}]"
+                    filename = file_urls[file_id]['filename']
+                    message_text = f"[{ts}] {msg.username}: [PHOTO:{file_id}:{filename}:{file_urls[file_id]['url']}]"
                 else:
                     message_text = f"[{ts}] {msg.username}: [PHOTO:{file_id}]"
             else:
@@ -4825,9 +4985,11 @@ def history_group(group_id: int):
                 if file_id in file_urls:
                     # НОВОЕ: Обработка аудио
                     if category == 'audio':
-                        message_text = f"[{ts}] {msg.username}: [AUDIO:{file_id}:{file_urls[file_id]['url']}]"
+                        filename = file_urls[file_id]['filename']
+                        message_text = f"[{ts}] {msg.username}: [AUDIO:{file_id}:{filename}:{file_urls[file_id]['url']}]"
                     elif category == 'video':
-                        message_text = f"[{ts}] {msg.username}: [VIDEO:{file_id}:{file_urls[file_id]['url']}]"
+                        filename = file_urls[file_id]['filename']
+                        message_text = f"[{ts}] {msg.username}: [VIDEO:{file_id}:{filename}:{file_urls[file_id]['url']}]"
                     else:
                         message_text = f"[{ts}] {msg.username}: [FILE:{file_id}:{category}:{filename}:{file_urls[file_id]['url']}]"
                 else:

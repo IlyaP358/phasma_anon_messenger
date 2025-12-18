@@ -6,3 +6,4 @@ test_performance.py
 reproduce_issue.py
 #phasma-electron
 update_icons.py
+add_column_database.py

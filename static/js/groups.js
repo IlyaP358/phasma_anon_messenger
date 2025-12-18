@@ -11,6 +11,7 @@ const createModal = document.getElementById('create-modal');
 const joinModal = document.getElementById('join-modal');
 const deleteModal = document.getElementById('delete-modal');
 const profileModal = document.getElementById('profile-modal');
+const dmQrModal = document.getElementById('dm-qr-modal');
 
 // Auth & Init
 function initAuth() {
@@ -248,12 +249,14 @@ function renderGroups(groups) {
             badgeHtml = `<span class="unread-badge">${countText}</span>`;
         }
 
-        // Avatar for DM groups
+        // Avatar for groups
         let avatarHtml = '';
         if (isDM && group.opponent_username) {
-            avatarHtml = `<img src="/user/profile-pic/${group.opponent_username}" alt="Avatar" class="dm-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
+            avatarHtml = `<img src="/user/profile-pic/${group.opponent_username}" alt="Avatar" class="dm-avatar header-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
         } else if (isDM) {
-            avatarHtml = `<img src="/static/unknown_user_phasma_icon.png" alt="Avatar" class="dm-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
+            avatarHtml = `<img src="/static/unknown_user_phasma_icon.png" alt="Avatar" class="dm-avatar header-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
+        } else { // Group avatar
+            avatarHtml = `<img src="/group/avatar/${group.id}" alt="Group Avatar" class="header-avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
         }
 
         // Settings gear icon for creators (top-right corner)
@@ -510,17 +513,119 @@ document.getElementById('btn-confirm-delete-account').addEventListener('click', 
         });
 });
 
+// DM QR Code Logic
+const btnShowDmQr = document.getElementById('btn-show-dm-qr');
+if (btnShowDmQr) {
+    btnShowDmQr.addEventListener('click', () => {
+        if (!dmQrModal) return;
+        dmQrModal.classList.add('active');
+        document.getElementById('dm-qr-loading').style.display = 'block';
+        document.getElementById('dm-qr-content').style.display = 'none';
+
+        fetch('/api/user/dm-invite', { credentials: 'include' })
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('dm-qr-loading').style.display = 'none';
+                document.getElementById('dm-qr-content').style.display = 'block';
+                document.getElementById('dm-qr-img').src = data.qr_code;
+                document.getElementById('dm-invite-link').value = data.invite_url;
+            })
+            .catch(err => {
+                document.getElementById('dm-qr-loading').textContent = 'Failed to generate QR';
+            });
+    });
+}
+
+const closeDmQrBtn = document.getElementById('close-dm-qr');
+if (closeDmQrBtn) {
+    closeDmQrBtn.addEventListener('click', () => {
+        dmQrModal.classList.remove('active');
+    });
+}
+
+const btnCopyDmLink = document.getElementById('btn-copy-dm-link');
+if (btnCopyDmLink) {
+    btnCopyDmLink.addEventListener('click', () => {
+        const link = document.getElementById('dm-invite-link');
+        link.select();
+        document.execCommand('copy');
+        const oldText = btnCopyDmLink.textContent;
+        btnCopyDmLink.textContent = '✓ Copied!';
+        setTimeout(() => btnCopyDmLink.textContent = oldText, 2000);
+    });
+}
+
+// Group Avatar Logic
+const groupAvatarInput = document.getElementById('group-avatar-input');
+if (groupAvatarInput) {
+    groupAvatarInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        fetch(`/api/groups/${currentSettingsGroupId}/avatar`, {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('group-avatar-preview').src = `/group/avatar/${currentSettingsGroupId}?t=${Date.now()}`;
+                    loadGroups(); // Refresh list to show new avatar
+                } else {
+                    alert(data.error || 'Failed to upload avatar');
+                }
+            })
+            .catch(err => alert('Upload failed'));
+    });
+}
+
+const groupAvatarPreview = document.getElementById('group-avatar-preview');
+if (groupAvatarPreview) {
+    groupAvatarPreview.parentElement.addEventListener('click', () => {
+        groupAvatarInput.click();
+    });
+}
+
+// Join DM via query param
+function checkDmInvite() {
+    const params = new URLSearchParams(window.location.search);
+    const dmWith = params.get('dm_with');
+    if (dmWith) {
+        // Remove param from URL
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+
+        // Create DM
+        fetch('/api/dm/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ opponent_username: dmWith }),
+            credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = `/group/${data.group_id}/chat`;
+                } else {
+                    alert(data.error || 'Failed to create DM');
+                }
+            });
+    }
+}
+
 // Init
 if (initAuth()) {
-    loadGroups(); loadSessions(); startOnlineHeartbeat();
-    loadGroups(); loadSessions(); startOnlineHeartbeat();
-    setInterval(loadGroups, 60000); setInterval(loadSessions, 5000); setInterval(verifySessionWithServer, 30000);
-
-    // Initialize SSE for real-time updates
-    initSSE();
-
-    // Initialize Push Notifications
-    initPushNotifications();
+    loadGroups();
+    loadSessions();
+    startOnlineHeartbeat();
+    checkDmInvite();
+    setInterval(loadGroups, 60000);
+    setInterval(loadSessions, 5000);
+    setInterval(verifySessionWithServer, 30000);
 
     // Refresh on focus/visibility
     window.addEventListener('focus', loadGroups);
@@ -685,6 +790,12 @@ function openSettingsModal(groupId, type) {
 
     settingsWarning.style.display = 'none'; // Reset warning
     settingsModal.classList.add('active');
+
+    // Load group avatar in settings
+    const avatarPreview = document.getElementById('group-avatar-preview');
+    if (avatarPreview) {
+        avatarPreview.src = `/group/avatar/${groupId}?t=${Date.now()}`;
+    }
 }
 
 if (settingsModal) {

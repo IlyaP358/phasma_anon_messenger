@@ -501,11 +501,17 @@ function setupChat() {
     console.log('[Chat] Setting up chat interface...');
     document.getElementById('chat-user').textContent = CURRENT_USER;
     document.getElementById('group-name').textContent = GROUP_NAME;
+
     // Load members first with callback to load history after
     loadMembers(() => {
         console.log('[Chat] Members loaded, now loading history...');
         loadHistory();
     });
+
+    initMediaViewer();
+    initFileManager();
+    initGroupAvatar();
+
     MEMBERS_UPDATE_INTERVAL = setInterval(loadMembers, 10000);
     sendOnlineHeartbeat();
     ONLINE_HEARTBEAT_INTERVAL = setInterval(sendOnlineHeartbeat, 20000);
@@ -513,113 +519,297 @@ function setupChat() {
     // Load groups sidebar
     loadGroups();
     setInterval(loadGroups, 60000);
+}
 
-    // Back button
-    const btnBack = document.getElementById('btn-back-groups');
-    if (btnBack) {
-        btnBack.addEventListener('click', () => {
-            window.location.href = '/groups';
+// ========== MEDIA VIEWER ==========
+function openMediaViewer(src, caption, isVideo = false) {
+    const modal = document.getElementById('media-viewer-modal');
+    const container = document.getElementById('viewer-container');
+    const captionElem = document.getElementById('viewer-caption');
+
+    if (!modal || !container || !captionElem) return;
+
+    container.innerHTML = '';
+    if (isVideo) {
+        const video = document.createElement('video');
+        video.src = src;
+        video.controls = true;
+        video.autoplay = true;
+        video.style.maxWidth = '100%';
+        video.style.maxHeight = '100%';
+        container.appendChild(video);
+    } else {
+        const img = document.createElement('img');
+        img.src = src;
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '100%';
+        img.style.objectFit = 'contain';
+        container.appendChild(img);
+    }
+
+    captionElem.textContent = caption;
+    modal.classList.add('active');
+}
+
+function initMediaViewer() {
+    const closeBtn = document.getElementById('btn-close-viewer');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            document.getElementById('media-viewer-modal').classList.remove('active');
+            document.getElementById('viewer-container').innerHTML = '';
+        });
+    }
+}
+
+// ========== FILE MANAGER ==========
+let fmStream = null;
+let fmRecorder = null;
+let fmChunks = [];
+
+function initFileManager() {
+    const fmModal = document.getElementById('file-manager-modal');
+    const fmVideoPreview = document.getElementById('fm-video-preview');
+    if (!fmModal) return;
+
+    const btnFm = document.getElementById('btn-file-manager');
+    if (btnFm) {
+        btnFm.addEventListener('click', () => fmModal.classList.add('active'));
+    }
+
+    const btnCloseFm = document.getElementById('btn-close-fm');
+    if (btnCloseFm) {
+        btnCloseFm.addEventListener('click', () => {
+            stopFmCamera();
+            fmModal.classList.remove('active');
         });
     }
 
-    // Leave button
-    const btnLeave = document.getElementById('leave-btn');
-    const leaveModal = document.getElementById('leave-modal');
-    const btnCancelLeave = document.getElementById('btn-cancel-leave');
-    const btnConfirmLeave = document.getElementById('btn-confirm-leave');
-
-    if (btnLeave && leaveModal) {
-        btnLeave.addEventListener('click', () => {
-            leaveModal.classList.add('active');
+    const btnFmSystem = document.getElementById('btn-fm-system');
+    if (btnFmSystem) {
+        btnFmSystem.addEventListener('click', () => {
+            document.getElementById('file-input').click();
+            fmModal.classList.remove('active');
         });
+    }
 
-        btnCancelLeave.addEventListener('click', () => {
+    const btnFmCamera = document.getElementById('btn-fm-camera');
+    if (btnFmCamera) btnFmCamera.addEventListener('click', () => startFmCamera(true));
+
+    const btnFmVideo = document.getElementById('btn-fm-video');
+    if (btnFmVideo) btnFmVideo.addEventListener('click', () => startFmCamera(false));
+
+    const btnFmStop = document.getElementById('btn-fm-stop');
+    if (btnFmStop) btnFmStop.addEventListener('click', stopFmCamera);
+
+    const btnFmCapture = document.getElementById('btn-fm-capture');
+    if (btnFmCapture) {
+        btnFmCapture.addEventListener('click', async () => {
+            if (!fmStream) return;
+            const isVideo = fmStream.getAudioTracks().length > 0;
+            if (isVideo) {
+                if (fmRecorder && fmRecorder.state === 'recording') {
+                    fmRecorder.stop();
+                    btnFmCapture.textContent = '📸 Capture';
+                } else {
+                    fmChunks = [];
+                    fmRecorder = new MediaRecorder(fmStream);
+                    fmRecorder.ondataavailable = (e) => fmChunks.push(e.data);
+                    fmRecorder.onstop = () => {
+                        const blob = new Blob(fmChunks, { type: 'video/webm' });
+                        const file = new File([blob], `video_${Date.now()}.webm`, { type: 'video/webm' });
+                        addFilesToSelection([file]);
+                        stopFmCamera();
+                        fmModal.classList.remove('active');
+                    };
+                    fmRecorder.start();
+                    btnFmCapture.textContent = '⏹️ Stop Recording';
+                }
+            } else {
+                const canvas = document.createElement('canvas');
+                canvas.width = fmVideoPreview.videoWidth;
+                canvas.height = fmVideoPreview.videoHeight;
+                canvas.getContext('2d').drawImage(fmVideoPreview, 0, 0);
+                canvas.toBlob((blob) => {
+                    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    addFilesToSelection([file]);
+                    stopFmCamera();
+                    fmModal.classList.remove('active');
+                }, 'image/jpeg', 0.9);
+            }
+        });
+    }
+
+    async function startFmCamera(videoOnly = false) {
+        try {
+            fmStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user' },
+                audio: !videoOnly
+            });
+            fmVideoPreview.srcObject = fmStream;
+            document.getElementById('camera-container').style.display = 'block';
+            document.querySelector('.file-manager-options').style.display = 'none';
+        } catch (err) {
+            alert('Camera access denied or not available');
+        }
+    }
+
+    function stopFmCamera() {
+        if (fmStream) {
+            fmStream.getTracks().forEach(track => track.stop());
+            fmStream = null;
+        }
+        document.getElementById('camera-container').style.display = 'none';
+        document.querySelector('.file-manager-options').style.display = 'grid';
+    }
+
+    function addFilesToSelection(newFiles) {
+        const dt = new DataTransfer();
+        for (let i = 0; i < selectedFiles.length; i++) dt.items.add(selectedFiles[i]);
+        for (let i = 0; i < newFiles.length; i++) dt.items.add(newFiles[i]);
+        processFileUpload(dt.files);
+    }
+}
+
+// ========== GROUP AVATAR ==========
+function initGroupAvatar() {
+    const groupAvatarInput = document.getElementById('group-avatar-input');
+    const groupAvatarPreview = document.getElementById('group-avatar-preview');
+    if (!groupAvatarInput || !groupAvatarPreview) return;
+
+    groupAvatarInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        fetch(`/api/groups/${GROUP_ID}/avatar`, {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const url = `/group/avatar/${GROUP_ID}?t=${Date.now()}`;
+                    groupAvatarPreview.src = url;
+                    const headerAvatar = document.getElementById('header-group-avatar');
+                    if (headerAvatar) headerAvatar.src = url;
+                } else {
+                    alert(data.error || 'Failed to upload avatar');
+                }
+            })
+            .catch(err => alert('Upload failed'));
+    });
+
+    groupAvatarPreview.parentElement.addEventListener('click', () => {
+        groupAvatarInput.click();
+    });
+}
+
+// Back button
+const btnBack = document.getElementById('btn-back-groups');
+if (btnBack) {
+    btnBack.addEventListener('click', () => {
+        window.location.href = '/groups';
+    });
+}
+
+// Leave button
+const btnLeave = document.getElementById('leave-btn');
+const leaveModal = document.getElementById('leave-modal');
+const btnCancelLeave = document.getElementById('btn-cancel-leave');
+const btnConfirmLeave = document.getElementById('btn-confirm-leave');
+
+if (btnLeave && leaveModal) {
+    btnLeave.addEventListener('click', () => {
+        leaveModal.classList.add('active');
+    });
+
+    btnCancelLeave.addEventListener('click', () => {
+        leaveModal.classList.remove('active');
+    });
+
+    btnConfirmLeave.addEventListener('click', () => {
+        // Call API to leave group
+        fetch(`/api/groups/${GROUP_ID}/leave`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
+            credentials: 'include'
+        }).then(response => {
+            if (response.ok) {
+                isUnloading = true;
+                clearInterval(MEMBERS_UPDATE_INTERVAL);
+                clearInterval(ONLINE_HEARTBEAT_INTERVAL);
+                window.location.href = "/groups";
+            } else {
+                showNotification("Failed to leave group", 3000, true);
+                leaveModal.classList.remove('active');
+            }
+        }).catch(err => {
+            console.error("Error leaving group:", err);
+            showNotification("Error leaving group", 3000, true);
             leaveModal.classList.remove('active');
         });
+    });
 
-        btnConfirmLeave.addEventListener('click', () => {
-            // Call API to leave group
-            fetch(`/api/groups/${GROUP_ID}/leave`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${GROUP_SESSION_TOKEN}` },
-                credentials: 'include'
-            }).then(response => {
-                if (response.ok) {
-                    isUnloading = true;
-                    clearInterval(MEMBERS_UPDATE_INTERVAL);
-                    clearInterval(ONLINE_HEARTBEAT_INTERVAL);
-                    window.location.href = "/groups";
-                } else {
-                    showNotification("Failed to leave group", 3000, true);
-                    leaveModal.classList.remove('active');
-                }
-            }).catch(err => {
-                console.error("Error leaving group:", err);
-                showNotification("Error leaving group", 3000, true);
-                leaveModal.classList.remove('active');
-            });
-        });
-
-        // Close on outside click
-        leaveModal.addEventListener('click', (e) => {
-            if (e.target === leaveModal) {
-                leaveModal.classList.remove('active');
-            }
-        });
-    }
-
-    // Invite Logic
-    const inviteBtn = document.getElementById('invite-btn');
-    const inviteModal = document.getElementById('invite-modal');
-    const btnCloseInvite = document.getElementById('btn-close-invite');
-    const btnCopyInvite = document.getElementById('btn-copy-invite');
-
-    if (inviteBtn && inviteModal) {
-        // Show invite button only if group is public AND NOT DM
-        if (typeof GROUP_TYPE !== 'undefined' && GROUP_TYPE === 'public' && !IS_DM) {
-            inviteBtn.style.display = 'inline-block';
-        } else {
-            inviteBtn.style.display = 'none';
+    // Close on outside click
+    leaveModal.addEventListener('click', (e) => {
+        if (e.target === leaveModal) {
+            leaveModal.classList.remove('active');
         }
+    });
+}
 
-        inviteBtn.addEventListener('click', () => {
-            inviteModal.classList.add('active');
-            loadInvite();
-        });
+// Invite Logic
+const inviteBtn = document.getElementById('invite-btn');
+const inviteModal = document.getElementById('invite-modal');
+const btnCloseInvite = document.getElementById('btn-close-invite');
+const btnCopyInvite = document.getElementById('btn-copy-invite');
 
-        btnCloseInvite.addEventListener('click', () => {
+if (inviteBtn && inviteModal) {
+    // Show invite button only if group is public AND NOT DM
+    if (typeof GROUP_TYPE !== 'undefined' && GROUP_TYPE === 'public' && !IS_DM) {
+        inviteBtn.style.display = 'inline-block';
+    } else {
+        inviteBtn.style.display = 'none';
+    }
+
+    inviteBtn.addEventListener('click', () => {
+        inviteModal.classList.add('active');
+        loadInvite();
+    });
+
+    btnCloseInvite.addEventListener('click', () => {
+        inviteModal.classList.remove('active');
+    });
+
+    inviteModal.addEventListener('click', (e) => {
+        if (e.target === inviteModal) {
             inviteModal.classList.remove('active');
-        });
+        }
+    });
 
-        inviteModal.addEventListener('click', (e) => {
-            if (e.target === inviteModal) {
-                inviteModal.classList.remove('active');
-            }
-        });
+    btnCopyInvite.addEventListener('click', () => {
+        const link = document.getElementById('invite-link');
+        link.select();
+        document.execCommand('copy');
+        btnCopyInvite.textContent = 'Copied!';
+        setTimeout(() => {
+            btnCopyInvite.textContent = 'Copy Link';
+        }, 2000);
+    });
+}
 
-        btnCopyInvite.addEventListener('click', () => {
-            const link = document.getElementById('invite-link');
-            link.select();
-            document.execCommand('copy');
-            btnCopyInvite.textContent = 'Copied!';
-            setTimeout(() => {
-                btnCopyInvite.textContent = 'Copy Link';
-            }, 2000);
-        });
-    }
+// DM Specific UI Adjustments
+if (IS_DM) {
+    // Hide settings button if it exists (or restrict options inside it)
+    // Actually, we might want settings for "Delete Chat" or similar, but for now let's hide the type switcher and password change
+    const typeOptions = document.querySelector('.group-type-options');
+    if (typeOptions) typeOptions.style.display = 'none';
 
-    // DM Specific UI Adjustments
-    if (IS_DM) {
-        // Hide settings button if it exists (or restrict options inside it)
-        // Actually, we might want settings for "Delete Chat" or similar, but for now let's hide the type switcher and password change
-        const typeOptions = document.querySelector('.group-type-options');
-        if (typeOptions) typeOptions.style.display = 'none';
+    const passSection = document.getElementById('settings-password-section');
+    if (passSection) passSection.style.display = 'none';
 
-        const passSection = document.getElementById('settings-password-section');
-        if (passSection) passSection.style.display = 'none';
-
-        // Hide Group Code in sidebar list? handled in renderGroups
-    }
+    // Hide Group Code in sidebar list? handled in renderGroups
 }
 
 // ... (rest of file) ...
@@ -754,6 +944,8 @@ function renderGroups(groups) {
             avatarHtml = `<img src="/user/profile-pic/${group.opponent_username}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
         } else if (isDM) {
             avatarHtml = `<img src="/static/unknown_user_phasma_icon.png" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
+        } else { // Group avatar
+            avatarHtml = `<img src="/group/avatar/${group.id}" alt="Group Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
         }
 
         const deleteBtnHtml = (isCreator && !isDM) ? `<button class="btn-delete-group fluent-btn secondary" style="font-size:10px; padding:4px 8px; min-height:24px;" data-group-id="${group.id}">Delete</button>` : '';
@@ -1291,22 +1483,20 @@ function createURLPreviewCard(url, preview) {
         img.alt = "Preview";
         img.loading = "lazy";
         img.onerror = () => img.style.display = 'none';
-        img.onclick = (e) => { e.stopPropagation(); window.open(url, '_blank'); };
+        img.addEventListener('click', (e) => {
+            e.stopPropagation();
+            window.open(url, '_blank');
+        });
         card.appendChild(img);
     }
 
-    card.onclick = () => window.open(url, '_blank');
+    card.addEventListener('click', () => window.open(url, '_blank'));
     return card;
 }
 
 function createMessageElement(data, messageId) {
     const parsed = parseMessageData(data);
-    if (!parsed) {
-        const msg = document.createElement("div");
-        msg.className = "message";
-        msg.textContent = "[PARSE ERROR]";
-        return msg;
-    }
+    if (!parsed) return null;
 
     const msgWrapper = document.createElement("div");
     msgWrapper.className = "message";
@@ -1334,160 +1524,209 @@ function createMessageElement(data, messageId) {
     // Username and timestamp header
     const header = document.createElement("div");
     header.className = "message-header";
-    header.innerHTML = `<strong>${escapeHtml(parsed.username)}</strong> <span class="message-time">${localDate}, ${localTime}</span>`;
+    header.innerHTML = `<strong class="msg-sender">${escapeHtml(parsed.username)}</strong> <span class="msg-time">${localDate}, ${localTime}</span>`;
     contentWrapper.appendChild(header);
 
     const mainContent = document.createElement("div");
     mainContent.className = "message-content";
-    if (parsed.content.startsWith("[AUDIO:")) {
-        const audioMatch = parsed.content.match(/^\[AUDIO:(\d+):(.+)\]$/);
-        if (audioMatch) {
-            const audioDiv = document.createElement("div");
-            audioDiv.className = "audio-msg";
-            const audio = document.createElement("audio");
-            audio.className = "audio-player";
-            audio.src = audioMatch[2];
-            audio.controls = true;
-            audioDiv.appendChild(audio);
-            mainContent.appendChild(audioDiv);
-        }
-    }
-    else if (parsed.content.startsWith("[VIDEO:")) {
-        const videoMatch = parsed.content.match(/^\[VIDEO:(\d+):(.+)\]$/);
-        if (videoMatch) {
-            const videoDiv = document.createElement("div");
-            videoDiv.className = "video-msg";
-            const video = document.createElement("video");
-            video.className = "video-player";
-            video.controls = true;
-            video.muted = true;
-            video.setAttribute('playsinline', '');
-            video.preload = 'metadata';
 
-            // Client-side thumbnail generation using canvas
-            video.addEventListener('loadeddata', () => {
-                video.currentTime = 0.1;
-            }, { once: true });
+    // Parse text spoilers [spoiler]text[spoiler]
+    const spoilerRegex = /\[spoiler\](.*?)\[spoiler\]/gi;
+    let content = (parsed.content || "").trim();
 
-            video.addEventListener('seeked', () => {
-                try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    video.poster = canvas.toDataURL('image/jpeg', 0.7);
-                    console.log('[Video] Thumbnail generated for:', videoMatch[2]);
-                } catch (e) {
-                    console.warn('[Video] Failed to generate thumbnail:', e);
+    let mediaHandled = false;
+
+    // Robust parsing for [TYPE:ID:FILENAME:URL] or [TYPE:ID:URL]
+    if (content.startsWith("[") && content.endsWith("]")) {
+        const inner = content.slice(1, -1);
+        const parts = inner.split(':');
+        const type = parts[0];
+
+        if (['PHOTO', 'VIDEO', 'AUDIO', 'FILE'].includes(type)) {
+            mediaHandled = true;
+            let fileId, fileName, fileUrl;
+
+            if (type === 'FILE') {
+                // [FILE:ID:CATEGORY:FILENAME:URL]
+                fileId = parts[1];
+                const category = parts[2];
+                fileName = parts[3];
+                fileUrl = parts.slice(4).join(':');
+
+                const fileDiv = document.createElement("div");
+                fileDiv.className = "file-msg";
+                const fileAttachment = document.createElement("div");
+                fileAttachment.className = "file-attachment";
+
+                const fileIcon = document.createElement("img");
+                fileIcon.className = "file-icon";
+                fileIcon.src = "/static/phasma_file.png";
+                const fileInfo = document.createElement("div");
+                fileInfo.className = "file-info";
+                const fileNameElem = document.createElement("div");
+                fileNameElem.className = "file-name";
+
+                const isSpoiler = fileName.startsWith('SPOILER_');
+                let displayFileName = fileName;
+                if (isSpoiler) {
+                    displayFileName = "SPOILER: " + fileName.replace('SPOILER_', '');
+                    fileDiv.classList.add("spoiler");
+                    fileDiv.addEventListener('click', () => fileDiv.classList.toggle('revealed'));
                 }
-            }, { once: true });
+                fileNameElem.textContent = displayFileName;
+                fileInfo.appendChild(fileNameElem);
 
-            video.src = videoMatch[2];
-            videoDiv.appendChild(video);
-            mainContent.appendChild(videoDiv);
+                const downloadBtn = document.createElement("button");
+                downloadBtn.className = "file-download-btn";
+                downloadBtn.textContent = "⬇";
+                downloadBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const a = document.createElement('a');
+                    a.href = fileUrl;
+                    a.download = fileName;
+                    a.click();
+                });
+
+                fileAttachment.appendChild(fileIcon);
+                fileAttachment.appendChild(fileInfo);
+                fileAttachment.appendChild(downloadBtn);
+                fileDiv.appendChild(fileAttachment);
+                mainContent.appendChild(fileDiv);
+            } else {
+                // PHOTO, VIDEO, AUDIO
+                fileId = parts[1];
+                if (parts.length >= 4) {
+                    fileName = parts[2];
+                    fileUrl = parts.slice(3).join(':');
+                } else {
+                    fileName = "";
+                    fileUrl = parts.slice(2).join(':');
+                }
+
+                const isSpoiler = fileName.startsWith('SPOILER_');
+
+                if (type === 'PHOTO') {
+                    const imgContainer = document.createElement("div");
+                    imgContainer.style.position = "relative";
+                    imgContainer.style.display = "inline-block";
+
+                    const img = document.createElement("img");
+                    img.className = "msg-photo";
+                    if (isSpoiler) {
+                        img.classList.add("spoiler-media");
+                        img.addEventListener('click', () => img.classList.toggle('revealed'));
+
+                        const overlay = document.createElement("div");
+                        overlay.className = "spoiler-overlay";
+                        overlay.innerText = "SPOILER";
+                        imgContainer.appendChild(img);
+                        imgContainer.appendChild(overlay);
+                    } else {
+                        img.addEventListener('click', () => openMediaViewer(fileUrl, `Photo from ${parsed.username}`));
+                        imgContainer.appendChild(img);
+                    }
+                    img.src = fileUrl;
+                    mainContent.appendChild(imgContainer);
+                } else if (type === 'VIDEO') {
+                    const videoDiv = document.createElement("div");
+                    videoDiv.className = "video-msg";
+                    videoDiv.style.position = "relative";
+
+                    const video = document.createElement("video");
+                    video.className = "video-player";
+                    if (isSpoiler) {
+                        video.classList.add("spoiler-media");
+                        video.addEventListener('click', (e) => {
+                            if (!video.classList.contains('revealed')) {
+                                video.classList.add('revealed');
+                                e.preventDefault();
+                            } else {
+                                openMediaViewer(fileUrl, `Video from ${parsed.username}`, true);
+                            }
+                        });
+
+                        const overlay = document.createElement("div");
+                        overlay.className = "spoiler-overlay";
+                        overlay.innerText = "SPOILER";
+                        videoDiv.appendChild(overlay);
+                    } else {
+                        video.addEventListener('click', (e) => {
+                            openMediaViewer(fileUrl, `Video from ${parsed.username}`, true);
+                            e.preventDefault();
+                        });
+                    }
+                    video.controls = true;
+                    video.muted = true;
+                    video.setAttribute('playsinline', '');
+                    video.preload = 'metadata';
+
+                    video.addEventListener('loadeddata', () => { video.currentTime = 0.1; }, { once: true });
+                    video.addEventListener('seeked', () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = video.videoWidth;
+                            canvas.height = video.videoHeight;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                            video.poster = canvas.toDataURL('image/jpeg', 0.7);
+                        } catch (e) {
+                            console.warn('[Video] Failed to generate thumbnail:', e);
+                        }
+                    }, { once: true });
+
+                    video.src = fileUrl;
+                    videoDiv.appendChild(video);
+                    mainContent.appendChild(videoDiv);
+                } else if (type === 'AUDIO') {
+                    const audioDiv = document.createElement("div");
+                    audioDiv.className = "audio-msg";
+                    if (isSpoiler) {
+                        audioDiv.classList.add("spoiler");
+                        audioDiv.addEventListener('click', () => audioDiv.classList.toggle('revealed'));
+                    }
+                    const audio = document.createElement("audio");
+                    audio.controls = true;
+                    audio.src = fileUrl;
+                    audioDiv.appendChild(audio);
+                    mainContent.appendChild(audioDiv);
+                }
+            }
         }
     }
-    else if (parsed.content.startsWith("[PHOTO:")) {
-        const photoMatch = parsed.content.match(/^\[PHOTO:(\d+):(.+)\]$/);
-        if (photoMatch) {
-            const photoDiv = document.createElement("div");
-            photoDiv.className = "photo-msg";
 
-            // Loading container
-            const loadingContainer = document.createElement("div");
-            loadingContainer.className = "image-loading-container";
-
-            // Spinner
-            const spinner = document.createElement("div");
-            spinner.className = "image-spinner";
-            loadingContainer.appendChild(spinner);
-
-            const img = document.createElement("img");
-            img.src = photoMatch[2];
-            img.alt = "Photo";
-            img.loading = "lazy";
-            img.className = "loading"; // Start with opacity 0
-            img.style.cursor = "pointer";
-
-            img.onload = () => {
-                spinner.remove();
-                loadingContainer.classList.remove("image-loading-container");
-                loadingContainer.style.minHeight = "auto";
-                loadingContainer.style.background = "transparent";
-                img.classList.remove("loading");
-                img.classList.add("loaded");
-            };
-
-            img.onerror = () => {
-                spinner.remove();
-                loadingContainer.innerHTML = '<span style="color: #ff4b4b; font-size: 12px;">⚠️ Failed to load image</span>';
-            };
-
-            img.onclick = () => window.open(photoMatch[2], '_blank');
-
-            loadingContainer.appendChild(img);
-            photoDiv.appendChild(loadingContainer);
-            mainContent.appendChild(photoDiv);
-        }
-    }
-    else if (parsed.content.startsWith("[FILE:")) {
-        const fileMatch = parsed.content.match(/^\[FILE:(\d+):([^:]+):(.+?):(.+)\]$/);
-        if (fileMatch) {
-            const fileDiv = document.createElement("div");
-            fileDiv.className = "file-msg";
-            const fileAttachment = document.createElement("div");
-            fileAttachment.className = "file-attachment";
-
-            const fileIcon = document.createElement("img");
-            fileIcon.className = "file-icon";
-            fileIcon.src = "/static/phasma_file.png";
-            const fileInfo = document.createElement("div");
-            fileInfo.className = "file-info";
-            const fileName = document.createElement("div");
-            fileName.className = "file-name";
-            fileName.textContent = fileMatch[3];
-            fileInfo.appendChild(fileName);
-            const downloadBtn = document.createElement("button");
-            downloadBtn.className = "file-download-btn";
-            downloadBtn.textContent = "⬇";
-            downloadBtn.onclick = () => {
-                const a = document.createElement('a');
-                a.href = fileMatch[4];
-                a.download = fileMatch[3];
-                a.click();
-            };
-
-            fileAttachment.appendChild(fileIcon);
-            fileAttachment.appendChild(fileInfo);
-            fileAttachment.appendChild(downloadBtn);
-            fileDiv.appendChild(fileAttachment);
-            mainContent.appendChild(fileDiv);
-        }
-    }
-    else {
+    if (!mediaHandled) {
         const textDiv = document.createElement("div");
         textDiv.className = "message-text";
 
         // Check if content is a URL
         const urlRegex = /^(https?:\/\/[^\s]+)$/;
-        if (urlRegex.test(parsed.content)) {
+        if (urlRegex.test(content)) {
             const link = document.createElement("a");
-            link.href = parsed.content;
-            link.textContent = parsed.content;
+            link.href = content;
+            link.textContent = content;
             link.target = "_blank";
-            link.style.color = "#0078d4"; // Blue color
+            link.style.color = "#0078d4";
             link.style.textDecoration = "underline";
-            link.onclick = (e) => e.stopPropagation();
+            link.addEventListener('click', (e) => e.stopPropagation());
             textDiv.appendChild(link);
 
-            if (parsed.urls && parsed.urls[parsed.content]) {
-                textDiv.style.display = 'none'; // Hide text if preview exists
+            if (parsed.urls && parsed.urls[content]) {
+                textDiv.style.display = 'none';
             }
         } else {
-            textDiv.textContent = parsed.content;
+            // Apply text spoilers
+            const escaped = escapeHtml(content);
+            textDiv.innerHTML = escaped.replace(spoilerRegex, (match, p1) => {
+                return `<span class="spoiler">${p1}</span>`;
+            });
+            // Attach event listeners to spoilers (CSP friendly)
+            textDiv.querySelectorAll('.spoiler').forEach(s => {
+                s.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    s.classList.toggle('revealed');
+                });
+            });
         }
-
         mainContent.appendChild(textDiv);
 
         if (parsed.urls && Object.keys(parsed.urls).length > 0) {
@@ -1502,16 +1741,18 @@ function createMessageElement(data, messageId) {
 
     contentWrapper.appendChild(mainContent);
     msgWrapper.appendChild(contentWrapper);
+
     const isOwnMessage = parsed.username === CURRENT_USER;
+    msgWrapper.classList.add(isOwnMessage ? 'my-msg' : 'other-msg');
+
     if (isOwnMessage) {
         const deleteBtn = document.createElement("button");
         deleteBtn.className = "message-delete-btn";
         deleteBtn.textContent = "🗑️ delete";
-        deleteBtn.onclick = (e) => {
+        deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             showDeleteConfirmModal(messageId);
-        };
-
+        });
         msgWrapper.appendChild(deleteBtn);
         messageIdToElementMap.set(messageId, msgWrapper);
     }
@@ -1911,8 +2152,19 @@ async function sendFile() {
         return response.json();
     };
 
-    for (let i = 0; i < totalFiles; i++) {
-        const file = selectedFiles[i];
+    for (let i = 0; i < selectedFiles.length; i++) {
+        let file = selectedFiles[i];
+
+        // Check if spoiler is active for this file
+        const previewItem = document.querySelector(`.preview-item[data-index="${i}"]`);
+        const isSpoiler = previewItem && previewItem.querySelector('.btn-spoiler-toggle.active');
+
+        if (isSpoiler && !file.name.startsWith('SPOILER_')) {
+            // Create a new file object with SPOILER_ prefix
+            const blob = file.slice(0, file.size, file.type);
+            file = new File([blob], 'SPOILER_' + file.name, { type: file.type });
+        }
+
         try {
             await uploadSingle(file);
             uploadedCount++;
@@ -2035,18 +2287,31 @@ function showFilesPreview(files, source = 'upload') {
         return;
     }
 
-    files.forEach((file, index) => {
+    selectedFiles.forEach((file, index) => {
         const item = document.createElement('div');
         item.className = 'preview-item';
+        item.setAttribute('data-index', index);
+
+        // Spoiler toggle button (eye icon)
+        const spoilerBtn = document.createElement('button');
+        spoilerBtn.className = 'btn-spoiler-toggle';
+        spoilerBtn.innerHTML = '👁️';
+        spoilerBtn.title = 'Toggle Spoiler';
+        spoilerBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            spoilerBtn.classList.toggle('active');
+            // We'll handle the SPOILER_ prefix during upload
+        });
+        item.appendChild(spoilerBtn);
 
         // Remove button
         const removeBtn = document.createElement('button');
         removeBtn.className = 'preview-remove-btn';
         removeBtn.innerHTML = '✕';
-        removeBtn.onclick = (e) => {
+        removeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             removeFile(index);
-        };
+        });
         item.appendChild(removeBtn);
 
         // Content

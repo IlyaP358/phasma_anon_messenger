@@ -265,14 +265,43 @@ button,
 .msg.sending::after {
     content: '';
     position: absolute;
-    bottom: 4px;
-    right: 4px;
-    width: 8px;
-    height: 8px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top-color: #fff;
+    bottom: 6px;
+    right: 8px;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--primary-color);
     border-radius: 50%;
-    animation: spin 1s linear infinite;
+    animation: spin 0.8s linear infinite;
+}
+
+/* Profile Picture Skeleton Loader */
+.header-avatar,
+.msg-avatar,
+.message-avatar,
+.member-avatar,
+.group-avatar {
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 25%, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0.05) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+}
+
+.msg-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+@keyframes skeleton-loading {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 .msg.error {
@@ -304,6 +333,80 @@ button,
 
 .msg-content {
     white-space: pre-wrap;
+}
+
+/* Spoilers */
+.spoiler {
+    background: rgba(255, 255, 255, 0.1);
+    color: transparent !important;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 0 2px;
+    transition: all 0.3s ease;
+    user-select: none;
+}
+
+.spoiler.revealed {
+    background: transparent;
+    color: inherit !important;
+    text-shadow: none;
+    user-select: text;
+}
+
+.spoiler-media {
+    filter: blur(30px) grayscale(1);
+    cursor: pointer;
+    transition: filter 0.5s ease;
+}
+
+.spoiler-media.revealed {
+    filter: none;
+}
+
+.spoiler-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 5;
+    backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.spoiler-media.revealed+.spoiler-overlay {
+    display: none;
+}
+
+/* Spoiler Toggle in Preview */
+.btn-spoiler-toggle {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    transition: background 0.2s;
+}
+
+.btn-spoiler-toggle.active {
+    background: var(--primary-color);
+    color: #000;
 }
 
 /* Input Area */
@@ -970,16 +1073,25 @@ button,
 
 /* Message structure with avatars */
 .message {
-    margin-bottom: 1em;
-    padding: 0.5em;
-    border-left: 2px solid #333;
-    background: rgba(255, 255, 255, 0.02);
+    margin-bottom: 12px;
+    padding: 10px 16px;
+    border-left: 3px solid transparent;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 0 8px 8px 0;
     position: relative;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
     display: flex;
     align-items: flex-start;
+    transition: all 0.2s ease;
     animation: messageSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.message.other-msg {
+    border-left-color: var(--primary-color);
+}
+
+.message.my-msg {
+    border-left-color: #64b5f6;
+    background: rgba(100, 181, 246, 0.05);
 }
 
 @keyframes messageSlideIn {
@@ -1019,9 +1131,12 @@ button,
 }
 
 .message-header {
-    font-size: 10px;
-    color: #666;
-    margin-bottom: 0.2em;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .message-content {
@@ -1149,6 +1264,7 @@ button,
     text-align: center;
     background: linear-gradient(135deg, var(--primary-color), #fff);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
