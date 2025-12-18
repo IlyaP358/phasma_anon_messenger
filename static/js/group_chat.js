@@ -1360,13 +1360,28 @@ function createMessageElement(data, messageId) {
             const video = document.createElement("video");
             video.className = "video-player";
             video.controls = true;
-            video.preload = 'metadata';  // Load metadata to show thumbnail
+            video.muted = true;
+            video.setAttribute('playsinline', '');
+            video.preload = 'metadata';
 
-            // Add load handler to ensure video shows first frame
-            video.addEventListener('loadeddata', function () {
-                // Video is ready, first frame should be visible
-                console.log('[Video] Loaded:', videoMatch[2]);
-            });
+            // Client-side thumbnail generation using canvas
+            video.addEventListener('loadeddata', () => {
+                video.currentTime = 0.1;
+            }, { once: true });
+
+            video.addEventListener('seeked', () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    video.poster = canvas.toDataURL('image/jpeg', 0.7);
+                    console.log('[Video] Thumbnail generated for:', videoMatch[2]);
+                } catch (e) {
+                    console.warn('[Video] Failed to generate thumbnail:', e);
+                }
+            }, { once: true });
 
             video.src = videoMatch[2];
             videoDiv.appendChild(video);
@@ -2046,17 +2061,33 @@ function showFilesPreview(files, source = 'upload') {
         } else if (file.type.startsWith('video/')) {
             const video = document.createElement('video');
             video.controls = true;
-            video.preload = 'metadata';  // Load metadata to show thumbnail
+            video.muted = true;
+            video.setAttribute('playsinline', '');
+            video.preload = 'metadata';
             video.style.maxWidth = '100%';
             video.style.maxHeight = '200px';
+
+            // Generate thumbnail using canvas for preview
+            video.addEventListener('loadeddata', () => {
+                video.currentTime = 0.1;
+            }, { once: true });
+
+            video.addEventListener('seeked', () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    video.poster = canvas.toDataURL('image/jpeg', 0.7);
+                } catch (e) {
+                    console.warn('[Preview] Failed to generate thumbnail:', e);
+                }
+            }, { once: true });
 
             const reader = new FileReader();
             reader.onload = (e) => {
                 video.src = e.target.result;
-                // Seek to first frame to show thumbnail
-                video.addEventListener('loadedmetadata', function () {
-                    video.currentTime = 0.1;  // Seek to 0.1s to ensure frame loads
-                });
             };
             reader.readAsDataURL(file);
             item.appendChild(video);
