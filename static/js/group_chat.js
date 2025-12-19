@@ -565,15 +565,190 @@ function initMediaViewer() {
 let fmStream = null;
 let fmRecorder = null;
 let fmChunks = [];
+let fmPickedFiles = [];
+let fmSelectedIndices = new Set();
 
 function initFileManager() {
     const fmModal = document.getElementById('file-manager-modal');
-    const fmVideoPreview = document.getElementById('fm-video-preview');
     if (!fmModal) return;
+
+    const fmVideoPreview = document.getElementById('fm-video-preview');
+    const fmGalleryGrid = document.getElementById('fm-gallery-grid');
+    const fmEmptyGallery = document.getElementById('fm-empty-gallery');
+    const btnFmSend = document.getElementById('btn-fm-send');
+    const fmTitle = fmModal.querySelector('.fm-title');
+
+    // Tab switching
+    const tabs = fmModal.querySelectorAll('.fm-tab-btn');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const view = tab.dataset.view;
+            if (view === 'gallery' || view === 'files') {
+                switchFmView(view);
+            }
+        });
+    });
+
+    function switchFmView(view) {
+        fmModal.querySelectorAll('.fm-view').forEach(v => v.classList.remove('active'));
+        fmModal.querySelectorAll('.fm-tab-btn').forEach(t => t.classList.remove('active'));
+
+        const targetView = document.getElementById(`fm-${view}-view`);
+        const targetTab = fmModal.querySelector(`.fm-tab-btn[data-view="${view}"]`);
+
+        if (targetView) targetView.classList.add('active');
+        if (targetTab) targetTab.classList.add('active');
+
+        if (fmTitle) fmTitle.textContent = view.charAt(0).toUpperCase() + view.slice(1);
+
+        updateSendButton();
+    }
+
+    function updateSendButton() {
+        if (fmSelectedIndices.size > 0) {
+            btnFmSend.style.display = 'block';
+            btnFmSend.textContent = `Send ${fmSelectedIndices.size}`;
+        } else {
+            btnFmSend.style.display = 'none';
+        }
+    }
+
+    // Gallery Logic
+    const btnOpenGallery = document.getElementById('btn-fm-open-gallery');
+    const galleryInput = document.createElement('input');
+    galleryInput.type = 'file';
+    galleryInput.multiple = true;
+    galleryInput.accept = 'image/*,video/*';
+
+    if (btnOpenGallery) {
+        btnOpenGallery.addEventListener('click', () => galleryInput.click());
+    }
+
+    const btnCameraDirect = document.getElementById('btn-fm-camera-direct');
+    if (btnCameraDirect) {
+        btnCameraDirect.addEventListener('click', () => startFmCamera(true));
+    }
+
+    galleryInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length > 0) {
+            addFilesToGallery(files);
+        }
+    });
+
+    function addFilesToGallery(files) {
+        files.forEach(file => {
+            fmPickedFiles.push(file);
+            fmSelectedIndices.add(fmPickedFiles.length - 1);
+        });
+        renderGallery();
+        updateSendButton();
+    }
+
+    function renderGallery() {
+        if (!fmGalleryGrid) return;
+
+        fmGalleryGrid.innerHTML = `
+            <div class="fm-grid-item fm-camera-slot" id="btn-fm-camera-direct">
+              <span class="fm-icon">📷</span>
+              <span>Photo</span>
+            </div>
+            <div class="fm-grid-item fm-camera-slot" id="btn-fm-video-direct">
+              <span class="fm-icon">🎥</span>
+              <span>Video</span>
+            </div>
+        `;
+
+        // Re-attach camera listeners
+        const btnCameraDirect = document.getElementById('btn-fm-camera-direct');
+        if (btnCameraDirect) {
+            btnCameraDirect.addEventListener('click', () => startFmCamera(true));
+        }
+
+        const btnVideoDirect = document.getElementById('btn-fm-video-direct');
+        if (btnVideoDirect) {
+            btnVideoDirect.addEventListener('click', () => startFmCamera(false));
+        }
+
+        if (fmPickedFiles.length === 0) {
+            if (fmEmptyGallery) fmEmptyGallery.style.display = 'flex';
+        } else {
+            if (fmEmptyGallery) fmEmptyGallery.style.display = 'none';
+            fmPickedFiles.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'fm-grid-item';
+                if (fmSelectedIndices.has(index)) item.classList.add('selected');
+
+                const isVideo = file.type.startsWith('video/');
+                if (isVideo) {
+                    const video = document.createElement('video');
+                    video.src = URL.createObjectURL(file);
+                    video.muted = true;
+                    video.addEventListener('loadedmetadata', () => {
+                        video.currentTime = 0.1;
+                    });
+                    item.appendChild(video);
+
+                    const badge = document.createElement('div');
+                    badge.className = 'fm-video-badge';
+                    badge.innerHTML = '<span>▶</span>';
+                    item.appendChild(badge);
+                } else {
+                    const img = document.createElement('img');
+                    img.src = URL.createObjectURL(file);
+                    item.appendChild(img);
+                }
+
+                const circle = document.createElement('div');
+                circle.className = 'fm-selection-circle';
+                item.appendChild(circle);
+
+                item.addEventListener('click', () => {
+                    if (fmSelectedIndices.has(index)) {
+                        fmSelectedIndices.delete(index);
+                        item.classList.remove('selected');
+                    } else {
+                        fmSelectedIndices.add(index);
+                        item.classList.add('selected');
+                    }
+                    updateSendButton();
+                });
+
+                fmGalleryGrid.appendChild(item);
+            });
+        }
+    }
+
+    // Send logic
+    if (btnFmSend) {
+        btnFmSend.addEventListener('click', () => {
+            const selectedFilesList = Array.from(fmSelectedIndices).map(i => fmPickedFiles[i]);
+            if (selectedFilesList.length > 0) {
+                addFilesToSelection(selectedFilesList);
+                fmModal.classList.remove('active');
+                // Reset
+                fmPickedFiles = [];
+                fmSelectedIndices.clear();
+                renderGallery();
+            }
+        });
+    }
+
+    // System Files
+    const btnSystemDirect = document.getElementById('btn-fm-system-direct');
+    if (btnSystemDirect) {
+        btnSystemDirect.addEventListener('click', () => {
+            document.getElementById('file-input').click();
+            fmModal.classList.remove('active');
+        });
+    }
 
     const btnFm = document.getElementById('btn-file-manager');
     if (btnFm) {
-        btnFm.addEventListener('click', () => fmModal.classList.add('active'));
+        btnFm.addEventListener('click', () => {
+            fmModal.classList.add('active');
+            renderGallery();
+        });
     }
 
     const btnCloseFm = document.getElementById('btn-close-fm');
@@ -584,23 +759,6 @@ function initFileManager() {
         });
     }
 
-    const btnFmSystem = document.getElementById('btn-fm-system');
-    if (btnFmSystem) {
-        btnFmSystem.addEventListener('click', () => {
-            document.getElementById('file-input').click();
-            fmModal.classList.remove('active');
-        });
-    }
-
-    const btnFmCamera = document.getElementById('btn-fm-camera');
-    if (btnFmCamera) btnFmCamera.addEventListener('click', () => startFmCamera(true));
-
-    const btnFmVideo = document.getElementById('btn-fm-video');
-    if (btnFmVideo) btnFmVideo.addEventListener('click', () => startFmCamera(false));
-
-    const btnFmStop = document.getElementById('btn-fm-stop');
-    if (btnFmStop) btnFmStop.addEventListener('click', stopFmCamera);
-
     const btnFmCapture = document.getElementById('btn-fm-capture');
     if (btnFmCapture) {
         btnFmCapture.addEventListener('click', async () => {
@@ -609,7 +767,7 @@ function initFileManager() {
             if (isVideo) {
                 if (fmRecorder && fmRecorder.state === 'recording') {
                     fmRecorder.stop();
-                    btnFmCapture.textContent = '📸 Capture';
+                    btnFmCapture.classList.remove('recording');
                 } else {
                     fmChunks = [];
                     fmRecorder = new MediaRecorder(fmStream);
@@ -617,12 +775,12 @@ function initFileManager() {
                     fmRecorder.onstop = () => {
                         const blob = new Blob(fmChunks, { type: 'video/webm' });
                         const file = new File([blob], `video_${Date.now()}.webm`, { type: 'video/webm' });
-                        addFilesToSelection([file]);
+                        addFilesToGallery([file]);
                         stopFmCamera();
-                        fmModal.classList.remove('active');
+                        switchFmView('gallery');
                     };
                     fmRecorder.start();
-                    btnFmCapture.textContent = '⏹️ Stop Recording';
+                    btnFmCapture.classList.add('recording');
                 }
             } else {
                 const canvas = document.createElement('canvas');
@@ -631,13 +789,16 @@ function initFileManager() {
                 canvas.getContext('2d').drawImage(fmVideoPreview, 0, 0);
                 canvas.toBlob((blob) => {
                     const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                    addFilesToSelection([file]);
+                    addFilesToGallery([file]);
                     stopFmCamera();
-                    fmModal.classList.remove('active');
+                    switchFmView('gallery');
                 }, 'image/jpeg', 0.9);
             }
         });
     }
+
+    const btnFmStop = document.getElementById('btn-fm-stop');
+    if (btnFmStop) btnFmStop.addEventListener('click', stopFmCamera);
 
     async function startFmCamera(videoOnly = false) {
         try {
@@ -646,8 +807,7 @@ function initFileManager() {
                 audio: !videoOnly
             });
             fmVideoPreview.srcObject = fmStream;
-            document.getElementById('camera-container').style.display = 'block';
-            document.querySelector('.file-manager-options').style.display = 'none';
+            switchFmView('camera');
         } catch (err) {
             alert('Camera access denied or not available');
         }
@@ -658,8 +818,7 @@ function initFileManager() {
             fmStream.getTracks().forEach(track => track.stop());
             fmStream = null;
         }
-        document.getElementById('camera-container').style.display = 'none';
-        document.querySelector('.file-manager-options').style.display = 'grid';
+        switchFmView('gallery');
     }
 
     function addFilesToSelection(newFiles) {
@@ -1424,28 +1583,29 @@ function parseMessageData(data) {
     const username = userMatch[1];
     const rest = afterTime.substring(userMatch[0].length);
 
-    const urlsSplit = rest.split('|URLS:');
-    const content = urlsSplit[0];
+    // Robust Nonce and URL extraction
+    let content = rest;
     let urls = {};
     let nonce = null;
 
-    if (urlsSplit.length > 1) {
-        // Check for NONCE in the second part
-        const nonceSplit = urlsSplit[1].split('|NONCE:');
-        const jsonStr = nonceSplit[0];
+    // Nonce can be anywhere after content, usually at the end
+    const nonceMatch = content.match(/\|NONCE:([^\s|]+)/);
+    if (nonceMatch) {
+        nonce = nonceMatch[1];
+        content = content.replace(nonceMatch[0], '');
+    }
 
-        if (nonceSplit.length > 1) {
-            nonce = nonceSplit[1].trim();
-        }
-
+    const urlsMatch = content.match(/\|URLS:(\{.*\})/);
+    if (urlsMatch) {
         try {
-            urls = JSON.parse(jsonStr);
+            urls = JSON.parse(urlsMatch[1]);
+            content = content.replace(urlsMatch[0], '');
         } catch (e) {
-            urls = {};
+            console.warn('[Parse] Failed to parse URLs JSON:', e);
         }
     }
 
-    return { id: messageId, timestamp, username, content, urls, nonce };
+    return { id: messageId, timestamp, username, content: content.trim(), urls, nonce };
 }
 
 function createURLPreviewCard(url, preview) {
@@ -1530,8 +1690,8 @@ function createMessageElement(data, messageId) {
     const mainContent = document.createElement("div");
     mainContent.className = "message-content";
 
-    // Parse text spoilers [spoiler]text[spoiler]
-    const spoilerRegex = /\[spoiler\](.*?)\[spoiler\]/gi;
+    // Parse text spoilers: [spoiler]text[spoiler], [spoiler]text[], or ||text||
+    const spoilerRegex = /\[spoiler\]([\s\S]*?)(?:\[spoiler\]|\[\])|\|\|([\s\S]*?)\|\|/gi;
     let content = (parsed.content || "").trim();
 
     let mediaHandled = false;
@@ -1636,26 +1796,35 @@ function createMessageElement(data, messageId) {
                     video.className = "video-player";
                     if (isSpoiler) {
                         video.classList.add("spoiler-media");
-                        video.addEventListener('click', (e) => {
-                            if (!video.classList.contains('revealed')) {
-                                video.classList.add('revealed');
-                                e.preventDefault();
-                            } else {
-                                openMediaViewer(fileUrl, `Video from ${parsed.username}`, true);
-                            }
-                        });
+                        video.controls = false; // Disable controls until revealed
+
+                        // Ensure video is appended BEFORE overlay for CSS selector (+)
+                        videoDiv.appendChild(video);
 
                         const overlay = document.createElement("div");
                         overlay.className = "spoiler-overlay";
                         overlay.innerText = "SPOILER";
                         videoDiv.appendChild(overlay);
+
+                        // Attach listener to videoDiv (wrapper) because native controls can intercept clicks
+                        videoDiv.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            if (!video.classList.contains('revealed')) {
+                                video.classList.add('revealed');
+                                video.controls = true;
+                                e.preventDefault();
+                            } else {
+                                // If already revealed, open media viewer
+                                openMediaViewer(fileUrl, `Video from ${parsed.username}`, true);
+                            }
+                        });
                     } else {
                         video.addEventListener('click', (e) => {
                             openMediaViewer(fileUrl, `Video from ${parsed.username}`, true);
                             e.preventDefault();
                         });
+                        videoDiv.appendChild(video);
                     }
-                    video.controls = true;
                     video.muted = true;
                     video.setAttribute('playsinline', '');
                     video.preload = 'metadata';
@@ -1675,7 +1844,6 @@ function createMessageElement(data, messageId) {
                     }, { once: true });
 
                     video.src = fileUrl;
-                    videoDiv.appendChild(video);
                     mainContent.appendChild(videoDiv);
                 } else if (type === 'AUDIO') {
                     const audioDiv = document.createElement("div");
@@ -1716,8 +1884,9 @@ function createMessageElement(data, messageId) {
         } else {
             // Apply text spoilers
             const escaped = escapeHtml(content);
-            textDiv.innerHTML = escaped.replace(spoilerRegex, (match, p1) => {
-                return `<span class="spoiler">${p1}</span>`;
+            textDiv.innerHTML = escaped.replace(spoilerRegex, (match, p1, p2) => {
+                const text = p1 || p2;
+                return `<span class="spoiler">${text}</span>`;
             });
             // Attach event listeners to spoilers (CSP friendly)
             textDiv.querySelectorAll('.spoiler').forEach(s => {
