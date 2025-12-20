@@ -522,12 +522,17 @@ function setupChat() {
 }
 
 // ========== MEDIA VIEWER ==========
-function openMediaViewer(src, caption, isVideo = false) {
+function openMediaViewer(src, caption, isVideo = false, messageId = null, fileUrl = null) {
     const modal = document.getElementById('media-viewer-modal');
     const container = document.getElementById('viewer-container');
     const captionElem = document.getElementById('viewer-caption');
 
     if (!modal || !container || !captionElem) return;
+
+    // Store current media info for delete/download buttons
+    modal.dataset.messageId = messageId;
+    modal.dataset.fileUrl = fileUrl || src;
+    modal.dataset.isVideo = isVideo;
 
     container.innerHTML = '';
     if (isVideo) {
@@ -553,10 +558,45 @@ function openMediaViewer(src, caption, isVideo = false) {
 
 function initMediaViewer() {
     const closeBtn = document.getElementById('btn-close-viewer');
+    const downloadBtn = document.getElementById('btn-download-media');
+    const deleteBtn = document.getElementById('btn-delete-media-message');
+    const modal = document.getElementById('media-viewer-modal');
+
     if (closeBtn) {
         closeBtn.addEventListener('click', () => {
-            document.getElementById('media-viewer-modal').classList.remove('active');
+            modal.classList.remove('active');
             document.getElementById('viewer-container').innerHTML = '';
+            modal.dataset.messageId = null;
+            modal.dataset.fileUrl = null;
+        });
+    }
+
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', () => {
+            const fileUrl = modal.dataset.fileUrl;
+            if (fileUrl) {
+                const a = document.createElement('a');
+                a.href = fileUrl;
+                // Extract filename from URL
+                const urlParts = fileUrl.split('/');
+                const filename = urlParts[urlParts.length - 1] || 'download';
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+        });
+    }
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', () => {
+            const messageId = modal.dataset.messageId;
+            if (messageId) {
+                showDeleteConfirmModal(messageId);
+                modal.classList.remove('active');
+                document.getElementById('viewer-container').innerHTML = '';
+                modal.dataset.messageId = null;
+            }
         });
     }
 }
@@ -1535,6 +1575,12 @@ function executeDeleteMessage(messageId) {
                 messageIdToElementMap.delete(messageId);
             }
 
+            // Hide delete confirmation modal
+            const modal = document.getElementById('confirm-modal');
+            if (modal) {
+                modal.classList.remove('active');
+            }
+            
             showSuccess('✓ Message deleted');
         },
         error: function (xhr) {
@@ -1782,7 +1828,7 @@ function createMessageElement(data, messageId) {
                         imgContainer.appendChild(img);
                         imgContainer.appendChild(overlay);
                     } else {
-                        img.addEventListener('click', () => openMediaViewer(fileUrl, `Photo from ${parsed.username}`));
+                        img.addEventListener('click', () => openMediaViewer(fileUrl, `Photo from ${parsed.username}`, false, parsed.id, fileUrl));
                         imgContainer.appendChild(img);
                     }
                     img.src = fileUrl;
@@ -1815,12 +1861,12 @@ function createMessageElement(data, messageId) {
                                 e.preventDefault();
                             } else {
                                 // If already revealed, open media viewer
-                                openMediaViewer(fileUrl, `Video from ${parsed.username}`, true);
+                                openMediaViewer(fileUrl, `Video from ${parsed.username}`, true, parsed.id, fileUrl);
                             }
                         });
                     } else {
                         video.addEventListener('click', (e) => {
-                            openMediaViewer(fileUrl, `Video from ${parsed.username}`, true);
+                            openMediaViewer(fileUrl, `Video from ${parsed.username}`, true, parsed.id, fileUrl);
                             e.preventDefault();
                         });
                         videoDiv.appendChild(video);
