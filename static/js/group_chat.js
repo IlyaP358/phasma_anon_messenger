@@ -1882,19 +1882,52 @@ function createMessageElement(data, messageId) {
                 textDiv.style.display = 'none';
             }
         } else {
-            // Apply text spoilers
+            // Apply text spoilers - Safe approach with proper escaping
             const escaped = escapeHtml(content);
-            textDiv.innerHTML = escaped.replace(spoilerRegex, (match, p1, p2) => {
+            
+            // Build HTML carefully - first escape, then replace spoilers with safe placeholders
+            let html = escaped;
+            const spoilerMap = new Map();
+            let spoilerIndex = 0;
+            
+            // Replace all spoiler markers with placeholders
+            html = html.replace(spoilerRegex, (match, p1, p2) => {
                 const text = p1 || p2;
-                return `<span class="spoiler">${text}</span>`;
+                const placeholder = `<!--SPOILER_${spoilerIndex}-->`;
+                spoilerMap.set(spoilerIndex, text);
+                spoilerIndex++;
+                return placeholder;
             });
-            // Attach event listeners to spoilers (CSP friendly)
-            textDiv.querySelectorAll('.spoiler').forEach(s => {
-                s.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    s.classList.toggle('revealed');
-                });
-            });
+            
+            // Now safely set innerHTML with only placeholders
+            textDiv.innerHTML = html;
+            
+            // Replace placeholders with actual spoiler elements
+            const walker = document.createTreeWalker(
+                textDiv,
+                NodeFilter.SHOW_COMMENT,
+                null,
+                false
+            );
+            
+            let comment;
+            while (comment = walker.nextNode()) {
+                const match = comment.nodeValue.match(/^SPOILER_(\d+)$/);
+                if (match) {
+                    const idx = parseInt(match[1], 10);
+                    const spoilerText = spoilerMap.get(idx);
+                    
+                    const spoiler = document.createElement('span');
+                    spoiler.className = 'spoiler';
+                    spoiler.textContent = spoilerText;
+                    spoiler.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        spoiler.classList.toggle('revealed');
+                    });
+                    
+                    comment.parentNode.replaceChild(spoiler, comment);
+                }
+            }
         }
         mainContent.appendChild(textDiv);
 
@@ -2077,6 +2110,9 @@ function startSSE() {
                         const data = line.slice(6).trim();
                         if (!data || data === '{}' || data.startsWith('{"type": "ping"')) return;
 
+                        // Unescape newlines that were escaped during SSE transmission
+                        const unescapedData = data.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
+
                         if (data.startsWith('DELETE_MESSAGE:')) {
                             const messageId = parseInt(data.substring(15), 10);
                             console.log('[SSE] Message deleted:', messageId);
@@ -2148,7 +2184,7 @@ function startSSE() {
                             window.location.reload();
                             return;
                         }
-                        const parsed = parseMessageData(data);
+                        const parsed = parseMessageData(unescapedData);
                         if (!parsed) return; // Skip if parsing failed (e.g. ping)
 
                         const msgId = parsed.id;
@@ -2167,13 +2203,20 @@ function startSSE() {
                                 existing.classList.remove('sending');
                                 existing.style.opacity = '1';
                                 existing.setAttribute('data-message-id', msgId); // Ensure ID is correct
-                                existing.removeAttribute('data-nonce'); // Cleanup nonce
+                                // Keep nonce for fallback checking
                             }
+                            // Message already exists, skip adding it again
                             return;
                         }
 
-                        const msgElement = createMessageElement(data, msgId);
-                        messagesContainer.appendChild(msgElement);
+                        const msgElement = createMessageElement(unescapedData, msgId);
+                        if (msgElement) {
+                            // Add nonce as fallback identifier
+                            if (msgNonce) {
+                                msgElement.setAttribute('data-nonce', msgNonce);
+                            }
+                            messagesContainer.appendChild(msgElement);
+                        }
 
                         // Play notification sound if message is not from current user and window is not focused
                         if (parsed && parsed.username !== CURRENT_USER) {
@@ -2597,9 +2640,6 @@ document.getElementById('file-input').addEventListener('change', function () {
     }
 });
 // Removed static listener for preview-remove-btn since it's dynamic now
-document.getElementById('upload-btn').addEventListener('click', function () {
-    document.getElementById('file-input').click();
-});
 // ========== DRAG & DROP ==========
 const dragDropOverlay = document.getElementById('drag-drop-overlay');
 let isDraggingFile = false;

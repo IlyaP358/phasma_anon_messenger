@@ -3599,7 +3599,7 @@ def api_generate_dm_invite():
     # Reuse invite token logic but for DM
     # We'll prefix the token to distinguish it
     invite_token = secrets.token_urlsafe(16)
-    redis_client.setex(f"dm_invite:{invite_token}", INVITE_TTL, username)
+    r.setex(f"dm_invite:{invite_token}", INVITE_TTL, username)
     
     invite_url = f"{request.host_url}dm-invite/{invite_token}"
     
@@ -3637,6 +3637,72 @@ def api_generate_dm_invite():
         "expires_in": INVITE_TTL
     })
 
+@app.route('/api/dm/create', methods=['POST'])
+def api_dm_create():
+    """Create or get DM chat between two users"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.get_json()
+    opponent_username = data.get('opponent_username')
+    
+    if not opponent_username:
+        return jsonify({'error': 'opponent_username required'}), 400
+        
+    if username == opponent_username:
+        return jsonify({'error': 'Cannot DM yourself'}), 400
+        
+    target_user = User.query.filter_by(username=opponent_username).first()
+    if not target_user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Create DM Group
+    # Name convention: dm_user1_user2 (sorted)
+    participants = sorted([username, opponent_username])
+    group_name = f"dm_{participants[0]}_{participants[1]}"
+    
+    # Check if group exists
+    existing_group = Group.query.filter_by(name=group_name, is_dm=True).first()
+    
+    if existing_group:
+        # Ensure both participants are members
+        for p in participants:
+            is_member = GroupMember.query.filter_by(group_id=existing_group.id, username=p).first()
+            if not is_member:
+                new_member = GroupMember(group_id=existing_group.id, username=p, role='member')
+                db.session.add(new_member)
+        db.session.commit()
+        return jsonify({'success': True, 'group_id': existing_group.id})
+    else:
+        # Create new DM group
+        # No passwords for DMs
+        dummy_pass = argon2Hasher.hash(secrets.token_hex(16))
+        
+        new_group = Group(
+            name=group_name,
+            group_code=secrets.token_hex(4).upper(),
+            creator=participants[0],
+            password_hash=dummy_pass,
+            root_password_hash=dummy_pass,
+            max_members=2,
+            group_type='private',
+            is_dm=True
+        )
+        db.session.add(new_group)
+        db.session.flush()
+        
+        # Add members
+        mem1 = GroupMember(group_id=new_group.id, username=participants[0], role='member')
+        mem2 = GroupMember(group_id=new_group.id, username=participants[1], role='member')
+        db.session.add(mem1)
+        db.session.add(mem2)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'group_id': new_group.id})
+
 @app.route("/dm-invite/<token>", methods=["GET"])
 def join_via_dm_invite(token):
     """Handle joining via DM invite link"""
@@ -3646,7 +3712,7 @@ def join_via_dm_invite(token):
     if not my_username:
         return redirect(f"/login?next={request.url}")
         
-    opponent_username = redis_client.get(f"dm_invite:{token}")
+    opponent_username = r.get(f"dm_invite:{token}")
     if not opponent_username:
         return render_template("error.html", message="Invite link expired or invalid"), 404
         
@@ -4299,22 +4365,22 @@ def get_group_avatar(group_id):
     try:
         token = extract_token_from_request()
         if not verify_token(token):
-            return send_file('static/unknown_user_phasma_icon.png')
+            return send_file('static/default_group_icon.png')
 
         group = Group.query.get(group_id)
         if not group or not group.profile_pic:
-            return send_file('static/unknown_user_phasma_icon.png')
+            return send_file('static/default_group_icon.png')
 
         file_path = os.path.join(UPLOAD_FOLDER, group.profile_pic)
         if not os.path.exists(file_path):
-            return send_file('static/unknown_user_phasma_icon.png')
+            return send_file('static/default_group_icon.png')
 
         with open(file_path, 'rb') as f:
             encrypted_data = f.read()
         decrypted_data = data_fernet.decrypt(encrypted_data)
         return Response(decrypted_data, mimetype='image/jpeg')
     except:
-        return send_file('static/unknown_user_phasma_icon.png')
+        return send_file('static/default_group_icon.png')
 
 @app.route('/user/profile-pic/<username>')
 @limiter.limit("60 per minute")
@@ -4610,6 +4676,9 @@ def event_stream_group(group_id: int):
                     data = data.decode("utf-8")
                 except Exception:
                     data = str(data)
+            # CRITICAL: Escape newlines in SSE data to prevent SSE parsing breaking
+            # SSE uses \n\n as message delimiter, so newlines in content break the protocol
+            data = data.replace('\n', '\\n').replace('\r', '\\r')
             yield f"data: {data}\n\n"
         else:
             # Timeout -> Send ping
