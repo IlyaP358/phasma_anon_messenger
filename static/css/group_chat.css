@@ -355,9 +355,10 @@ button,
 }
 
 .spoiler-media {
-    filter: blur(30px) grayscale(1);
+    filter: blur(60px) brightness(0.3) saturate(0) contrast(0.5);
     cursor: pointer;
     transition: filter 0.5s ease;
+    background-color: #1a1a1a;
 }
 
 .spoiler-media.revealed {
