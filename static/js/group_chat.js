@@ -1580,7 +1580,7 @@ function executeDeleteMessage(messageId) {
             if (modal) {
                 modal.classList.remove('active');
             }
-            
+
             showSuccess('✓ Message deleted');
         },
         error: function (xhr) {
@@ -1816,20 +1816,50 @@ function createMessageElement(data, messageId) {
                     imgContainer.style.position = "relative";
                     imgContainer.style.display = "inline-block";
 
+                    // Loading container
+                    const loadingContainer = document.createElement("div");
+                    loadingContainer.className = "image-loading-container";
+
+                    // Spinner
+                    const spinner = document.createElement("div");
+                    spinner.className = "image-spinner";
+                    loadingContainer.appendChild(spinner);
+
                     const img = document.createElement("img");
-                    img.className = "msg-photo";
+                    img.className = "msg-photo loading"; // Start with opacity 0 via css if class exists, or handles by logic
+                    img.loading = "lazy";
+
+                    img.onload = () => {
+                        spinner.remove();
+                        loadingContainer.classList.remove("image-loading-container");
+                        // Reset styles that might interfere
+                        loadingContainer.style.minHeight = "auto";
+                        loadingContainer.style.background = "transparent";
+                        img.classList.remove("loading");
+                        img.classList.add("loaded");
+                    };
+
+                    img.onerror = () => {
+                        spinner.remove();
+                        loadingContainer.innerHTML = '<span style="color: #ff4b4b; font-size: 12px; padding: 10px; display:block;">⚠️ Failed to load image</span>';
+                    };
+
                     if (isSpoiler) {
                         img.classList.add("spoiler-media");
+                        // Click to reveal spoiler
                         img.addEventListener('click', () => img.classList.toggle('revealed'));
 
                         const overlay = document.createElement("div");
                         overlay.className = "spoiler-overlay";
                         overlay.innerText = "SPOILER";
-                        imgContainer.appendChild(img);
+
+                        loadingContainer.appendChild(img);
+                        imgContainer.appendChild(loadingContainer);
                         imgContainer.appendChild(overlay);
                     } else {
                         img.addEventListener('click', () => openMediaViewer(fileUrl, `Photo from ${parsed.username}`, false, parsed.id, fileUrl));
-                        imgContainer.appendChild(img);
+                        loadingContainer.appendChild(img);
+                        imgContainer.appendChild(loadingContainer);
                     }
                     img.src = fileUrl;
                     mainContent.appendChild(imgContainer);
@@ -1930,12 +1960,12 @@ function createMessageElement(data, messageId) {
         } else {
             // Apply text spoilers - Safe approach with proper escaping
             const escaped = escapeHtml(content);
-            
+
             // Build HTML carefully - first escape, then replace spoilers with safe placeholders
             let html = escaped;
             const spoilerMap = new Map();
             let spoilerIndex = 0;
-            
+
             // Replace all spoiler markers with placeholders
             html = html.replace(spoilerRegex, (match, p1, p2) => {
                 const text = p1 || p2;
@@ -1944,10 +1974,10 @@ function createMessageElement(data, messageId) {
                 spoilerIndex++;
                 return placeholder;
             });
-            
+
             // Now safely set innerHTML with only placeholders
             textDiv.innerHTML = html;
-            
+
             // Replace placeholders with actual spoiler elements
             const walker = document.createTreeWalker(
                 textDiv,
@@ -1955,14 +1985,14 @@ function createMessageElement(data, messageId) {
                 null,
                 false
             );
-            
+
             let comment;
             while (comment = walker.nextNode()) {
                 const match = comment.nodeValue.match(/^SPOILER_(\d+)$/);
                 if (match) {
                     const idx = parseInt(match[1], 10);
                     const spoilerText = spoilerMap.get(idx);
-                    
+
                     const spoiler = document.createElement('span');
                     spoiler.className = 'spoiler';
                     spoiler.textContent = spoilerText;
@@ -1970,7 +2000,7 @@ function createMessageElement(data, messageId) {
                         e.stopPropagation();
                         spoiler.classList.toggle('revealed');
                     });
-                    
+
                     comment.parentNode.replaceChild(spoiler, comment);
                 }
             }
