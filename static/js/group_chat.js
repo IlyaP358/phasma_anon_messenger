@@ -1023,6 +1023,7 @@ let fmRecorder = null;
 let fmChunks = [];
 let fmPickedFiles = [];
 let fmSelectedIndices = new Set();
+let fmCameraFacing = 'user'; // 'user' for front, 'environment' for back
 
 function initFileManager() {
     const fmModal = document.getElementById('file-manager-modal');
@@ -1256,10 +1257,13 @@ function initFileManager() {
     const btnFmStop = document.getElementById('btn-fm-stop');
     if (btnFmStop) btnFmStop.addEventListener('click', stopFmCamera);
 
+    const btnFmToggleCamera = document.getElementById('btn-fm-toggle-camera');
+    if (btnFmToggleCamera) btnFmToggleCamera.addEventListener('click', toggleFmCamera);
+
     async function startFmCamera(videoOnly = false) {
         try {
             fmStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user' },
+                video: { facingMode: fmCameraFacing },
                 audio: !videoOnly
             });
             fmVideoPreview.srcObject = fmStream;
@@ -1274,7 +1278,39 @@ function initFileManager() {
             fmStream.getTracks().forEach(track => track.stop());
             fmStream = null;
         }
+        // Reset camera facing to default when stopping
+        fmCameraFacing = 'user';
         switchFmView('gallery');
+    }
+
+    async function toggleFmCamera() {
+        // Check if it's a mobile device
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (!isMobile) {
+            // PC doesn't support camera switching
+            return;
+        }
+
+        if (!fmStream) return;
+
+        // Stop current stream
+        fmStream.getTracks().forEach(track => track.stop());
+        
+        // Toggle camera
+        fmCameraFacing = fmCameraFacing === 'user' ? 'environment' : 'user';
+
+        try {
+            fmStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: fmCameraFacing },
+                audio: fmStream.getAudioTracks().length > 0
+            });
+            fmVideoPreview.srcObject = fmStream;
+        } catch (err) {
+            // If camera switch fails, switch back
+            fmCameraFacing = fmCameraFacing === 'user' ? 'environment' : 'user';
+            alert('Camera switch failed. Device may not support back camera.');
+        }
     }
 
     function addFilesToSelection(newFiles) {

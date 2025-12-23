@@ -1740,6 +1740,28 @@ button,
     cursor: pointer;
     backdrop-filter: blur(10px);
 }
+
+.fm-toggle-camera-btn {
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 8px 15px;
+    border-radius: 20px;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    font-size: 18px;
+    transition: all 0.2s;
+}
+
+.fm-toggle-camera-btn:active {
+    transform: scale(0.95);
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.fm-toggle-camera-btn:hover {
+    background: rgba(0, 0, 0, 0.6);
+}
+
 /* Media Viewer Styles */
 .media-viewer-content {
     position: relative;
