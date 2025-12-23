@@ -395,6 +395,7 @@ let messageIdToElementMap = new Map();
 let pendingDeleteMessageId = null;
 let memberProfilePics = new Map(); // Stores username -> has_profile_pic (bool)
 let isSendingMessage = false;
+let loadingImages = new Map(); // Tracks loading images: {messageId: Set of image indices}
 
 console.log('[Init] Group chat page loaded. Group ID:', GROUP_ID);
 
@@ -416,6 +417,36 @@ function showError(message, duration = 5000) {
     setTimeout(() => {
         notification.classList.remove('active');
     }, duration);
+}
+
+// Track image loading for proper scroll behavior
+function registerImageLoad(messageId, img) {
+    if (!loadingImages.has(messageId)) {
+        loadingImages.set(messageId, new Set());
+    }
+    
+    const imageSet = loadingImages.get(messageId);
+    const imageIndex = imageSet.size;
+    imageSet.add(imageIndex);
+    
+    const onLoadOrError = () => {
+        imageSet.delete(imageIndex);
+        // If all images in this message are loaded
+        if (imageSet.size === 0) {
+            loadingImages.delete(messageId);
+            // Check if this is the newest message and we should scroll
+            const out = document.getElementById('out');
+            if (out && initialLoadDone) {
+                const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
+                if (isNearBottom) {
+                    scrollToBottom();
+                }
+            }
+        }
+    };
+    
+    img.addEventListener('load', onLoadOrError);
+    img.addEventListener('error', onLoadOrError);
 }
 
 function showSuccess(message, duration = 3000) {
@@ -522,6 +553,28 @@ function setupChat() {
 }
 
 // ========== MEDIA VIEWER ==========
+function calculateFitToViewZoom(width, height) {
+    if (width <= 0 || height <= 0) return 1;
+    
+    // Use actual viewport dimensions - much more reliable than trying to measure modal
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // Leave minimal margins for UI elements
+    // 50px for side margins, 70px for top/bottom (buttons + caption)
+    const effectiveWidth = viewportWidth - 50;
+    const effectiveHeight = viewportHeight - 70;
+    
+    // Calculate scale to fit while maintaining aspect ratio
+    const scaleX = effectiveWidth / width;
+    const scaleY = effectiveHeight / height;
+    const fitZoom = Math.min(scaleX, scaleY);
+    
+    // Return the calculated zoom, ensuring it's at least 0.1x
+    // Don't cap at 1x - allow upscaling for small images
+    return Math.max(0.1, fitZoom);
+}
+
 function openMediaViewer(src, caption, isVideo = false, messageId = null, fileUrl = null) {
     const modal = document.getElementById('media-viewer-modal');
     const container = document.getElementById('viewer-container');
@@ -533,22 +586,127 @@ function openMediaViewer(src, caption, isVideo = false, messageId = null, fileUr
     modal.dataset.messageId = messageId;
     modal.dataset.fileUrl = fileUrl || src;
     modal.dataset.isVideo = isVideo;
+    modal.dataset.zoom = '1';
+    modal.dataset.baseZoom = '1';
+    modal.dataset.panX = '0';
+    modal.dataset.panY = '0';
 
     container.innerHTML = '';
+    
     if (isVideo) {
         const video = document.createElement('video');
         video.src = src;
         video.controls = true;
         video.autoplay = true;
-        video.style.maxWidth = '100%';
-        video.style.maxHeight = '100%';
+        video.style.maxWidth = 'none';
+        video.style.maxHeight = 'none';
+        video.style.objectFit = 'contain';
+        video.style.display = 'block';
+        video.id = 'zoomable-video';
+        video.style.transformOrigin = 'center';
+        video.style.transition = 'transform 0.2s ease-out';
+        
+        // Helper function to apply zoom with proper timing
+        const applyVideoZoom = () => {
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            
+            if (videoWidth > 0 && videoHeight > 0) {
+                const fitZoom = calculateFitToViewZoom(videoWidth, videoHeight);
+                modal.dataset.zoom = fitZoom;
+                modal.dataset.baseZoom = fitZoom;
+                
+                // Apply initial scaling via CSS properties instead of transform
+                const viewportWidth = window.innerWidth - 50;
+                const viewportHeight = window.innerHeight - 70;
+                const scaledWidth = Math.min(videoWidth * fitZoom, viewportWidth);
+                const scaledHeight = Math.min(videoHeight * fitZoom, viewportHeight);
+                
+                video.style.width = scaledWidth + 'px';
+                video.style.height = scaledHeight + 'px';
+                video.style.transform = 'none'; // No transform for base zoom
+                
+                return true;
+            }
+            return false;
+        };
+        
+        // Try applying zoom after a small delay to allow metadata to load
+        const metadataTimeout = setTimeout(() => {
+            if (!applyVideoZoom()) {
+                // If still no metadata, try again after another delay
+                const retryTimeout = setTimeout(() => {
+                    applyVideoZoom();
+                }, 500);
+            }
+        }, 100);
+        
+        // Also listen for loadedmetadata event
+        const handleVideoMetadata = () => {
+            clearTimeout(metadataTimeout);
+            applyVideoZoom();
+        };
+        
+        video.addEventListener('loadedmetadata', handleVideoMetadata, { once: true });
+        
         container.appendChild(video);
     } else {
         const img = document.createElement('img');
         img.src = src;
-        img.style.maxWidth = '100%';
-        img.style.maxHeight = '100%';
+        img.style.maxWidth = 'none';
+        img.style.maxHeight = 'none';
         img.style.objectFit = 'contain';
+        img.style.cursor = 'grab';
+        img.style.transition = 'transform 0.2s ease-out';
+        img.id = 'zoomable-img';
+        img.style.transformOrigin = 'center';
+        
+        // Helper function to apply zoom with proper timing
+        const applyImageZoom = () => {
+            const imgWidth = img.naturalWidth;
+            const imgHeight = img.naturalHeight;
+            
+            if (imgWidth > 0 && imgHeight > 0) {
+                const fitZoom = calculateFitToViewZoom(imgWidth, imgHeight);
+                modal.dataset.zoom = fitZoom;
+                modal.dataset.baseZoom = fitZoom;
+                
+                // Apply initial scaling via CSS properties instead of transform
+                const viewportWidth = window.innerWidth - 50;
+                const viewportHeight = window.innerHeight - 70;
+                const scaledWidth = Math.min(imgWidth * fitZoom, viewportWidth);
+                const scaledHeight = Math.min(imgHeight * fitZoom, viewportHeight);
+                
+                img.style.width = scaledWidth + 'px';
+                img.style.height = scaledHeight + 'px';
+                img.style.transform = 'none'; // No transform for base zoom
+                
+                return true;
+            }
+            return false;
+        };
+        
+        // Apply zoom immediately if image is already cached
+        if (img.complete && img.naturalWidth > 0) {
+            applyImageZoom();
+        } else {
+            // Wait for image to load
+            const handleImageLoad = () => {
+                applyImageZoom();
+                img.removeEventListener('load', handleImageLoad);
+            };
+            
+            img.addEventListener('load', handleImageLoad);
+            
+            // Fallback timeout
+            const loadTimeout = setTimeout(() => {
+                applyImageZoom();
+                img.removeEventListener('load', handleImageLoad);
+            }, 1000);
+            
+            img.addEventListener('load', () => clearTimeout(loadTimeout));
+        }
+        
         container.appendChild(img);
     }
 
@@ -561,6 +719,7 @@ function initMediaViewer() {
     const downloadBtn = document.getElementById('btn-download-media');
     const deleteBtn = document.getElementById('btn-delete-media-message');
     const modal = document.getElementById('media-viewer-modal');
+    const container = document.getElementById('viewer-container');
 
     if (closeBtn) {
         closeBtn.addEventListener('click', () => {
@@ -568,6 +727,10 @@ function initMediaViewer() {
             document.getElementById('viewer-container').innerHTML = '';
             modal.dataset.messageId = null;
             modal.dataset.fileUrl = null;
+            modal.dataset.zoom = '1';
+            modal.dataset.baseZoom = '1';
+            modal.dataset.panX = '0';
+            modal.dataset.panY = '0';
         });
     }
 
@@ -596,6 +759,259 @@ function initMediaViewer() {
                 modal.classList.remove('active');
                 document.getElementById('viewer-container').innerHTML = '';
                 modal.dataset.messageId = null;
+                modal.dataset.zoom = '1';
+                modal.dataset.baseZoom = '1';
+                modal.dataset.panX = '0';
+                modal.dataset.panY = '0';
+            }
+        });
+    }
+
+    // Zoom functionality for images and videos
+    if (container) {
+        let panX = 0;
+        let panY = 0;
+        let isPanning = false;
+        let panStartX = 0;
+        let panStartY = 0;
+        let panStartImgX = 0;
+        let panStartImgY = 0;
+        
+        const getMediaElement = () => {
+            return container.querySelector('img') || container.querySelector('video');
+        };
+        
+        const updateMediaTransform = (zoom, panXVal, panYVal) => {
+            const media = getMediaElement();
+            if (!media) return;
+            
+            const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
+            
+            // Only use transform for user zoom (not base zoom)
+            if (Math.abs(zoom - baseZoom) < 0.01) {
+                // At base zoom level: no transform needed
+                media.style.transform = 'none';
+            } else {
+                // When user zooms beyond base: use transform for zoom delta
+                const zoomDelta = zoom / baseZoom;
+                media.style.transform = `scale(${zoomDelta}) translate(${panXVal}px, ${panYVal}px)`;
+            }
+        };
+        
+        const updateMediaZoom = (newZoom) => {
+            const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
+            newZoom = Math.max(baseZoom, Math.min(newZoom, 5)); // Clamp between baseZoom and 5
+            modal.dataset.zoom = newZoom;
+            
+            // Reset pan when changing zoom (to avoid confusion)
+            if (Math.abs(newZoom - baseZoom) < 0.01) {
+                panX = 0;
+                panY = 0;
+            }
+            
+            const media = getMediaElement();
+            if (media) {
+                media.style.cursor = newZoom > baseZoom ? 'grab' : 'default';
+                updateMediaTransform(newZoom, panX, panY);
+            }
+        };
+
+        const updateMediaPosition = (newPanX, newPanY) => {
+            const zoom = parseFloat(modal.dataset.zoom || 1);
+            const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
+            
+            if (zoom <= baseZoom) return; // Only pan when zoomed beyond base
+            
+            // Limit pan to reasonable boundaries
+            const maxPan = (zoom - baseZoom) * 100;
+            panX = Math.max(-maxPan, Math.min(maxPan, newPanX));
+            panY = Math.max(-maxPan, Math.min(maxPan, newPanY));
+            
+            const media = getMediaElement();
+            if (media) {
+                media.style.cursor = 'grabbing';
+                updateMediaTransform(zoom, panX, panY);
+            }
+        };
+
+        // Ctrl + Wheel zoom (Desktop)
+        container.addEventListener('wheel', (e) => {
+            const media = getMediaElement();
+            if (!media || modal.dataset.isVideo === 'true') return; // Don't zoom videos
+            
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                
+                let currentZoom = parseFloat(modal.dataset.zoom || 1);
+                const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
+                const zoomStep = 0.15;
+                
+                if (e.deltaY < 0) {
+                    currentZoom = Math.min(currentZoom + zoomStep, 5);
+                } else {
+                    // Allow zoom out to base zoom level, not below
+                    currentZoom = Math.max(currentZoom - zoomStep, baseZoom);
+                }
+                
+                updateMediaZoom(currentZoom);
+            }
+        }, { passive: false });
+
+        // Double-click to zoom images (not videos)
+        container.addEventListener('dblclick', (e) => {
+            const media = getMediaElement();
+            if (!media || modal.dataset.isVideo === 'true') return;
+            
+            let currentZoom = parseFloat(modal.dataset.zoom || 1);
+            const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
+            const targetZoom = currentZoom === baseZoom ? 2 : baseZoom;
+            
+            const startZoom = currentZoom;
+            const duration = 300;
+            const startTime = Date.now();
+            
+            const animateZoom = () => {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                const easeProgress = progress < 0.5 
+                    ? 2 * progress * progress 
+                    : -1 + (4 - 2 * progress) * progress;
+                
+                const newZoom = startZoom + (targetZoom - startZoom) * easeProgress;
+                updateMediaZoom(newZoom);
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animateZoom);
+                }
+            };
+            
+            animateZoom();
+        });
+
+        // Touch pinch zoom (Mobile, images only)
+        let lastDistance = 0;
+        
+        modal.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2 && modal.dataset.isVideo !== 'true') {
+                const touch1 = e.touches[0];
+                const touch2 = e.touches[1];
+                lastDistance = Math.hypot(
+                    touch2.clientX - touch1.clientX,
+                    touch2.clientY - touch1.clientY
+                );
+            }
+        });
+
+        modal.addEventListener('touchmove', (e) => {
+            if (e.touches.length !== 2 || modal.dataset.isVideo === 'true') return;
+            
+            const media = getMediaElement();
+            if (!media) return;
+            
+            e.preventDefault();
+            
+            const touch1 = e.touches[0];
+            const touch2 = e.touches[1];
+            const currentDistance = Math.hypot(
+                touch2.clientX - touch1.clientX,
+                touch2.clientY - touch1.clientY
+            );
+            
+            if (lastDistance > 0) {
+                let zoom = parseFloat(modal.dataset.zoom || 1);
+                const distanceDelta = currentDistance - lastDistance;
+                const zoomDelta = distanceDelta * 0.01;
+                zoom = Math.max(1, Math.min(zoom + zoomDelta, 5));
+                
+                updateMediaZoom(zoom);
+            }
+            
+            lastDistance = currentDistance;
+        }, { passive: false });
+
+        // Mouse drag for pan when zoomed (images only)
+        container.addEventListener('mousedown', (e) => {
+            const media = getMediaElement();
+            if (!media || modal.dataset.isVideo === 'true') return;
+            
+            const zoom = parseFloat(modal.dataset.zoom || 1);
+            const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
+            
+            if (zoom <= baseZoom) return;
+            
+            e.preventDefault();
+            isPanning = true;
+            panStartX = e.clientX;
+            panStartY = e.clientY;
+            panStartImgX = panX;
+            panStartImgY = panY;
+            
+            if (media) media.style.cursor = 'grabbing';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isPanning || !modal.classList.contains('active')) return;
+            
+            const media = getMediaElement();
+            if (!media || modal.dataset.isVideo === 'true') return;
+            
+            const deltaX = (e.clientX - panStartX) * 0.7;
+            const deltaY = (e.clientY - panStartY) * 0.7;
+            
+            updateMediaPosition(panStartImgX + deltaX, panStartImgY + deltaY);
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isPanning) {
+                isPanning = false;
+                const media = getMediaElement();
+                const zoom = parseFloat(modal.dataset.zoom || 1);
+                const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
+                
+                if (media && zoom > baseZoom && modal.dataset.isVideo !== 'true') {
+                    media.style.cursor = 'grab';
+                }
+            }
+        });
+
+        // Single touch drag for mobile pan
+        let touchPanStartX = 0;
+        let touchPanStartY = 0;
+        
+        modal.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1 && modal.dataset.isVideo !== 'true') {
+                const media = getMediaElement();
+                const zoom = parseFloat(modal.dataset.zoom || 1);
+                const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
+                
+                if (zoom > baseZoom && media) {
+                    touchPanStartX = e.touches[0].clientX;
+                    touchPanStartY = e.touches[0].clientY;
+                    isPanning = true;
+                    panStartImgX = panX;
+                    panStartImgY = panY;
+                }
+            }
+        });
+        
+        modal.addEventListener('touchmove', (e) => {
+            if (!isPanning || e.touches.length !== 1 || modal.dataset.isVideo === 'true') return;
+            
+            const media = getMediaElement();
+            if (!media) return;
+            
+            e.preventDefault();
+            
+            const deltaX = (e.touches[0].clientX - touchPanStartX) * 0.7;
+            const deltaY = (e.touches[0].clientY - touchPanStartY) * 0.7;
+            
+            updateMediaPosition(panStartImgX + deltaX, panStartImgY + deltaY);
+        }, { passive: false });
+        
+        modal.addEventListener('touchend', (e) => {
+            if (e.touches.length === 0) {
+                isPanning = false;
             }
         });
     }
@@ -1717,6 +2133,9 @@ function createMessageElement(data, messageId) {
     const hasPic = memberProfilePics.get(parsed.username);
     if (hasPic) {
         avatarImg.src = `/user/profile-pic/${parsed.username}`;
+        avatarImg.onerror = function() {
+            this.src = '/static/unknown_user_phasma_icon.png';
+        };
     } else {
         avatarImg.src = "/static/unknown_user_phasma_icon.png";
     }
@@ -1826,13 +2245,12 @@ function createMessageElement(data, messageId) {
                     loadingContainer.appendChild(spinner);
 
                     const img = document.createElement("img");
-                    img.className = "msg-photo loading"; // Start with opacity 0 via css if class exists, or handles by logic
+                    img.className = "msg-photo loading";
                     img.loading = "lazy";
 
                     img.onload = () => {
                         spinner.remove();
                         loadingContainer.classList.remove("image-loading-container");
-                        // Reset styles that might interfere
                         loadingContainer.style.minHeight = "auto";
                         loadingContainer.style.background = "transparent";
                         img.classList.remove("loading");
@@ -1841,7 +2259,7 @@ function createMessageElement(data, messageId) {
 
                     img.onerror = () => {
                         spinner.remove();
-                        loadingContainer.innerHTML = '<span style="color: #ff4b4b; font-size: 12px; padding: 10px; display:block;">⚠️ Failed to load image</span>';
+                        loadingContainer.innerHTML = '<span style="color: #ff4b4b; font-size: 12px; padding: 10px; display:block; text-align: center;">⚠️ Failed to load image</span>';
                     };
 
                     if (isSpoiler) {
@@ -1861,6 +2279,8 @@ function createMessageElement(data, messageId) {
                         loadingContainer.appendChild(img);
                         imgContainer.appendChild(loadingContainer);
                     }
+                    // Register image loading for scroll tracking
+                    registerImageLoad(messageId, img);
                     img.src = fileUrl;
                     mainContent.appendChild(imgContainer);
                 } else if (type === 'VIDEO') {
@@ -2139,6 +2559,16 @@ function loadHistory() {
                         sseStarted = true;
                         startSSE();
                     }
+                    // Wait for all images to load before final scroll
+                    // Check every 50ms if images are still loading
+                    const checkImagesLoaded = setInterval(() => {
+                        if (loadingImages.size === 0) {
+                            clearInterval(checkImagesLoaded);
+                            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                        }
+                    }, 50);
+                    // Timeout after 5 seconds to prevent infinite waiting
+                    setTimeout(() => clearInterval(checkImagesLoaded), 5000);
                 });
             }
         })
@@ -2304,11 +2734,15 @@ function startSSE() {
                             }
                         }
 
-                        const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
-                        if (isNearBottom) {
-                            requestAnimationFrame(() => {
-                                out.scrollTop = out.scrollHeight;
-                            });
+                        // Always scroll to bottom if message is from current user
+                        // Otherwise scroll only if user is already near bottom (to prevent interrupting reading old messages)
+                        if (parsed && parsed.username === CURRENT_USER) {
+                            scrollToBottom();
+                        } else {
+                            const isNearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 150;
+                            if (isNearBottom) {
+                                scrollToBottom();
+                            }
                         }
                     }
                 });
@@ -2322,7 +2756,9 @@ function startSSE() {
 // ========== SENDING MESSAGES & FILES ==========
 function scrollToBottom() {
     const out = document.getElementById('out');
-    out.scrollTop = out.scrollHeight;
+    requestAnimationFrame(() => {
+        out.scrollTop = out.scrollHeight;
+    });
 }
 
 function sendMessageOrFile() {

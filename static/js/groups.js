@@ -252,11 +252,11 @@ function renderGroups(groups) {
         // Avatar for groups
         let avatarHtml = '';
         if (isDM && group.opponent_username) {
-            avatarHtml = `<img src="/user/profile-pic/${group.opponent_username}" alt="Avatar" class="dm-avatar header-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
+            avatarHtml = `<img src="/user/profile-pic/${group.opponent_username}" alt="Avatar" class="dm-avatar header-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;" onerror="this.style.display='none'">`;
         } else if (isDM) {
             avatarHtml = `<img src="/static/unknown_user_phasma_icon.png" alt="Avatar" class="dm-avatar header-avatar" style="width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; object-fit: cover;">`;
         } else { // Group avatar
-            avatarHtml = `<img src="/group/avatar/${group.id}" alt="Group Avatar" class="header-avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;">`;
+            avatarHtml = `<img src="/group/avatar/${group.id}" alt="Group Avatar" class="header-avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 8px; object-fit: cover; flex-shrink: 0;" onerror="this.style.display='none'">`;
         }
 
         // Settings gear icon for creators (top-right corner)
@@ -398,6 +398,11 @@ document.getElementById('menu-delete').addEventListener('click', () => {
 // Profile Settings Logic
 const profilePicInput = document.getElementById('profile-pic-input');
 const profilePicPreview = document.getElementById('profile-pic-preview');
+if (profilePicPreview) {
+    profilePicPreview.onerror = function() {
+        this.src = '/static/unknown_user_phasma_icon.png';
+    };
+}
 const profileError = document.getElementById('profile-error');
 
 document.getElementById('menu-profile-settings').addEventListener('click', () => {
@@ -1004,7 +1009,7 @@ if (userSearchInput) {
                             html += `
                             <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; border-bottom: 1px solid #333;">
                                 <div style="display: flex; align-items: center;">
-                                    <img src="/user/profile-pic/${u.username}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; object-fit: cover;">
+                                    <img src="/user/profile-pic/${u.username}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; object-fit: cover;" onerror="this.style.display='none'">
                                     <span>${escapeHtml(u.username)}</span>
                                 </div>
                                 <button class="btn btn-primary btn-send-dm" data-username="${escapeHtml(u.username)}" style="font-size: 11px; padding: 4px 8px;">Send Request</button>

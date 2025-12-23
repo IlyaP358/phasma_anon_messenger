@@ -2190,7 +2190,7 @@ def add_security_headers(response):
                     f"default-src 'self'; "
                     f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
                     f"style-src 'self' 'unsafe-inline'; "
-                    f"img-src 'self' data: https:; "
+                    f"img-src 'self' data: blob: https:; "
                     f"media-src 'self'; "
                     f"connect-src 'self';"
                 )
@@ -2199,7 +2199,7 @@ def add_security_headers(response):
                     "default-src 'self'; "
                     "script-src 'self' https://cdn.jsdelivr.net; "
                     "style-src 'self' 'unsafe-inline'; "
-                    "img-src 'self' data:; "
+                    "img-src 'self' data: blob:; "
                     "media-src 'self'; "
                     "connect-src 'self';"
                 )
@@ -4119,7 +4119,7 @@ def group_chat(group_id: int):
         f"default-src 'self'; "
         f"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; "
         f"style-src 'self' 'unsafe-inline'; "
-        f"img-src 'self' data: https:; "
+        f"img-src 'self' data: blob: https:; "
         f"media-src 'self'; "
         f"connect-src 'self';"
     )
@@ -5279,7 +5279,7 @@ def get_file(file_token: str):
         
         # Security headers
         if category == 'photo':
-            response.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self'"
+            response.headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self' blob:"
         else:
             response.headers['Content-Security-Policy'] = "default-src 'none'"
         
