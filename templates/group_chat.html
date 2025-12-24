@@ -200,6 +200,8 @@
             </div>
           </div>
         </div>
+        <button id="btn-call-user" class="input-button" style="margin-right: 5px; display: none;"
+          title="Start Call">📞</button>
         <button id="btn-toggle-members" class="input-button">👥</button>
       </div>
 
@@ -279,6 +281,7 @@
     const GROUP_NAME = {{ group_name| tojson }};
     const GROUP_TYPE = {{ group_type| tojson }};
     const IS_DM = {{ is_dm| tojson }};
+    const OPPONENT_USERNAME = {{ opponent_username| tojson }};
   </script>
   <div id="file-manager-modal" class="modal-overlay fm-modern-style">
     <div class="modal-dialog">
@@ -354,6 +357,38 @@
       </div>
       <div id="viewer-caption"
         style="position: absolute; bottom: 20px; left: 0; width: 100%; text-align: center; color: white; background: rgba(0,0,0,0.5); padding: 10px;">
+      </div>
+    </div>
+  </div>
+
+  <div id="call-overlay" class="call-overlay" style="display: none;">
+    <div class="call-video-container">
+      <video id="remote-video" autoplay playsinline></video>
+      <video id="local-video" autoplay playsinline muted></video>
+
+      <div class="call-status" id="call-status">Connecting...</div>
+
+      <div class="call-controls">
+        <button id="btn-toggle-mic" class="call-btn" title="Toggle Mic">🎤</button>
+        <button id="btn-toggle-cam" class="call-btn" title="Toggle Camera">📷</button>
+        <button id="btn-end-call" class="call-btn call-btn-end" title="End Call">📞</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="incoming-call-modal" class="modal-overlay">
+    <div class="modal-dialog" style="text-align: center;">
+      <div class="modal-title">Incoming Call</div>
+      <div class="modal-message">
+        <div style="font-size: 40px; margin-bottom: 10px;">📞</div>
+        <div id="caller-name" style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">User</div>
+        <div>is calling you...</div>
+      </div>
+      <div class="modal-buttons" style="justify-content: center; gap: 20px;">
+        <button class="modal-btn modal-btn-cancel" id="btn-decline-call"
+          style="background: #ff4444; color: white; width: 100px;">Decline</button>
+        <button class="modal-btn modal-btn-confirm" id="btn-accept-call"
+          style="background: #00C851; color: white; width: 100px;">Accept</button>
       </div>
     </div>
   </div>

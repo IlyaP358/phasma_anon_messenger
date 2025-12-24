@@ -528,6 +528,22 @@ class DMRequest(db.Model):
     )
 
 # ===============================================================
+# ---- Signaling Model (WebRTC) ----
+# ===============================================================
+class Signal(db.Model):
+    """Temporary storage for WebRTC signaling data"""
+    id = db.Column(db.Integer, primary_key=True)
+    sender = db.Column(db.String(100), nullable=False)
+    receiver = db.Column(db.String(100), nullable=False, index=True)
+    signal_type = db.Column(db.String(20), nullable=False) # offer, answer, candidate
+    payload = db.Column(db.Text, nullable=False) # JSON data
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        db.Index('ix_signal_receiver', 'receiver'),
+    )
+
+# ===============================================================
 # ---- Master key management ----
 # ===============================================================
 def load_master_fernet():
@@ -571,17 +587,6 @@ def generate_vapid_keys():
     if not os.environ.get("VAPID_PRIVATE_KEY") or not os.environ.get("VAPID_PUBLIC_KEY"):
         print("[INFO] VAPID keys not found. Generating new keys...")
         try:
-            # Generate keys using pywebpush (if available via CLI or library)
-            # Since we import webpush, we might not have a direct keygen function exposed easily without CLI
-            # But we can use cryptography or similar if needed. 
-            # However, for simplicity in this environment, let's try to use a helper or just warn.
-            # Actually, pywebpush doesn't have a simple python API for keygen in older versions?
-            # Let's try to use the library if possible, or just use a placeholder/warn user to run CLI.
-            # BETTER: Let's use a simple EC key generation if possible or rely on user.
-            # For this agentic context, I will generate them using a small helper if I can, 
-            # but usually `vapid-keygen` CLI is used.
-            # Let's try to run the CLI command and capture output?
-            import subprocess
             try:
                 # Try running vapid-keygen
                 output = subprocess.check_output(["vapid-keygen"], stderr=subprocess.STDOUT).decode()
@@ -5713,6 +5718,75 @@ def respond_dm_request():
             
     db.session.commit()
     return jsonify({'success': True})
+
+# ===============================================================
+# ---- WebRTC Signaling API ----
+# ===============================================================
+@app.route('/api/signal', methods=['POST'])
+def send_signal():
+    """Received a signal from a client and stores it for the recipient"""
+    token = extract_token_from_request()
+    sender = verify_token(token)
+    
+    if not sender:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.json
+    receiver = data.get('receiver')
+    signal_type = data.get('type')
+    payload = data.get('payload') # This is the WebRTC data (SDP or Candidate)
+
+    if not all([receiver, signal_type, payload]):
+        return jsonify({'error': 'Missing data'}), 400
+    
+    try:
+        signal = Signal(
+            sender=sender,
+            receiver=receiver,
+            signal_type=signal_type,
+            payload=json.dumps(payload)
+        )
+        db.session.add(signal)
+        db.session.commit()
+        
+        return jsonify({'status': 'ok'}), 200
+    except Exception as e:
+        print(f"[ERROR] Failed to save signal: {e}")
+        return jsonify({'error': 'Signal failed'}), 500
+
+@app.route('/api/signals', methods=['GET'])
+def get_signals():
+    """Retrieve pending signals for the current user and DELETE them"""
+    token = extract_token_from_request()
+    username = verify_token(token)
+    
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        # Fetch signals
+        signals_query = Signal.query.filter_by(receiver=username).all()
+        
+        results = []
+        for s in signals_query:
+            results.append({
+                'sender': s.sender,
+                'type': s.signal_type,
+                'payload': json.loads(s.payload),
+                'timestamp': s.created_at.timestamp()
+            })
+            # Delete immediately!
+            db.session.delete(s)
+            
+        if results:
+            db.session.commit()
+            
+        return jsonify({'signals': results}), 200
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to retrieve signals: {e}")
+        db.session.rollback()
+        return jsonify({'error': 'Fetch failed'}), 500
 
 if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")

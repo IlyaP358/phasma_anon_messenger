@@ -798,7 +798,122 @@ button,
 .emoji-grid {
     display: grid;
     grid-template-columns: repeat(8, 1fr);
+    grid-auto-rows: 40px;
     gap: 4px;
+}
+
+/* Call Overlay */
+.call-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    z-index: 3000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.call-video-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#remote-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+#local-video {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    width: 180px;
+    height: 240px;
+    background: #333;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+}
+
+@media (max-width: 600px) {
+    #local-video {
+        width: 100px;
+        height: 133px;
+        bottom: 80px;
+        right: 10px;
+    }
+}
+
+.call-status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 24px;
+    font-weight: bold;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    z-index: 5;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 10px 20px;
+    border-radius: 20px;
+    display: none;
+    /* Controlled by JS */
+}
+
+.call-controls {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 15px 30px;
+    border-radius: 40px;
+    backdrop-filter: blur(10px);
+}
+
+.call-btn {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.call-btn:hover {
+    background: rgba(255, 255, 255, 0.4);
+    transform: scale(1.1);
+}
+
+.call-btn-end {
+    background: #ff4444;
+}
+
+.call-btn-end:hover {
+    background: #ff0000;
 }
 
 .emoji-item {

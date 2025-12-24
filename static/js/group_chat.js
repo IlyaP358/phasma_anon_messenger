@@ -378,9 +378,525 @@ function insertEmoji(emojiChar) {
     emojiModal.classList.remove('active');
 }
 
-// Initialize
+// ========== CALL MANAGER (WebRTC) ==========
+class CallManager {
+    constructor() {
+        console.log('[Call] Initializing CallManager');
+        
+        this.peerConnection = null;
+        this.localStream = null;
+        this.remoteStream = null;
+        this.isCaller = false;
+        this.peerUsername = null;
+        this.signalingInterval = null;
+        this.isCallActive = false;
+        this.pendingOffer = null;
+
+        // STUN servers
+        this.iceServers = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' }
+            ]
+        };
+
+        this.initUI();
+        this.startSignalingLoop();
+        
+        console.log('[Call] CallManager initialized');
+    }
+
+    initUI() {
+        console.log('[Call] initUI: IS_DM =', IS_DM, ', GROUP_NAME =', GROUP_NAME);
+        
+        this.btnCall = document.getElementById('btn-call-user');
+        this.overlay = document.getElementById('call-overlay');
+        this.localVideo = document.getElementById('local-video');
+        this.remoteVideo = document.getElementById('remote-video');
+        this.statusText = document.getElementById('call-status');
+
+        // Incoming call modal
+        this.incomingModal = document.getElementById('incoming-call-modal');
+        this.btnAccept = document.getElementById('btn-accept-call');
+        this.btnDecline = document.getElementById('btn-decline-call');
+        this.callerNameDisplay = document.getElementById('caller-name');
+
+        // Controls
+        this.btnEnd = document.getElementById('btn-end-call');
+        this.btnMic = document.getElementById('btn-toggle-mic');
+        this.btnCam = document.getElementById('btn-toggle-cam');
+
+        // Handlers
+        if (this.btnCall) {
+            console.log('[Call] btnCall found, IS_DM =', IS_DM);
+            if (IS_DM) {
+                console.log('[Call] IS_DM is true, showing call button');
+                this.btnCall.style.display = 'block';
+                this.btnCall.onclick = () => this.startCall();
+            } else {
+                console.log('[Call] IS_DM is false, hiding call button');
+                this.btnCall.style.display = 'none';
+            }
+        } else {
+            console.log('[Call] btnCall NOT FOUND in DOM');
+        }
+
+        this.btnEnd.onclick = () => this.endCall();
+
+        this.btnMic.onclick = () => {
+            if (this.localStream) {
+                const track = this.localStream.getAudioTracks()[0];
+                track.enabled = !track.enabled;
+                this.btnMic.textContent = track.enabled ? '🎤' : '🔇';
+                this.btnMic.style.background = track.enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.5)';
+            }
+        };
+
+        this.btnCam.onclick = () => {
+            if (this.localStream) {
+                const track = this.localStream.getVideoTracks()[0];
+                track.enabled = !track.enabled;
+                this.btnCam.textContent = track.enabled ? '📷' : '🚫';
+                this.btnCam.style.background = track.enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.5)';
+            }
+        };
+
+        this.btnAccept.onclick = () => this.acceptCall();
+        this.btnDecline.onclick = () => {
+            this.incomingModal.classList.remove('active');
+            document.getElementById('notification-sound').pause();
+            document.getElementById('notification-sound').currentTime = 0;
+        };
+    }
+
+    async getMedia() {
+        console.log('[Call] Requesting media access...');
+        
+        // If we already have a local stream, reuse it
+        if (this.localStream) {
+            console.log('[Call] Using existing local stream');
+            return true;
+        }
+        
+        try {
+            // First try with ideal constraints (better quality)
+            try {
+                console.log('[Call] Attempting with optimal constraints...');
+                this.localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        facingMode: 'user'
+                    }
+                });
+                console.log('[Call] Media access granted with optimal constraints');
+            } catch (e1) {
+                console.warn('[Call] Optimal constraints failed, falling back to basic:', e1.name);
+                
+                // Fallback to basic constraints (lower requirements)
+                this.localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: true
+                });
+                console.log('[Call] Media access granted with basic constraints');
+            }
+            
+            if (this.localStream) {
+                this.localVideo.srcObject = this.localStream;
+                return true;
+            }
+            
+            return false;
+        } catch (e) {
+            console.error('[Call] Error accessing media:', e.name, '-', e.message);
+            
+            // Provide more specific error messages based on error type
+            let errorMsg = '❌ Could not access camera/microphone.';
+            if (e.name === 'NotAllowedError') {
+                errorMsg += ' Permission denied. Please check browser settings.';
+            } else if (e.name === 'NotFoundError') {
+                errorMsg += ' No camera/microphone found on this device.';
+            } else if (e.name === 'NotReadableError') {
+                errorMsg += ' Device is busy. Close other apps using camera/microphone.';
+            } else if (e.name === 'OverconstrainedError') {
+                errorMsg += ' Device does not meet quality requirements.';
+            } else if (e.name === 'TypeError') {
+                errorMsg += ' Invalid media request.';
+            } else {
+                errorMsg += ' Please allow permissions and try again.';
+            }
+            
+            showError(errorMsg);
+            return false;
+        }
+    }
+
+    createPeerConnection() {
+        console.log('[Call] Creating peer connection');
+        
+        this.peerConnection = new RTCPeerConnection(this.iceServers);
+
+        this.peerConnection.onicecandidate = (event) => {
+            console.log('[Call] ICE candidate generated', event.candidate);
+            if (event.candidate) {
+                this.sendSignal('candidate', event.candidate);
+            }
+        };
+
+        this.peerConnection.ontrack = (event) => {
+            console.log('[Call] Received remote track:', event.track.kind);
+            this.remoteVideo.srcObject = event.streams[0];
+            this.remoteStream = event.streams[0];
+            this.statusText.style.display = 'none';
+        };
+
+        this.peerConnection.onconnectionstatechange = () => {
+            const state = this.peerConnection.connectionState;
+            console.log('[Call] Connection state changed:', state);
+            
+            if (state === 'disconnected' ||
+                state === 'failed' ||
+                state === 'closed') {
+                console.log('[Call] Connection ended, closing call');
+                this.endCall(false); // Don't send signal loop, just close UI
+            } else if (state === 'connected') {
+                console.log('[Call] Connection established successfully!');
+            }
+        };
+
+        this.peerConnection.onicegatheringstatechange = () => {
+            console.log('[Call] ICE gathering state:', this.peerConnection.iceGatheringState);
+        };
+
+        this.peerConnection.onsignalingstatechange = () => {
+            console.log('[Call] Signaling state:', this.peerConnection.signalingState);
+        };
+
+        // Add local tracks
+        if (this.localStream) {
+            console.log('[Call] Adding local tracks to peer connection');
+            this.localStream.getTracks().forEach(track => {
+                console.log('[Call] Adding track:', track.kind);
+                this.peerConnection.addTrack(track, this.localStream);
+            });
+        } else {
+            console.warn('[Call] No local stream to add');
+        }
+    }
+
+    async startCall() {
+        console.log('[Call] startCall() called, IS_DM =', IS_DM);
+        
+        if (!IS_DM) {
+            console.error('[Call] Call only works in DM, but IS_DM =', IS_DM);
+            showError('❌ Calls only available in Direct Messages');
+            return;
+        }
+
+        // Use opponent_username directly from template
+        this.peerUsername = OPPONENT_USERNAME;
+        
+        if (!this.peerUsername) {
+            console.error('[Call] No opponent_username available');
+            showError('❌ Cannot determine peer');
+            return;
+        }
+
+        console.log(`[Call] Starting call with ${this.peerUsername}`);
+
+        this.isCaller = true;
+        this.isCallActive = true;
+        this.overlay.style.display = 'flex';
+        this.statusText.textContent = 'Calling ' + this.peerUsername + '...';
+        this.statusText.style.display = 'block';
+
+        // Get media access with detailed logging
+        console.log('[Call] Getting media for outgoing call...');
+        const mediaOk = await this.getMedia();
+        
+        if (!mediaOk) {
+            console.error('[Call] Failed to get media access for outgoing call');
+            this.endCall();
+            return;
+        }
+
+        console.log('[Call] Media obtained, creating peer connection...');
+        
+        try {
+            this.createPeerConnection();
+            
+            console.log('[Call] Creating offer...');
+            const offer = await this.peerConnection.createOffer();
+            
+            console.log('[Call] Setting local description...');
+            await this.peerConnection.setLocalDescription(offer);
+            
+            console.log('[Call] Sending offer signal...');
+            this.sendSignal('offer', offer);
+            
+            console.log('[Call] Call initiated successfully!');
+        } catch (e) {
+            console.error('[Call] Error creating offer:', e.name, '-', e.message);
+            showError('❌ Failed to create call offer: ' + e.message);
+            this.endCall();
+        }
+    }
+
+    async handleSignal(signal) {
+        console.log(`[Call] Received signal type: ${signal.type} from ${signal.sender}`, signal);
+
+        if (signal.type === 'offer') {
+            // Incoming call
+            console.log('[Call] Incoming call from', signal.sender);
+            
+            if (this.isCallActive) {
+                console.warn('[Call] Already in call, rejecting incoming');
+                return; // Busy
+            }
+
+            this.peerUsername = signal.sender;
+            this.callerNameDisplay.textContent = this.peerUsername;
+            this.incomingModal.classList.add('active');
+
+            // Play sound
+            const sound = document.getElementById('notification-sound');
+            if (sound) {
+                sound.play().catch(e => console.log('[Call] Autoplay blocked', e));
+            }
+
+            // Store offer to handle later
+            this.pendingOffer = signal.payload;
+            console.log('[Call] Offer stored, waiting for user to accept');
+
+        } else if (signal.type === 'answer') {
+            console.log('[Call] Received answer');
+            
+            if (!this.isCallActive || !this.isCaller) {
+                console.warn('[Call] Not expecting answer (not in call or not caller)');
+                return;
+            }
+
+            if (!this.peerConnection) {
+                console.error('[Call] No peer connection for answer');
+                return;
+            }
+
+            try {
+                const answerSD = new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: signal.payload.sdp || signal.payload
+                });
+                await this.peerConnection.setRemoteDescription(answerSD);
+                console.log('[Call] Answer set successfully');
+            } catch (e) {
+                console.error('[Call] Error setting answer:', e);
+            }
+
+        } else if (signal.type === 'candidate') {
+            console.log('[Call] Received ICE candidate');
+            
+            if (this.isCallActive && this.peerConnection) {
+                try {
+                    // Candidate might be a plain object or IceCandidate
+                    const candidateData = signal.payload;
+                    const candidate = new RTCIceCandidate({
+                        candidate: candidateData.candidate || candidateData,
+                        sdpMLineIndex: candidateData.sdpMLineIndex || 0,
+                        sdpMid: candidateData.sdpMid || ''
+                    });
+                    await this.peerConnection.addIceCandidate(candidate);
+                    console.log('[Call] ICE candidate added');
+                } catch (e) {
+                    console.error('[Call] Error adding ICE candidate:', e);
+                }
+            } else {
+                console.warn('[Call] Not in call to add ICE candidate');
+            }
+        } else {
+            console.warn('[Call] Unknown signal type:', signal.type);
+        }
+    }
+
+    async acceptCall() {
+        console.log(`[Call] Accepting call from ${this.peerUsername}`);
+
+        this.incomingModal.classList.remove('active');
+        document.getElementById('notification-sound').pause();
+
+        if (!this.pendingOffer) {
+            console.error('[Call] No pending offer to accept');
+            showError('❌ Call offer lost');
+            return;
+        }
+
+        this.isCaller = false;
+        this.isCallActive = true;
+        this.overlay.style.display = 'flex';
+        this.statusText.textContent = 'Connecting...';
+        this.statusText.style.display = 'block';
+
+        // Get media access with detailed logging
+        console.log('[Call] Getting media for accepting call...');
+        const mediaOk = await this.getMedia();
+        
+        if (!mediaOk) {
+            console.error('[Call] Failed to get media access for accepting call');
+            this.endCall();
+            return;
+        }
+
+        console.log('[Call] Media obtained, creating peer connection...');
+        
+        try {
+            this.createPeerConnection();
+
+            // Convert plain object to RTCSessionDescription if needed
+            const offerData = this.pendingOffer;
+            const offerSD = new RTCSessionDescription({
+                type: 'offer',
+                sdp: offerData.sdp || offerData
+            });
+
+            console.log('[Call] Setting remote description (offer)...');
+            await this.peerConnection.setRemoteDescription(offerSD);
+            
+            console.log('[Call] Creating answer...');
+            const answer = await this.peerConnection.createAnswer();
+            
+            console.log('[Call] Setting local description (answer)...');
+            await this.peerConnection.setLocalDescription(answer);
+            
+            console.log('[Call] Sending answer signal...');
+            this.sendSignal('answer', answer);
+            
+            console.log('[Call] Call accepted successfully!');
+        } catch (e) {
+            console.error('[Call] Error accepting call:', e.name, '-', e.message);
+            showError('❌ Failed to accept call: ' + e.message);
+            this.endCall();
+        }
+    }
+
+    endCall(notifyRemote = true) {
+        console.log('[Call] Ending call');
+        
+        this.isCallActive = false;
+        this.pendingOffer = null;
+        
+        try {
+            // Stop all local tracks and clear stream
+            if (this.localStream) {
+                console.log('[Call] Stopping local media tracks');
+                this.localStream.getTracks().forEach(track => {
+                    try {
+                        console.log('[Call] Stopping track:', track.kind);
+                        track.stop();
+                    } catch (e) {
+                        console.error('[Call] Error stopping track:', e);
+                    }
+                });
+                this.localStream = null; // Clear reference
+                console.log('[Call] Local stream cleared');
+            }
+            
+            // Close peer connection
+            if (this.peerConnection) {
+                console.log('[Call] Closing peer connection');
+                try {
+                    this.peerConnection.close();
+                } catch (e) {
+                    console.error('[Call] Error closing peer connection:', e);
+                }
+                this.peerConnection = null; // Clear reference
+            }
+
+            // Clear UI
+            this.overlay.style.display = 'none';
+            this.localVideo.srcObject = null;
+            this.remoteVideo.srcObject = null;
+            this.statusText.style.display = 'none';
+            this.incomingModal.classList.remove('active');
+
+            console.log('[Call] Call cleanup completed');
+        } catch (e) {
+            console.error('[Call] Error during call cleanup:', e);
+        }
+    }
+
+    sendSignal(type, payload) {
+        if (!this.peerUsername) {
+            console.error('[Call] Cannot send signal - no peer username');
+            return;
+        }
+
+        console.log(`[Call] Sending ${type} signal to ${this.peerUsername}`, payload);
+
+        fetch('/api/signal', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                receiver: this.peerUsername,
+                type: type,
+                payload: payload
+            })
+        })
+            .then(r => {
+                if (!r.ok) {
+                    console.error(`[Call] Failed to send signal: ${r.status}`);
+                    return r.json().then(data => {
+                        throw new Error(data.error || 'Unknown error');
+                    });
+                }
+                return r.json();
+            })
+            .then(data => {
+                console.log(`[Call] Signal sent successfully:`, data);
+            })
+            .catch(e => {
+                console.error(`[Call] Error sending signal:`, e);
+            });
+    }
+
+    startSignalingLoop() {
+        console.log('[Call] Starting signaling loop (polling every 1.5s)');
+        
+        // Poll every 1.5 seconds
+        setInterval(async () => {
+            try {
+                const res = await fetch('/api/signals', { credentials: 'include' });
+                
+                if (!res.ok) {
+                    console.warn(`[Call] Signals endpoint returned ${res.status}`);
+                    return;
+                }
+                
+                const data = await res.json();
+                
+                if (data.signals && data.signals.length > 0) {
+                    console.log(`[Call] Received ${data.signals.length} signal(s)`);
+                    data.signals.forEach(signal => this.handleSignal(signal));
+                } else {
+                    console.log('[Call] No new signals');
+                }
+            } catch (e) {
+                console.error('[Call] Signaling loop error:', e);
+            }
+        }, 1500);
+    }
+}
+
+// Initialize logic
+const callManager = new CallManager();
 loadEmojiDatabase();
-// ========== EMOJI LOGIC ENDS HERE ==========
 
 // ========== CORE CHAT VARIABLES ==========
 let AUTH_TOKEN = null;
@@ -424,11 +940,11 @@ function registerImageLoad(messageId, img) {
     if (!loadingImages.has(messageId)) {
         loadingImages.set(messageId, new Set());
     }
-    
+
     const imageSet = loadingImages.get(messageId);
     const imageIndex = imageSet.size;
     imageSet.add(imageIndex);
-    
+
     const onLoadOrError = () => {
         imageSet.delete(imageIndex);
         // If all images in this message are loaded
@@ -444,7 +960,7 @@ function registerImageLoad(messageId, img) {
             }
         }
     };
-    
+
     img.addEventListener('load', onLoadOrError);
     img.addEventListener('error', onLoadOrError);
 }
@@ -555,21 +1071,21 @@ function setupChat() {
 // ========== MEDIA VIEWER ==========
 function calculateFitToViewZoom(width, height) {
     if (width <= 0 || height <= 0) return 1;
-    
+
     // Use actual viewport dimensions - much more reliable than trying to measure modal
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    
+
     // Leave minimal margins for UI elements
     // 50px for side margins, 70px for top/bottom (buttons + caption)
     const effectiveWidth = viewportWidth - 50;
     const effectiveHeight = viewportHeight - 70;
-    
+
     // Calculate scale to fit while maintaining aspect ratio
     const scaleX = effectiveWidth / width;
     const scaleY = effectiveHeight / height;
     const fitZoom = Math.min(scaleX, scaleY);
-    
+
     // Return the calculated zoom, ensuring it's at least 0.1x
     // Don't cap at 1x - allow upscaling for small images
     return Math.max(0.1, fitZoom);
@@ -592,7 +1108,7 @@ function openMediaViewer(src, caption, isVideo = false, messageId = null, fileUr
     modal.dataset.panY = '0';
 
     container.innerHTML = '';
-    
+
     if (isVideo) {
         const video = document.createElement('video');
         video.src = src;
@@ -605,32 +1121,32 @@ function openMediaViewer(src, caption, isVideo = false, messageId = null, fileUr
         video.id = 'zoomable-video';
         video.style.transformOrigin = 'center';
         video.style.transition = 'transform 0.2s ease-out';
-        
+
         // Helper function to apply zoom with proper timing
         const applyVideoZoom = () => {
             const videoWidth = video.videoWidth;
             const videoHeight = video.videoHeight;
-            
+
             if (videoWidth > 0 && videoHeight > 0) {
                 const fitZoom = calculateFitToViewZoom(videoWidth, videoHeight);
                 modal.dataset.zoom = fitZoom;
                 modal.dataset.baseZoom = fitZoom;
-                
+
                 // Apply initial scaling via CSS properties instead of transform
                 const viewportWidth = window.innerWidth - 50;
                 const viewportHeight = window.innerHeight - 70;
                 const scaledWidth = Math.min(videoWidth * fitZoom, viewportWidth);
                 const scaledHeight = Math.min(videoHeight * fitZoom, viewportHeight);
-                
+
                 video.style.width = scaledWidth + 'px';
                 video.style.height = scaledHeight + 'px';
                 video.style.transform = 'none'; // No transform for base zoom
-                
+
                 return true;
             }
             return false;
         };
-        
+
         // Try applying zoom after a small delay to allow metadata to load
         const metadataTimeout = setTimeout(() => {
             if (!applyVideoZoom()) {
@@ -640,15 +1156,15 @@ function openMediaViewer(src, caption, isVideo = false, messageId = null, fileUr
                 }, 500);
             }
         }, 100);
-        
+
         // Also listen for loadedmetadata event
         const handleVideoMetadata = () => {
             clearTimeout(metadataTimeout);
             applyVideoZoom();
         };
-        
+
         video.addEventListener('loadedmetadata', handleVideoMetadata, { once: true });
-        
+
         container.appendChild(video);
     } else {
         const img = document.createElement('img');
@@ -660,32 +1176,32 @@ function openMediaViewer(src, caption, isVideo = false, messageId = null, fileUr
         img.style.transition = 'transform 0.2s ease-out';
         img.id = 'zoomable-img';
         img.style.transformOrigin = 'center';
-        
+
         // Helper function to apply zoom with proper timing
         const applyImageZoom = () => {
             const imgWidth = img.naturalWidth;
             const imgHeight = img.naturalHeight;
-            
+
             if (imgWidth > 0 && imgHeight > 0) {
                 const fitZoom = calculateFitToViewZoom(imgWidth, imgHeight);
                 modal.dataset.zoom = fitZoom;
                 modal.dataset.baseZoom = fitZoom;
-                
+
                 // Apply initial scaling via CSS properties instead of transform
                 const viewportWidth = window.innerWidth - 50;
                 const viewportHeight = window.innerHeight - 70;
                 const scaledWidth = Math.min(imgWidth * fitZoom, viewportWidth);
                 const scaledHeight = Math.min(imgHeight * fitZoom, viewportHeight);
-                
+
                 img.style.width = scaledWidth + 'px';
                 img.style.height = scaledHeight + 'px';
                 img.style.transform = 'none'; // No transform for base zoom
-                
+
                 return true;
             }
             return false;
         };
-        
+
         // Apply zoom immediately if image is already cached
         if (img.complete && img.naturalWidth > 0) {
             applyImageZoom();
@@ -695,18 +1211,18 @@ function openMediaViewer(src, caption, isVideo = false, messageId = null, fileUr
                 applyImageZoom();
                 img.removeEventListener('load', handleImageLoad);
             };
-            
+
             img.addEventListener('load', handleImageLoad);
-            
+
             // Fallback timeout
             const loadTimeout = setTimeout(() => {
                 applyImageZoom();
                 img.removeEventListener('load', handleImageLoad);
             }, 1000);
-            
+
             img.addEventListener('load', () => clearTimeout(loadTimeout));
         }
-        
+
         container.appendChild(img);
     }
 
@@ -776,17 +1292,17 @@ function initMediaViewer() {
         let panStartY = 0;
         let panStartImgX = 0;
         let panStartImgY = 0;
-        
+
         const getMediaElement = () => {
             return container.querySelector('img') || container.querySelector('video');
         };
-        
+
         const updateMediaTransform = (zoom, panXVal, panYVal) => {
             const media = getMediaElement();
             if (!media) return;
-            
+
             const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
-            
+
             // Only use transform for user zoom (not base zoom)
             if (Math.abs(zoom - baseZoom) < 0.01) {
                 // At base zoom level: no transform needed
@@ -797,18 +1313,18 @@ function initMediaViewer() {
                 media.style.transform = `scale(${zoomDelta}) translate(${panXVal}px, ${panYVal}px)`;
             }
         };
-        
+
         const updateMediaZoom = (newZoom) => {
             const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
             newZoom = Math.max(baseZoom, Math.min(newZoom, 5)); // Clamp between baseZoom and 5
             modal.dataset.zoom = newZoom;
-            
+
             // Reset pan when changing zoom (to avoid confusion)
             if (Math.abs(newZoom - baseZoom) < 0.01) {
                 panX = 0;
                 panY = 0;
             }
-            
+
             const media = getMediaElement();
             if (media) {
                 media.style.cursor = newZoom > baseZoom ? 'grab' : 'default';
@@ -819,14 +1335,14 @@ function initMediaViewer() {
         const updateMediaPosition = (newPanX, newPanY) => {
             const zoom = parseFloat(modal.dataset.zoom || 1);
             const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
-            
+
             if (zoom <= baseZoom) return; // Only pan when zoomed beyond base
-            
+
             // Limit pan to reasonable boundaries
             const maxPan = (zoom - baseZoom) * 100;
             panX = Math.max(-maxPan, Math.min(maxPan, newPanX));
             panY = Math.max(-maxPan, Math.min(maxPan, newPanY));
-            
+
             const media = getMediaElement();
             if (media) {
                 media.style.cursor = 'grabbing';
@@ -838,21 +1354,21 @@ function initMediaViewer() {
         container.addEventListener('wheel', (e) => {
             const media = getMediaElement();
             if (!media || modal.dataset.isVideo === 'true') return; // Don't zoom videos
-            
+
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
-                
+
                 let currentZoom = parseFloat(modal.dataset.zoom || 1);
                 const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
                 const zoomStep = 0.15;
-                
+
                 if (e.deltaY < 0) {
                     currentZoom = Math.min(currentZoom + zoomStep, 5);
                 } else {
                     // Allow zoom out to base zoom level, not below
                     currentZoom = Math.max(currentZoom - zoomStep, baseZoom);
                 }
-                
+
                 updateMediaZoom(currentZoom);
             }
         }, { passive: false });
@@ -861,37 +1377,37 @@ function initMediaViewer() {
         container.addEventListener('dblclick', (e) => {
             const media = getMediaElement();
             if (!media || modal.dataset.isVideo === 'true') return;
-            
+
             let currentZoom = parseFloat(modal.dataset.zoom || 1);
             const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
             const targetZoom = currentZoom === baseZoom ? 2 : baseZoom;
-            
+
             const startZoom = currentZoom;
             const duration = 300;
             const startTime = Date.now();
-            
+
             const animateZoom = () => {
                 const elapsed = Date.now() - startTime;
                 const progress = Math.min(elapsed / duration, 1);
-                
-                const easeProgress = progress < 0.5 
-                    ? 2 * progress * progress 
+
+                const easeProgress = progress < 0.5
+                    ? 2 * progress * progress
                     : -1 + (4 - 2 * progress) * progress;
-                
+
                 const newZoom = startZoom + (targetZoom - startZoom) * easeProgress;
                 updateMediaZoom(newZoom);
-                
+
                 if (progress < 1) {
                     requestAnimationFrame(animateZoom);
                 }
             };
-            
+
             animateZoom();
         });
 
         // Touch pinch zoom (Mobile, images only)
         let lastDistance = 0;
-        
+
         modal.addEventListener('touchstart', (e) => {
             if (e.touches.length === 2 && modal.dataset.isVideo !== 'true') {
                 const touch1 = e.touches[0];
@@ -905,28 +1421,28 @@ function initMediaViewer() {
 
         modal.addEventListener('touchmove', (e) => {
             if (e.touches.length !== 2 || modal.dataset.isVideo === 'true') return;
-            
+
             const media = getMediaElement();
             if (!media) return;
-            
+
             e.preventDefault();
-            
+
             const touch1 = e.touches[0];
             const touch2 = e.touches[1];
             const currentDistance = Math.hypot(
                 touch2.clientX - touch1.clientX,
                 touch2.clientY - touch1.clientY
             );
-            
+
             if (lastDistance > 0) {
                 let zoom = parseFloat(modal.dataset.zoom || 1);
                 const distanceDelta = currentDistance - lastDistance;
                 const zoomDelta = distanceDelta * 0.01;
                 zoom = Math.max(1, Math.min(zoom + zoomDelta, 5));
-                
+
                 updateMediaZoom(zoom);
             }
-            
+
             lastDistance = currentDistance;
         }, { passive: false });
 
@@ -934,31 +1450,31 @@ function initMediaViewer() {
         container.addEventListener('mousedown', (e) => {
             const media = getMediaElement();
             if (!media || modal.dataset.isVideo === 'true') return;
-            
+
             const zoom = parseFloat(modal.dataset.zoom || 1);
             const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
-            
+
             if (zoom <= baseZoom) return;
-            
+
             e.preventDefault();
             isPanning = true;
             panStartX = e.clientX;
             panStartY = e.clientY;
             panStartImgX = panX;
             panStartImgY = panY;
-            
+
             if (media) media.style.cursor = 'grabbing';
         });
 
         document.addEventListener('mousemove', (e) => {
             if (!isPanning || !modal.classList.contains('active')) return;
-            
+
             const media = getMediaElement();
             if (!media || modal.dataset.isVideo === 'true') return;
-            
+
             const deltaX = (e.clientX - panStartX) * 0.7;
             const deltaY = (e.clientY - panStartY) * 0.7;
-            
+
             updateMediaPosition(panStartImgX + deltaX, panStartImgY + deltaY);
         });
 
@@ -968,7 +1484,7 @@ function initMediaViewer() {
                 const media = getMediaElement();
                 const zoom = parseFloat(modal.dataset.zoom || 1);
                 const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
-                
+
                 if (media && zoom > baseZoom && modal.dataset.isVideo !== 'true') {
                     media.style.cursor = 'grab';
                 }
@@ -978,13 +1494,13 @@ function initMediaViewer() {
         // Single touch drag for mobile pan
         let touchPanStartX = 0;
         let touchPanStartY = 0;
-        
+
         modal.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1 && modal.dataset.isVideo !== 'true') {
                 const media = getMediaElement();
                 const zoom = parseFloat(modal.dataset.zoom || 1);
                 const baseZoom = parseFloat(modal.dataset.baseZoom || 1);
-                
+
                 if (zoom > baseZoom && media) {
                     touchPanStartX = e.touches[0].clientX;
                     touchPanStartY = e.touches[0].clientY;
@@ -994,21 +1510,21 @@ function initMediaViewer() {
                 }
             }
         });
-        
+
         modal.addEventListener('touchmove', (e) => {
             if (!isPanning || e.touches.length !== 1 || modal.dataset.isVideo === 'true') return;
-            
+
             const media = getMediaElement();
             if (!media) return;
-            
+
             e.preventDefault();
-            
+
             const deltaX = (e.touches[0].clientX - touchPanStartX) * 0.7;
             const deltaY = (e.touches[0].clientY - touchPanStartY) * 0.7;
-            
+
             updateMediaPosition(panStartImgX + deltaX, panStartImgY + deltaY);
         }, { passive: false });
-        
+
         modal.addEventListener('touchend', (e) => {
             if (e.touches.length === 0) {
                 isPanning = false;
@@ -1286,7 +1802,7 @@ function initFileManager() {
     async function toggleFmCamera() {
         // Check if it's a mobile device
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        
+
         if (!isMobile) {
             // PC doesn't support camera switching
             return;
@@ -1296,7 +1812,7 @@ function initFileManager() {
 
         // Stop current stream
         fmStream.getTracks().forEach(track => track.stop());
-        
+
         // Toggle camera
         fmCameraFacing = fmCameraFacing === 'user' ? 'environment' : 'user';
 
@@ -2169,7 +2685,7 @@ function createMessageElement(data, messageId) {
     const hasPic = memberProfilePics.get(parsed.username);
     if (hasPic) {
         avatarImg.src = `/user/profile-pic/${parsed.username}`;
-        avatarImg.onerror = function() {
+        avatarImg.onerror = function () {
             this.src = '/static/unknown_user_phasma_icon.png';
         };
     } else {
