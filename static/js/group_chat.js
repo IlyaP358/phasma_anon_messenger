@@ -465,8 +465,11 @@ class CallManager {
         this.btnAccept.onclick = () => this.acceptCall();
         this.btnDecline.onclick = () => {
             this.incomingModal.classList.remove('active');
-            document.getElementById('notification-sound').pause();
-            document.getElementById('notification-sound').currentTime = 0;
+            const ringtone = document.getElementById('ringtone-sound');
+            if (ringtone) {
+                ringtone.pause();
+                ringtone.currentTime = 0;
+            }
         };
     }
 
@@ -664,10 +667,11 @@ class CallManager {
             this.callerNameDisplay.textContent = this.peerUsername;
             this.incomingModal.classList.add('active');
 
-            // Play sound
-            const sound = document.getElementById('notification-sound');
-            if (sound) {
-                sound.play().catch(e => console.log('[Call] Autoplay blocked', e));
+            // Play ringtone sound
+            const ringtone = document.getElementById('ringtone-sound');
+            if (ringtone) {
+                ringtone.currentTime = 0;
+                ringtone.play().catch(e => console.log('[Call] Autoplay blocked', e));
             }
 
             // Store offer to handle later
@@ -727,7 +731,13 @@ class CallManager {
         console.log(`[Call] Accepting call from ${this.peerUsername}`);
 
         this.incomingModal.classList.remove('active');
-        document.getElementById('notification-sound').pause();
+        
+        // Stop ringtone
+        const ringtone = document.getElementById('ringtone-sound');
+        if (ringtone) {
+            ringtone.pause();
+            ringtone.currentTime = 0;
+        }
 
         if (!this.pendingOffer) {
             console.error('[Call] No pending offer to accept');
@@ -790,6 +800,13 @@ class CallManager {
         this.pendingOffer = null;
         
         try {
+            // Stop ringtone
+            const ringtone = document.getElementById('ringtone-sound');
+            if (ringtone) {
+                ringtone.pause();
+                ringtone.currentTime = 0;
+            }
+            
             // Stop all local tracks and clear stream
             if (this.localStream) {
                 console.log('[Call] Stopping local media tracks');
