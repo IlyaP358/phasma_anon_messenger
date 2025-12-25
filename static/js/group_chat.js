@@ -391,6 +391,7 @@ class CallManager {
         this.signalingInterval = null;
         this.isCallActive = false;
         this.pendingOffer = null;
+        this.pendingCandidates = [];
         this.autoAction = null; // 'accept' or 'decline' from notification
         this.autoActionCaller = null;
 
@@ -530,7 +531,22 @@ class CallManager {
 
             // If device has no camera/mic, allow joining without local media
             if (e.name === 'NotFoundError') {
-                console.warn('[Call] No media devices found - proceeding without local media');
+                console.error('[Call] Error accessing media:', e.name, '-', e.message);
+
+                // If device has no camera/mic or it's not readable, allow joining without local media
+                if (e.name === 'NotFoundError' || e.name === 'NotReadableError') {
+                    console.warn('[Call] No or unreadable media devices - proceeding without local media');
+                    try {
+                        // Create empty MediaStream as placeholder so peer connection logic continues
+                        this.localStream = new MediaStream();
+                        // Do not set localVideo.srcObject since there is no tracks
+                        return true;
+                    } catch (ex) {
+                        console.error('[Call] Failed to create empty MediaStream fallback', ex);
+                        showError('❌ No camera/microphone found and fallback failed.');
+                        return false;
+                    }
+                }
                 try {
                     // Create empty MediaStream as placeholder so peer connection logic continues
                     this.localStream = new MediaStream();
@@ -570,7 +586,18 @@ class CallManager {
         this.peerConnection.onicecandidate = (event) => {
             console.log('[Call] ICE candidate generated');
             if (event.candidate) {
-                this.sendSignal('candidate', event.candidate);
+                    // Send a plain-serializable candidate object to the server
+                    try {
+                        const cand = (typeof event.candidate.toJSON === 'function') ? event.candidate.toJSON() : event.candidate;
+                        this.sendSignal('candidate', cand);
+                    } catch (ex) {
+                        // Fallback: send the raw candidate fields
+                        this.sendSignal('candidate', {
+                            candidate: event.candidate.candidate,
+                            sdpMid: event.candidate.sdpMid,
+                            sdpMLineIndex: event.candidate.sdpMLineIndex
+                        });
+                    }
             }
         };
 
@@ -613,6 +640,46 @@ class CallManager {
         } else {
             console.warn('[Call] No local stream to add');
         }
+        // Attempt to apply any buffered candidates if remote description already present
+        try {
+            if (this.pendingCandidates && this.pendingCandidates.length > 0 && this.peerConnection && this.peerConnection.remoteDescription) {
+                this.pendingCandidates.forEach(async (candData) => {
+                    try {
+                        const c = new RTCIceCandidate({
+                            candidate: candData.candidate || candData,
+                            sdpMLineIndex: candData.sdpMLineIndex || 0,
+                            sdpMid: candData.sdpMid || ''
+                        });
+                        await this.peerConnection.addIceCandidate(c);
+                        console.log('[Call] Applied buffered ICE candidate during createPeerConnection');
+                    } catch (e) {
+                        console.warn('[Call] Failed to apply buffered candidate during createPeerConnection', e);
+                    }
+                });
+                this.pendingCandidates = [];
+            }
+        } catch (e) {
+            console.warn('[Call] apply pending candidates error in createPeerConnection', e);
+        }
+    }
+
+    applyPendingCandidates() {
+        if (!this.pendingCandidates || !this.peerConnection) return;
+        if (!this.peerConnection.remoteDescription) return; // need remote description first
+        this.pendingCandidates.forEach(async (candData) => {
+            try {
+                const candidate = new RTCIceCandidate({
+                    candidate: candData.candidate || candData,
+                    sdpMLineIndex: candData.sdpMLineIndex || 0,
+                    sdpMid: candData.sdpMid || ''
+                });
+                await this.peerConnection.addIceCandidate(candidate);
+                console.log('[Call] Applied buffered ICE candidate');
+            } catch (e) {
+                console.warn('[Call] Failed to apply buffered candidate', e);
+            }
+        });
+        this.pendingCandidates = [];
     }
 
     async startCall() {
@@ -663,7 +730,8 @@ class CallManager {
             await this.peerConnection.setLocalDescription(offer);
             
             console.log('[Call] Sending offer signal...');
-            this.sendSignal('offer', offer);
+                    // Send only the plain SDP/text to avoid circular/non-serializable objects
+                    this.sendSignal('offer', { type: offer.type, sdp: offer.sdp });
             
             console.log('[Call] Call initiated successfully!');
         } catch (e) {
@@ -729,7 +797,7 @@ class CallManager {
 
         } else if (signal.type === 'answer') {
             console.log('[Call] Received answer');
-            
+
             if (!this.isCallActive || !this.isCaller) {
                 console.warn('[Call] Not expecting answer (not in call or not caller)');
                 return;
@@ -747,6 +815,8 @@ class CallManager {
                 });
                 await this.peerConnection.setRemoteDescription(answerSD);
                 console.log('[Call] Answer set successfully');
+                // After setting remote description, apply any buffered ICE candidates
+                try { this.applyPendingCandidates(); } catch (e) { console.warn('[Call] applyPendingCandidates error', e); }
             } catch (e) {
                 console.error('[Call] Error setting answer:', e);
             }
@@ -754,6 +824,17 @@ class CallManager {
         } else if (signal.type === 'candidate') {
             console.log('[Call] Received ICE candidate');
             
+            // If we don't yet have an active peer connection, buffer the candidate
+            if ((!this.isCallActive || !this.peerConnection)) {
+                try {
+                    console.log('[Call] Buffering ICE candidate until peerConnection exists');
+                    this.pendingCandidates.push(signal.payload);
+                    return;
+                } catch (e) {
+                    console.warn('[Call] Failed to buffer candidate', e);
+                }
+            }
+
             if (this.isCallActive && this.peerConnection) {
                 try {
                     // Candidate might be a plain object or IceCandidate
@@ -824,6 +905,8 @@ class CallManager {
 
             console.log('[Call] Setting remote description (offer)...');
             await this.peerConnection.setRemoteDescription(offerSD);
+            // Apply any buffered ICE candidates now that remote is set
+            try { this.applyPendingCandidates(); } catch (e) { console.warn('[Call] applyPendingCandidates error after setRemoteDescription', e); }
             
             console.log('[Call] Creating answer...');
             const answer = await this.peerConnection.createAnswer();
@@ -832,7 +915,8 @@ class CallManager {
             await this.peerConnection.setLocalDescription(answer);
             
             console.log('[Call] Sending answer signal...');
-            this.sendSignal('answer', answer);
+                    // Send only the SDP text/type
+                    this.sendSignal('answer', { type: answer.type, sdp: answer.sdp });
             
             console.log('[Call] Call accepted successfully!');
         } catch (e) {
@@ -911,6 +995,34 @@ class CallManager {
 
         console.log(`[Call] Sending ${type} signal to ${this.peerUsername}`);
 
+        // Normalize payload to ensure it's JSON-serializable
+        let payloadForSend = payload;
+        try {
+            if (payloadForSend && typeof payloadForSend === 'object') {
+                // Use toJSON if available (RTCIceCandidate, etc.)
+                if (typeof payloadForSend.toJSON === 'function') {
+                    payloadForSend = payloadForSend.toJSON();
+                }
+
+                // If it's an SDP-like object, send only sdp/type
+                if (payloadForSend.sdp) {
+                    payloadForSend = { type: payloadForSend.type || type, sdp: payloadForSend.sdp };
+                } else if (payloadForSend.candidate) {
+                    // Candidate object
+                    payloadForSend = {
+                        candidate: payloadForSend.candidate,
+                        sdpMid: payloadForSend.sdpMid,
+                        sdpMLineIndex: payloadForSend.sdpMLineIndex
+                    };
+                } else {
+                    // leave as-is (plain object)
+                }
+            }
+        } catch (e) {
+            console.warn('[Call] Failed to normalize signal payload, sending raw', e);
+            payloadForSend = {};
+        }
+
         fetch('/api/signal', {
             method: 'POST',
             credentials: 'include',
@@ -920,7 +1032,7 @@ class CallManager {
             body: JSON.stringify({
                 receiver: this.peerUsername,
                 type: type,
-                payload: payload
+                payload: payloadForSend
             })
         })
             .then(r => {
