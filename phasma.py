@@ -41,6 +41,7 @@ from flask_qrcode import QRcode
 import qrcode
 from io import BytesIO
 import base64
+import ast
 
 # ===============================================================
 # ---- PRODUCTION vs DEVELOPMENT MODE ----
@@ -543,6 +544,206 @@ class Signal(db.Model):
         db.Index('ix_signal_receiver', 'receiver'),
     )
 
+
+# ===============================================================
+# ---- Call session tracking ----
+# ===============================================================
+class CallSession(db.Model):
+    """Tracks active/finished call sessions for missed-call detection"""
+    id = db.Column(db.Integer, primary_key=True)
+    caller = db.Column(db.String(100), nullable=False, index=True)
+    callee = db.Column(db.String(100), nullable=False, index=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=True, index=True)
+    status = db.Column(db.String(20), default='pending')  # pending, answered, declined, ended, missed
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    def mark_status(self, new_status: str):
+        self.status = new_status
+        self.updated_at = datetime.datetime.utcnow()
+        db.session.add(self)
+        db.session.commit()
+        # If session reached terminal state, either delete immediately for answered/declined
+        # terminal states (missed/ended) using the existing TTL behavior.
+        try:
+            if new_status in ('answered', 'declined'):
+                try:
+                    CallSession.query.filter_by(id=self.id).delete()
+                    db.session.commit()
+                    print(f"[INFO] Immediately deleted CallSession {self.id} after status={new_status}")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"[WARN] Failed to immediately delete CallSession {self.id}: {e}")
+
+            elif new_status in ('ended', 'missed'):
+                ttl = int(os.environ.get('CALLSESSION_TERMINAL_TTL_SECONDS', str(24 * 3600)))
+                def _del_worker(sid, delay):
+                    try:
+                        time.sleep(delay)
+                        s = CallSession.query.get(sid)
+                        if s and s.status in ('ended', 'missed'):
+                            CallSession.query.filter_by(id=sid).delete()
+                            db.session.commit()
+                            print(f"[INFO] Deleted terminal CallSession {sid} after TTL")
+                    except Exception as e:
+                        print(f"[WARN] Del worker error for CallSession {sid}: {e}")
+
+                threading.Thread(target=_del_worker, args=(self.id, ttl), daemon=True).start()
+        except Exception as e:
+            print(f"[WARN] Failed to schedule deletion for CallSession: {e}")
+
+
+def schedule_call_missed_check(session_id: int, timeout: int = 35):
+    """Start a background thread that will mark the call missed if still pending after timeout seconds."""
+    def _worker(sid, t):
+        try:
+            time.sleep(t)
+            mark_call_missed(sid)
+        except Exception as e:
+            print(f"[WARN] schedule_call_missed_check worker error: {e}")
+
+    threading.Thread(target=_worker, args=(session_id, timeout), daemon=True).start()
+
+
+def mark_call_missed(session_id: int):
+    try:
+        sess = CallSession.query.get(session_id)
+        if not sess:
+            return
+        if sess.status != 'pending':
+            return
+
+        # Mark missed
+        sess.mark_status('missed')
+
+        # Create system message in DM or group if available
+        group_id = sess.group_id
+        if group_id:
+            try:
+                system_payload = {
+                    'event': 'call_missed',
+                    'from': sess.caller,
+                    'to': sess.callee,
+                    'ts': int(time.time())
+                }
+                plaintext = json.dumps(system_payload)
+                ciphertext = encrypt_message(plaintext)
+                sys_msg = Message(group_id=group_id, username=sess.caller, content=ciphertext, message_type='system')
+                db.session.add(sys_msg)
+                db.session.commit()
+
+                # Publish SSE
+                try:
+                    ts = sys_msg.format_time()
+                    pubtext = f"[ID:{sys_msg.id}][{ts}] SYSTEM:call_missed:{sess.caller}->{sess.callee}"
+                    r.publish(f"chat:group:{group_id}", pubtext.encode('utf-8'))
+                except Exception as e:
+                    print(f"[WARN] Failed to publish missed call system message: {e}")
+
+                # Push notification to callee
+                try:
+                    subs = PushSubscription.query.filter_by(username=sess.callee).all()
+                    body = f"Missed call from {sess.caller}"
+                    extra = {"type": "call_missed", "caller": sess.caller, "group_id": group_id, "title": ''}
+                    grp = Group.query.get(group_id)
+                    if grp:
+                        extra['title'] = grp.name
+                    for sub in subs:
+                        threading.Thread(target=send_push_notification, args=(sub, body, extra)).start()
+                except Exception as e:
+                    print(f"[WARN] Failed to send missed-call push: {e}")
+
+            except Exception as e:
+                print(f"[ERROR] Failed to record missed call: {e}")
+
+    except Exception as e:
+        print(f"[ERROR] mark_call_missed error: {e}")
+
+
+def cleanup_call_sessions_loop(interval_seconds: int = 3600):
+    """Background loop to clean and compact CallSession table."""
+    def _worker():
+        while True:
+            try:
+                now = datetime.datetime.utcnow()
+                # 1) Mark pending sessions older than CALL_TIMEOUT as missed
+                timeout = int(os.environ.get('CALL_TIMEOUT', '35'))
+                cutoff = now - datetime.timedelta(seconds=timeout)
+                pendings = CallSession.query.filter(CallSession.status == 'pending', CallSession.created_at < cutoff).all()
+                for p in pendings:
+                    try:
+                        mark_call_missed(p.id)
+                    except Exception as e:
+                        print(f"[WARN] cleanup worker failed to mark missed for {p.id}: {e}")
+
+                # 2) Remove very old sessions to avoid unbounded growth
+                retention_days = int(os.environ.get('CALLSESSION_RETENTION_DAYS', '30'))
+                delete_cutoff = now - datetime.timedelta(days=retention_days)
+                old_sessions = CallSession.query.filter(CallSession.updated_at < delete_cutoff).all()
+                if old_sessions:
+                    ids = [s.id for s in old_sessions]
+                    try:
+                        CallSession.query.filter(CallSession.id.in_(ids)).delete(synchronize_session=False)
+                        db.session.commit()
+                        print(f"[INFO] Cleaned up {len(ids)} old CallSession rows")
+                    except Exception as e:
+                        db.session.rollback()
+                        print(f"[WARN] Failed to delete old CallSession rows: {e}")
+
+                # 3) Aggressively delete terminal sessions older than TERMINAL_RETENTION_DAYS (default 1 day)
+                terminal_days = int(os.environ.get('CALLSESSION_TERMINAL_RETENTION_DAYS', '1'))
+                terminal_cutoff = now - datetime.timedelta(days=terminal_days)
+                terminal_old = CallSession.query.filter(
+                    CallSession.status.in_(['answered', 'declined', 'ended', 'missed']),
+                    CallSession.updated_at < terminal_cutoff
+                ).all()
+                if terminal_old:
+                    ids = [s.id for s in terminal_old]
+                    try:
+                        CallSession.query.filter(CallSession.id.in_(ids)).delete(synchronize_session=False)
+                        db.session.commit()
+                        print(f"[INFO] Cleaned up {len(ids)} terminal CallSession rows older than {terminal_days} days")
+                    except Exception as e:
+                        db.session.rollback()
+                        print(f"[WARN] Failed to delete terminal CallSession rows: {e}")
+            except Exception as e:
+                print(f"[WARN] cleanup_call_sessions_loop error: {e}")
+
+            time.sleep(interval_seconds)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+
+def safe_parse_event(text: str):
+    """Try to robustly parse a possibly-malformed JSON-like event string.
+
+    Returns a dict on success or None on failure. Tries json.loads, ast.literal_eval,
+    and a best-effort single-quote->double-quote conversion with trailing-comma removal.
+    """
+    if not text or not isinstance(text, str):
+        return None
+    s = text.strip()
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    try:
+        # ast.literal_eval can handle Python-style dicts with single quotes
+        val = ast.literal_eval(s)
+        if isinstance(val, dict):
+            return val
+    except Exception:
+        pass
+    try:
+        # Try naive single-quote -> double-quote fix and remove trailing commas
+        fixed = re.sub(r"'(.*?)'", lambda m: '"' + m.group(1).replace('"', '\\"') + '"', s)
+        fixed = re.sub(r",(\s*[}\]])", r"\1", fixed)
+        return json.loads(fixed)
+    except Exception:
+        return None
+
+
 # ===============================================================
 # ---- Master key management ----
 # ===============================================================
@@ -760,6 +961,13 @@ with app.app_context():
         data_key = new_key
         print("[INFO] Generated new DATA_KEY and stored encrypted in DB.")
     data_fernet = Fernet(data_key.encode("utf-8"))
+
+    # Start background cleanup for CallSession table to prevent unbounded growth
+    try:
+        cleanup_call_sessions_loop(int(os.environ.get('CLEANUP_INTERVAL_SECONDS', '3600')))
+        print('[OK] Started CallSession cleanup background thread')
+    except Exception as e:
+        print(f"[WARN] Failed to start CallSession cleanup thread: {e}")
 
 # ===============================================================
 # ---- Upload folder initialization ----
@@ -5036,6 +5244,47 @@ def history_group(group_id: int):
     result = []
     for msg in reversed(messages):
         ts = msg.format_time()
+        # Handle system messages specially so they appear as inline, human-readable entries
+        if msg.message_type == 'system':
+            try:
+                plain = msg.get_plain()
+                # Accept dicts directly; if it's a string try to parse it robustly
+                if isinstance(plain, dict):
+                    parsed = plain
+                elif isinstance(plain, str):
+                    parsed = safe_parse_event(plain) or None
+                else:
+                    parsed = None
+
+                if isinstance(parsed, dict):
+                    evt = parsed.get('event', '')
+                    frm = parsed.get('from', '') or parsed.get('caller', '')
+                    to = parsed.get('to', '')
+                    if evt == 'call_offer':
+                        human = f"Incoming call: {frm} → {to}"
+                    elif evt == 'call_answer':
+                        human = f"Call answered by {frm}"
+                    elif evt in ('call_decline', 'decline'):
+                        human = f"Call declined by {frm}"
+                    elif evt in ('call_hangup', 'hangup', 'call_ended'):
+                        human = f"Call ended by {frm}"
+                    elif evt == 'call_missed':
+                        human = f"Missed call from {frm}"
+                    else:
+                        human = f"{evt}"
+                else:
+                    human = str(plain)
+
+                # Use SYSTEM as username token so client will render it as inline system message
+                message_text = f"[{ts}] SYSTEM: {human}|URLS:{{}}"
+            except Exception as e:
+                print(f"[WARN] Failed to format system message: {e}")
+                message_text = f"[{ts}] SYSTEM: [SYSTEM EVENT]|URLS:{{}}"
+            result.append({
+                "id": msg.id,
+                "text": message_text
+            })
+            continue
         
         if msg.message_type == 'photo':
             plain = msg.get_plain()
@@ -5078,6 +5327,36 @@ def history_group(group_id: int):
         
         else:
             plain_data = msg.get_plain()
+            # If plain_data is a JSON-like string containing event keys, treat it as system event and hide raw JSON
+            try:
+                if isinstance(plain_data, str) and plain_data.strip().startswith('{'):
+                    parsed_json = safe_parse_event(plain_data)
+                    if isinstance(parsed_json, dict) and 'event' in parsed_json:
+                        evt = parsed_json.get('event')
+                        frm = parsed_json.get('from') or parsed_json.get('caller') or ''
+                        to = parsed_json.get('to') or ''
+                        if evt == 'call_offer':
+                            human = f"Incoming call: {frm} → {to}"
+                        elif evt == 'call_answer':
+                            human = f"Call answered by {frm}"
+                        elif evt in ('decline', 'call_decline'):
+                            human = f"Call declined by {frm}"
+                        elif evt in ('hangup', 'call_hangup', 'call_ended'):
+                            human = f"Call ended by {frm}"
+                        elif evt == 'call_missed':
+                            human = f"Missed call from {frm}"
+                        else:
+                            human = str(evt)
+
+                        message_text = f"[{ts}] SYSTEM: {human}|URLS:{{}}"
+                        result.append({
+                            "id": msg.id,
+                            "text": message_text
+                        })
+                        continue
+            except Exception:
+                pass
+
             if isinstance(plain_data, dict):
                 sanitized_content = plain_data.get('text', '')
                 url_previews = plain_data.get('urls', {})
@@ -5748,6 +6027,87 @@ def send_signal():
         )
         db.session.add(signal)
         db.session.commit()
+        # --- Create system chat messages and push notifications for call events ---
+        try:
+            # Only handle call-related signal types
+            if signal_type in ('offer', 'answer', 'decline', 'hangup'):
+                # Try to find DM group for these users
+                users = sorted([sender, receiver])
+                dm_name = f"dm_{users[0]}_{users[1]}"
+                group = Group.query.filter_by(name=dm_name, is_dm=True).first()
+                # For offers: create a CallSession and schedule missed-check
+                if signal_type == 'offer':
+                    try:
+                        grp_id = group.id if group else None
+                        cs = CallSession(caller=sender, callee=receiver, group_id=grp_id, status='pending')
+                        db.session.add(cs)
+                        db.session.commit()
+                        timeout = int(os.environ.get('CALL_TIMEOUT', '35'))
+                        schedule_call_missed_check(cs.id, timeout)
+                    except Exception as e:
+                        print(f"[WARN] Failed to create CallSession: {e}")
+
+                # For answer/decline/hangup: update latest pending CallSession
+                if signal_type in ('answer', 'decline', 'hangup'):
+                    try:
+                        sess = CallSession.query.filter(
+                            ((CallSession.caller == sender) & (CallSession.callee == receiver)) |
+                            ((CallSession.caller == receiver) & (CallSession.callee == sender))
+                        ).order_by(CallSession.created_at.desc()).first()
+                        if sess and sess.status == 'pending':
+                            if signal_type == 'answer':
+                                sess.mark_status('answered')
+                            elif signal_type == 'decline':
+                                sess.mark_status('declined')
+                            elif signal_type == 'hangup':
+                                sess.mark_status('ended')
+                    except Exception as e:
+                        print(f"[WARN] Failed to update CallSession status: {e}")
+                if group:
+                    group_id = group.id
+                    now_ts = int(time.time())
+                    # Build system payload
+                    system_payload = {
+                        'event': f'call_{signal_type}',
+                        'from': sender,
+                        'to': receiver,
+                        'ts': now_ts
+                    }
+                    plaintext = json.dumps(system_payload)
+                    ciphertext = encrypt_message(plaintext)
+                    sys_msg = Message(group_id=group_id, username=sender, content=ciphertext, message_type='system')
+                    db.session.add(sys_msg)
+                    db.session.commit()
+
+                    # Publish to group SSE channel so clients show system message immediately
+                    try:
+                        ts = sys_msg.format_time()
+                        pubtext = f"[ID:{sys_msg.id}][{ts}] SYSTEM:{system_payload['event']}:{sender}->{receiver}"
+                        r.publish(f"chat:group:{group_id}", pubtext.encode('utf-8'))
+                    except Exception as e:
+                        print(f"[WARN] Failed to publish system call message: {e}")
+
+                    # Send web-push to the callee to wake device (incoming offer only) and for other events
+                    try:
+                        # Find subscriptions for receiver only
+                        subs = PushSubscription.query.filter_by(username=receiver).all()
+                        notif_body = ''
+                        if signal_type == 'offer':
+                            notif_body = f"Incoming call from {sender}"
+                        elif signal_type == 'answer':
+                            notif_body = f"Call answered by {sender}"
+                        elif signal_type == 'decline':
+                            notif_body = f"Call declined by {sender}"
+                        elif signal_type == 'hangup':
+                            notif_body = f"Call ended by {sender}"
+
+                        extra = {"type": f"call_{signal_type}", "caller": sender, "group_id": group_id, "title": group.name}
+                        for sub in subs:
+                            threading.Thread(target=send_push_notification, args=(sub, notif_body, extra)).start()
+                    except Exception as e:
+                        print(f"[WARN] Failed to send call push: {e}")
+        except Exception as e:
+            print(f"[WARN] Failed to create system call message: {e}")
         
         return jsonify({'status': 'ok'}), 200
     except Exception as e:

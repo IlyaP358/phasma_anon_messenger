@@ -8,3 +8,4 @@ reproduce_issue.py
 update_icons.py
 add_column_database.py
 db_migration.py
+migrations_add_callsession.py

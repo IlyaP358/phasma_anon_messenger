@@ -20,39 +20,44 @@ self.addEventListener('push', function (event) {
             let currentNotification = notifications.length > 0 ? notifications[0] : null;
             let count = 1;
             let body = data.body || 'New message';
-
-            if (currentNotification) {
-                // Extract previous count from data if available, or just increment
-                const prevCount = currentNotification.data && currentNotification.data.count ? currentNotification.data.count : 1;
-                count = prevCount + 1;
-
-                // If we have a group name, use it in title
-                // For now, we just say "X new messages"
-                body = `${count} new messages`;
-
-                // Close old notification to ensure replacement works visually on all devices
-                currentNotification.close();
-            }
-
-            const options = {
-                body: body,
+            let options = {
                 icon: '/static/icon.png',
-                badge: '/static/badge.png', // Android small icon in status bar
+                badge: '/static/badge.png',
                 vibrate: [200, 100, 200],
-                sound: '/static/phasma_notification_sound.mp3',
                 tag: tag,
-                renotify: true, // Vibrate/Sound again even if same tag
-                requireInteraction: true, // Keep in tray until user interacts
-                actions: [
-                    { action: 'open', title: 'Open Chat' }
-                ],
+                renotify: true,
+                requireInteraction: true,
                 data: {
                     dateOfArrival: Date.now(),
                     primaryKey: 1,
                     url: data.group_id ? `/group/${data.group_id}/chat` : '/',
-                    count: count
+                    count: 1
                 }
             };
+
+            // Special handling for incoming calls
+            if (data.type && data.type.startsWith('call_') && data.type === 'call_offer') {
+                body = data.caller ? `Incoming call from ${data.caller}` : (data.body || 'Incoming call');
+                options.actions = [
+                    { action: 'accept', title: 'Accept' },
+                    { action: 'decline', title: 'Decline' }
+                ];
+                // Use a higher priority tag so call notifications show separately
+                options.tag = `call-${data.group_id || 'unknown'}`;
+                options.data.url = data.group_id ? `/group/${data.group_id}/chat` : '/';
+                options.data.call = true;
+            } else {
+                if (currentNotification) {
+                    const prevCount = currentNotification.data && currentNotification.data.count ? currentNotification.data.count : 1;
+                    count = prevCount + 1;
+                    body = `${count} new messages`;
+                    currentNotification.close();
+                }
+                options.actions = [ { action: 'open', title: 'Open Chat' } ];
+                options.data.count = count;
+            }
+
+            options.body = body;
 
             return self.registration.showNotification(title, options);
         })
@@ -62,18 +67,23 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
-    const urlToOpen = event.notification.data.url || '/';
+    const baseUrl = (event.notification && event.notification.data && event.notification.data.url) ? event.notification.data.url : '/';
+    // Append action param so the app can react (accept/decline)
+    let urlToOpen = baseUrl;
+    if (event.action) {
+        const sep = baseUrl.indexOf('?') === -1 ? '?' : '&';
+        const caller = event.notification && event.notification.data && event.notification.data.caller ? event.notification.data.caller : '';
+        urlToOpen = `${baseUrl}${sep}action=${encodeURIComponent(event.action)}${caller ? `&caller=${encodeURIComponent(caller)}` : ''}`;
+    }
 
     event.waitUntil(
         clients.matchAll({
             type: 'window',
             includeUncontrolled: true
         }).then((windowClients) => {
-            // Priority 1: Find an existing standalone window
+            // Try to focus an existing client
             for (let i = 0; i < windowClients.length; i++) {
                 const client = windowClients[i];
-                // Check if client is our app and is standalone if possible (though we can't easily check display-mode here)
-                // Just checking scope and focus capability is usually enough for WebAPK
                 if (client.url.startsWith(self.registration.scope) && 'focus' in client) {
                     if (client.url !== urlToOpen) {
                         client.navigate(urlToOpen);
@@ -81,7 +91,6 @@ self.addEventListener('notificationclick', function (event) {
                     return client.focus();
                 }
             }
-            // Priority 2: Open a new window (Android WebAPK handles this by opening the app)
             if (clients.openWindow) {
                 return clients.openWindow(urlToOpen);
             }

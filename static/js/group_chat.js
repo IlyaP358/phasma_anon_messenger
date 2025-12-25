@@ -391,6 +391,8 @@ class CallManager {
         this.signalingInterval = null;
         this.isCallActive = false;
         this.pendingOffer = null;
+        this.autoAction = null; // 'accept' or 'decline' from notification
+        this.autoActionCaller = null;
 
         // STUN servers
         this.iceServers = {
@@ -464,6 +466,13 @@ class CallManager {
 
         this.btnAccept.onclick = () => this.acceptCall();
         this.btnDecline.onclick = () => {
+            // Notify caller that we declined
+            try {
+                this.sendSignal('decline', {});
+            } catch (e) {
+                console.warn('[Call] Failed to send decline signal', e);
+            }
+
             this.incomingModal.classList.remove('active');
             const ringtone = document.getElementById('ringtone-sound');
             if (ringtone) {
@@ -518,13 +527,26 @@ class CallManager {
             return false;
         } catch (e) {
             console.error('[Call] Error accessing media:', e.name, '-', e.message);
-            
-            // Provide more specific error messages based on error type
+
+            // If device has no camera/mic, allow joining without local media
+            if (e.name === 'NotFoundError') {
+                console.warn('[Call] No media devices found - proceeding without local media');
+                try {
+                    // Create empty MediaStream as placeholder so peer connection logic continues
+                    this.localStream = new MediaStream();
+                    // Do not set localVideo.srcObject since there is no tracks
+                    return true;
+                } catch (ex) {
+                    console.error('[Call] Failed to create empty MediaStream fallback', ex);
+                    showError('❌ No camera/microphone found and fallback failed.');
+                    return false;
+                }
+            }
+
+            // Provide more specific error messages based on other error types
             let errorMsg = '❌ Could not access camera/microphone.';
             if (e.name === 'NotAllowedError') {
                 errorMsg += ' Permission denied. Please check browser settings.';
-            } else if (e.name === 'NotFoundError') {
-                errorMsg += ' No camera/microphone found on this device.';
             } else if (e.name === 'NotReadableError') {
                 errorMsg += ' Device is busy. Close other apps using camera/microphone.';
             } else if (e.name === 'OverconstrainedError') {
@@ -534,7 +556,7 @@ class CallManager {
             } else {
                 errorMsg += ' Please allow permissions and try again.';
             }
-            
+
             showError(errorMsg);
             return false;
         }
@@ -546,7 +568,7 @@ class CallManager {
         this.peerConnection = new RTCPeerConnection(this.iceServers);
 
         this.peerConnection.onicecandidate = (event) => {
-            console.log('[Call] ICE candidate generated', event.candidate);
+            console.log('[Call] ICE candidate generated');
             if (event.candidate) {
                 this.sendSignal('candidate', event.candidate);
             }
@@ -652,7 +674,7 @@ class CallManager {
     }
 
     async handleSignal(signal) {
-        console.log(`[Call] Received signal type: ${signal.type} from ${signal.sender}`, signal);
+        console.log(`[Call] Received signal type: ${signal.type} from ${signal.sender}`);
 
         if (signal.type === 'offer') {
             // Incoming call
@@ -677,6 +699,33 @@ class CallManager {
             // Store offer to handle later
             this.pendingOffer = signal.payload;
             console.log('[Call] Offer stored, waiting for user to accept');
+
+            // If page was opened from notification with action param, auto-act
+            if (this.autoAction) {
+                // If caller restriction present, ensure it matches
+                if (!this.autoActionCaller || this.autoActionCaller === signal.sender) {
+                    console.log('[Call] Auto-action triggered:', this.autoAction);
+                    if (this.autoAction === 'accept') {
+                        // Allow a small delay to let UI settle
+                        setTimeout(() => this.acceptCall(), 200);
+                    } else if (this.autoAction === 'decline') {
+                        try {
+                            this.sendSignal('decline', {});
+                        } catch (e) {
+                            console.warn('[Call] Auto-decline failed', e);
+                        }
+                        this.incomingModal.classList.remove('active');
+                        const ringtone = document.getElementById('ringtone-sound');
+                        if (ringtone) {
+                            ringtone.pause();
+                            ringtone.currentTime = 0;
+                        }
+                    }
+                    // Clear autoAction so it doesn't repeat
+                    this.autoAction = null;
+                    this.autoActionCaller = null;
+                }
+            }
 
         } else if (signal.type === 'answer') {
             console.log('[Call] Received answer');
@@ -800,6 +849,14 @@ class CallManager {
         this.pendingOffer = null;
         
         try {
+            // Notify remote peer if requested
+            if (notifyRemote && this.peerUsername) {
+                try {
+                    this.sendSignal('hangup', {});
+                } catch (e) {
+                    console.warn('[Call] Failed to send hangup signal', e);
+                }
+            }
             // Stop ringtone
             const ringtone = document.getElementById('ringtone-sound');
             if (ringtone) {
@@ -852,7 +909,7 @@ class CallManager {
             return;
         }
 
-        console.log(`[Call] Sending ${type} signal to ${this.peerUsername}`, payload);
+        console.log(`[Call] Sending ${type} signal to ${this.peerUsername}`);
 
         fetch('/api/signal', {
             method: 'POST',
@@ -913,6 +970,21 @@ class CallManager {
 
 // Initialize logic
 const callManager = new CallManager();
+// Handle notification action params (service-worker opens with ?action=accept|decline&caller=Name)
+(() => {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const act = params.get('action');
+        const caller = params.get('caller');
+        if (act === 'accept' || act === 'decline') {
+            callManager.autoAction = act;
+            if (caller) callManager.autoActionCaller = caller;
+            console.log('[Call] Auto-action set from URL:', act, caller);
+        }
+    } catch (e) {
+        console.warn('[Call] Failed to parse action params', e);
+    }
+})();
 loadEmojiDatabase();
 
 // ========== CORE CHAT VARIABLES ==========
@@ -2689,6 +2761,29 @@ function createMessageElement(data, messageId) {
     const parsed = parseMessageData(data);
     if (!parsed) return null;
 
+    // If this is a system-style message (we use username == 'SYSTEM') render inline and italic
+    if (parsed.username === 'SYSTEM') {
+        const sysWrap = document.createElement('div');
+        sysWrap.className = 'message system-inline';
+        sysWrap.setAttribute('data-message-id', messageId);
+
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'message-content-wrapper';
+
+        const mainContent = document.createElement('div');
+        mainContent.className = 'message-content system-inline-content';
+        mainContent.style.fontStyle = 'italic';
+        mainContent.style.color = '#333';
+        mainContent.style.background = 'transparent';
+        mainContent.style.padding = '6px 4px';
+        mainContent.style.margin = '6px 0';
+        mainContent.textContent = parsed.content;
+
+        contentWrapper.appendChild(mainContent);
+        sysWrap.appendChild(contentWrapper);
+        return sysWrap;
+    }
+
     const msgWrapper = document.createElement("div");
     msgWrapper.className = "message";
     msgWrapper.setAttribute('data-message-id', messageId);
@@ -4055,13 +4150,20 @@ function updateMemberStatus(username, isOnline) {
 }
 
 function createSystemMessage(text) {
+    // Inline subtle system message (used for join/leave and small hints)
     const msg = document.createElement("div");
-    msg.className = "message system-message";
-    msg.style.textAlign = "center";
-    msg.style.color = "#888";
-    msg.style.fontSize = "0.8em";
-    msg.style.margin = "10px 0";
-    msg.textContent = text;
+    msg.className = "message system-inline";
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'message-content-wrapper';
+    const mainContent = document.createElement('div');
+    mainContent.className = 'message-content system-inline-content';
+    mainContent.style.fontStyle = 'italic';
+    mainContent.style.color = '#333';
+    mainContent.style.fontSize = '0.9em';
+    mainContent.style.margin = '6px 0';
+    mainContent.textContent = text;
+    contentWrapper.appendChild(mainContent);
+    msg.appendChild(contentWrapper);
     return msg;
 }
 
