@@ -382,7 +382,7 @@ function insertEmoji(emojiChar) {
 class CallManager {
     constructor() {
         console.log('[Call] Initializing CallManager');
-        
+
         this.peerConnection = null;
         this.localStream = null;
         this.remoteStream = null;
@@ -406,13 +406,13 @@ class CallManager {
 
         this.initUI();
         this.startSignalingLoop();
-        
+
         console.log('[Call] CallManager initialized');
     }
 
     initUI() {
         console.log('[Call] initUI: IS_DM =', IS_DM, ', GROUP_NAME =', GROUP_NAME);
-        
+
         this.btnCall = document.getElementById('btn-call-user');
         this.overlay = document.getElementById('call-overlay');
         this.localVideo = document.getElementById('local-video');
@@ -450,18 +450,26 @@ class CallManager {
         this.btnMic.onclick = () => {
             if (this.localStream) {
                 const track = this.localStream.getAudioTracks()[0];
-                track.enabled = !track.enabled;
-                this.btnMic.textContent = track.enabled ? '🎤' : '🔇';
-                this.btnMic.style.background = track.enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.5)';
+                if (track) {
+                    track.enabled = !track.enabled;
+                    this.btnMic.textContent = track.enabled ? '🎤' : '🔇';
+                    this.btnMic.style.background = track.enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.5)';
+                } else {
+                    showError('ℹ️ No microphone available');
+                }
             }
         };
 
         this.btnCam.onclick = () => {
             if (this.localStream) {
                 const track = this.localStream.getVideoTracks()[0];
-                track.enabled = !track.enabled;
-                this.btnCam.textContent = track.enabled ? '📷' : '🚫';
-                this.btnCam.style.background = track.enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.5)';
+                if (track) {
+                    track.enabled = !track.enabled;
+                    this.btnCam.textContent = track.enabled ? '📷' : '🚫';
+                    this.btnCam.style.background = track.enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.5)';
+                } else {
+                    showError('ℹ️ No camera available');
+                }
             }
         };
 
@@ -485,17 +493,17 @@ class CallManager {
 
     async getMedia() {
         console.log('[Call] Requesting media access...');
-        
+
         // If we already have a local stream, reuse it
         if (this.localStream) {
             console.log('[Call] Using existing local stream');
             return true;
         }
-        
+
         try {
-            // First try with ideal constraints (better quality)
+            // First try with video and audio (optimal quality)
             try {
-                console.log('[Call] Attempting with optimal constraints...');
+                console.log('[Call] Attempting with video + audio (optimal)...');
                 this.localStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
@@ -508,58 +516,63 @@ class CallManager {
                         facingMode: 'user'
                     }
                 });
-                console.log('[Call] Media access granted with optimal constraints');
-            } catch (e1) {
-                console.warn('[Call] Optimal constraints failed, falling back to basic:', e1.name);
-                
-                // Fallback to basic constraints (lower requirements)
-                this.localStream = await navigator.mediaDevices.getUserMedia({
-                    audio: true,
-                    video: true
-                });
-                console.log('[Call] Media access granted with basic constraints');
-            }
-            
-            if (this.localStream) {
+                console.log('[Call] ✅ Media access granted with video + audio (optimal)');
                 this.localVideo.srcObject = this.localStream;
                 return true;
+            } catch (e1) {
+                console.warn('[Call] Optimal video+audio failed:', e1.name);
+
+                // Try basic video + audio
+                try {
+                    console.log('[Call] Attempting with video + audio (basic)...');
+                    this.localStream = await navigator.mediaDevices.getUserMedia({
+                        audio: true,
+                        video: true
+                    });
+                    console.log('[Call] ✅ Media access granted with video + audio (basic)');
+                    this.localVideo.srcObject = this.localStream;
+                    return true;
+                } catch (e2) {
+                    console.warn('[Call] Basic video+audio failed:', e2.name);
+
+                    // Try audio only (no camera available)
+                    try {
+                        console.log('[Call] Attempting audio-only (no camera)...');
+                        this.localStream = await navigator.mediaDevices.getUserMedia({
+                            audio: true,
+                            video: false
+                        });
+                        console.log('[Call] ✅ Media access granted with audio-only');
+                        // Don't set video srcObject for audio-only
+                        showError('ℹ️ Joined call with audio only (no camera detected)');
+                        return true;
+                    } catch (e3) {
+                        console.warn('[Call] Audio-only failed:', e3.name);
+
+                        // Last resort: allow joining without any media
+                        if (e3.name === 'NotFoundError' || e3.name === 'NotReadableError' || e3.name === 'NotAllowedError') {
+                            console.warn('[Call] No media devices available - proceeding without local media');
+                            try {
+                                // Create empty MediaStream as placeholder
+                                this.localStream = new MediaStream();
+                                showError('ℹ️ Joined call without camera/microphone (receive-only mode)');
+                                return true;
+                            } catch (ex) {
+                                console.error('[Call] Failed to create empty MediaStream fallback', ex);
+                                showError('❌ Failed to initialize call');
+                                return false;
+                            }
+                        }
+
+                        // Re-throw if it's a different error
+                        throw e3;
+                    }
+                }
             }
-            
-            return false;
         } catch (e) {
             console.error('[Call] Error accessing media:', e.name, '-', e.message);
 
-            // If device has no camera/mic, allow joining without local media
-            if (e.name === 'NotFoundError') {
-                console.error('[Call] Error accessing media:', e.name, '-', e.message);
-
-                // If device has no camera/mic or it's not readable, allow joining without local media
-                if (e.name === 'NotFoundError' || e.name === 'NotReadableError') {
-                    console.warn('[Call] No or unreadable media devices - proceeding without local media');
-                    try {
-                        // Create empty MediaStream as placeholder so peer connection logic continues
-                        this.localStream = new MediaStream();
-                        // Do not set localVideo.srcObject since there is no tracks
-                        return true;
-                    } catch (ex) {
-                        console.error('[Call] Failed to create empty MediaStream fallback', ex);
-                        showError('❌ No camera/microphone found and fallback failed.');
-                        return false;
-                    }
-                }
-                try {
-                    // Create empty MediaStream as placeholder so peer connection logic continues
-                    this.localStream = new MediaStream();
-                    // Do not set localVideo.srcObject since there is no tracks
-                    return true;
-                } catch (ex) {
-                    console.error('[Call] Failed to create empty MediaStream fallback', ex);
-                    showError('❌ No camera/microphone found and fallback failed.');
-                    return false;
-                }
-            }
-
-            // Provide more specific error messages based on other error types
+            // Provide specific error messages
             let errorMsg = '❌ Could not access camera/microphone.';
             if (e.name === 'NotAllowedError') {
                 errorMsg += ' Permission denied. Please check browser settings.';
@@ -580,24 +593,24 @@ class CallManager {
 
     createPeerConnection() {
         console.log('[Call] Creating peer connection');
-        
+
         this.peerConnection = new RTCPeerConnection(this.iceServers);
 
         this.peerConnection.onicecandidate = (event) => {
             console.log('[Call] ICE candidate generated');
             if (event.candidate) {
-                    // Send a plain-serializable candidate object to the server
-                    try {
-                        const cand = (typeof event.candidate.toJSON === 'function') ? event.candidate.toJSON() : event.candidate;
-                        this.sendSignal('candidate', cand);
-                    } catch (ex) {
-                        // Fallback: send the raw candidate fields
-                        this.sendSignal('candidate', {
-                            candidate: event.candidate.candidate,
-                            sdpMid: event.candidate.sdpMid,
-                            sdpMLineIndex: event.candidate.sdpMLineIndex
-                        });
-                    }
+                // Send a plain-serializable candidate object to the server
+                try {
+                    const cand = (typeof event.candidate.toJSON === 'function') ? event.candidate.toJSON() : event.candidate;
+                    this.sendSignal('candidate', cand);
+                } catch (ex) {
+                    // Fallback: send the raw candidate fields
+                    this.sendSignal('candidate', {
+                        candidate: event.candidate.candidate,
+                        sdpMid: event.candidate.sdpMid,
+                        sdpMLineIndex: event.candidate.sdpMLineIndex
+                    });
+                }
             }
         };
 
@@ -611,7 +624,7 @@ class CallManager {
         this.peerConnection.onconnectionstatechange = () => {
             const state = this.peerConnection.connectionState;
             console.log('[Call] Connection state changed:', state);
-            
+
             if (state === 'disconnected' ||
                 state === 'failed' ||
                 state === 'closed') {
@@ -684,7 +697,7 @@ class CallManager {
 
     async startCall() {
         console.log('[Call] startCall() called, IS_DM =', IS_DM);
-        
+
         if (!IS_DM) {
             console.error('[Call] Call only works in DM, but IS_DM =', IS_DM);
             showError('❌ Calls only available in Direct Messages');
@@ -693,7 +706,7 @@ class CallManager {
 
         // Use opponent_username directly from template
         this.peerUsername = OPPONENT_USERNAME;
-        
+
         if (!this.peerUsername) {
             console.error('[Call] No opponent_username available');
             showError('❌ Cannot determine peer');
@@ -711,7 +724,7 @@ class CallManager {
         // Get media access with detailed logging
         console.log('[Call] Getting media for outgoing call...');
         const mediaOk = await this.getMedia();
-        
+
         if (!mediaOk) {
             console.error('[Call] Failed to get media access for outgoing call');
             this.endCall();
@@ -719,20 +732,20 @@ class CallManager {
         }
 
         console.log('[Call] Media obtained, creating peer connection...');
-        
+
         try {
             this.createPeerConnection();
-            
+
             console.log('[Call] Creating offer...');
             const offer = await this.peerConnection.createOffer();
-            
+
             console.log('[Call] Setting local description...');
             await this.peerConnection.setLocalDescription(offer);
-            
+
             console.log('[Call] Sending offer signal...');
-                    // Send only the plain SDP/text to avoid circular/non-serializable objects
-                    this.sendSignal('offer', { type: offer.type, sdp: offer.sdp });
-            
+            // Send only the plain SDP/text to avoid circular/non-serializable objects
+            this.sendSignal('offer', { type: offer.type, sdp: offer.sdp });
+
             console.log('[Call] Call initiated successfully!');
         } catch (e) {
             console.error('[Call] Error creating offer:', e.name, '-', e.message);
@@ -747,7 +760,7 @@ class CallManager {
         if (signal.type === 'offer') {
             // Incoming call
             console.log('[Call] Incoming call from', signal.sender);
-            
+
             if (this.isCallActive) {
                 console.warn('[Call] Already in call, rejecting incoming');
                 return; // Busy
@@ -823,7 +836,7 @@ class CallManager {
 
         } else if (signal.type === 'candidate') {
             console.log('[Call] Received ICE candidate');
-            
+
             // If we don't yet have an active peer connection, buffer the candidate
             if ((!this.isCallActive || !this.peerConnection)) {
                 try {
@@ -861,7 +874,7 @@ class CallManager {
         console.log(`[Call] Accepting call from ${this.peerUsername}`);
 
         this.incomingModal.classList.remove('active');
-        
+
         // Stop ringtone
         const ringtone = document.getElementById('ringtone-sound');
         if (ringtone) {
@@ -884,7 +897,7 @@ class CallManager {
         // Get media access with detailed logging
         console.log('[Call] Getting media for accepting call...');
         const mediaOk = await this.getMedia();
-        
+
         if (!mediaOk) {
             console.error('[Call] Failed to get media access for accepting call');
             this.endCall();
@@ -892,7 +905,7 @@ class CallManager {
         }
 
         console.log('[Call] Media obtained, creating peer connection...');
-        
+
         try {
             this.createPeerConnection();
 
@@ -907,17 +920,17 @@ class CallManager {
             await this.peerConnection.setRemoteDescription(offerSD);
             // Apply any buffered ICE candidates now that remote is set
             try { this.applyPendingCandidates(); } catch (e) { console.warn('[Call] applyPendingCandidates error after setRemoteDescription', e); }
-            
+
             console.log('[Call] Creating answer...');
             const answer = await this.peerConnection.createAnswer();
-            
+
             console.log('[Call] Setting local description (answer)...');
             await this.peerConnection.setLocalDescription(answer);
-            
+
             console.log('[Call] Sending answer signal...');
-                    // Send only the SDP text/type
-                    this.sendSignal('answer', { type: answer.type, sdp: answer.sdp });
-            
+            // Send only the SDP text/type
+            this.sendSignal('answer', { type: answer.type, sdp: answer.sdp });
+
             console.log('[Call] Call accepted successfully!');
         } catch (e) {
             console.error('[Call] Error accepting call:', e.name, '-', e.message);
@@ -928,10 +941,10 @@ class CallManager {
 
     endCall(notifyRemote = true) {
         console.log('[Call] Ending call');
-        
+
         this.isCallActive = false;
         this.pendingOffer = null;
-        
+
         try {
             // Notify remote peer if requested
             if (notifyRemote && this.peerUsername) {
@@ -947,7 +960,7 @@ class CallManager {
                 ringtone.pause();
                 ringtone.currentTime = 0;
             }
-            
+
             // Stop all local tracks and clear stream
             if (this.localStream) {
                 console.log('[Call] Stopping local media tracks');
@@ -962,7 +975,7 @@ class CallManager {
                 this.localStream = null; // Clear reference
                 console.log('[Call] Local stream cleared');
             }
-            
+
             // Close peer connection
             if (this.peerConnection) {
                 console.log('[Call] Closing peer connection');
@@ -1054,19 +1067,19 @@ class CallManager {
 
     startSignalingLoop() {
         console.log('[Call] Starting signaling loop (polling every 1.5s)');
-        
+
         // Poll every 1.5 seconds
         setInterval(async () => {
             try {
                 const res = await fetch('/api/signals', { credentials: 'include' });
-                
+
                 if (!res.ok) {
                     console.warn(`[Call] Signals endpoint returned ${res.status}`);
                     return;
                 }
-                
+
                 const data = await res.json();
-                
+
                 if (data.signals && data.signals.length > 0) {
                     console.log(`[Call] Received ${data.signals.length} signal(s)`);
                     data.signals.forEach(signal => this.handleSignal(signal));
