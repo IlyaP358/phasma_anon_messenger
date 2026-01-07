@@ -361,18 +361,45 @@
     </div>
   </div>
 
-  <div id="call-overlay" class="call-overlay" style="display: none;">
-    <div class="call-video-container">
-      <video id="remote-video" autoplay playsinline></video>
-      <video id="local-video" autoplay playsinline muted></video>
+  <div id="call-overlay" class="call-overlay" data-minimized="false" style="display: none;">
+    <div class="call-header">
+      <div class="call-title">Voice Call</div>
+      <button id="btn-minimize-call" class="call-btn-icon mobile-only" title="Minimize">−</button>
+      <button id="btn-expand-call" class="call-btn-icon mobile-only" style="display: none;" title="Expand">□</button>
+    </div>
 
-      <div class="call-status" id="call-status">Connecting...</div>
-
-      <div class="call-controls">
-        <button id="btn-toggle-mic" class="call-btn" title="Toggle Mic">🎤</button>
-        <button id="btn-toggle-cam" class="call-btn" title="Toggle Camera">📷</button>
-        <button id="btn-end-call" class="call-btn call-btn-end" title="End Call">📞</button>
+    <div class="call-participants">
+      <!-- Remote participant -->
+      <div class="call-participant" id="remote-participant">
+        <div class="participant-avatar-container">
+          <img id="remote-avatar" src="/static/unknown_user_phasma_icon.png" alt="Remote" class="participant-avatar">
+          <div id="remote-muted-indicator" class="muted-indicator" style="display: none;">🔇</div>
+        </div>
+        <video id="remote-video" autoplay playsinline></video>
+        <div class="participant-name" id="remote-name">Connecting...</div>
       </div>
+
+      <!-- Local participant -->
+      <div class="call-participant" id="local-participant">
+        <div class="participant-avatar-container">
+          <img id="local-avatar" src="/static/unknown_user_phasma_icon.png" alt="You" class="participant-avatar">
+          <div id="local-muted-indicator" class="muted-indicator" style="display: none;">🔇</div>
+        </div>
+        <video id="local-video" autoplay playsinline muted></video>
+        <div class="participant-name">You</div>
+      </div>
+    </div>
+
+    <div class="call-controls">
+      <button id="btn-toggle-mic" class="call-btn" title="Toggle Mic">
+        <span class="btn-icon">🎤</span>
+      </button>
+      <button id="btn-toggle-cam" class="call-btn" title="Toggle Camera">
+        <span class="btn-icon">📷</span>
+      </button>
+      <button id="btn-end-call" class="call-btn call-btn-end" title="End Call">
+        <span class="btn-icon">📞</span>
+      </button>
     </div>
   </div>
 

@@ -9,3 +9,4 @@ update_icons.py
 add_column_database.py
 db_migration.py
 migrations_add_callsession.py
+add_call_message_id.py

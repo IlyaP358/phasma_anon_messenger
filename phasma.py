@@ -554,6 +554,7 @@ class CallSession(db.Model):
     caller = db.Column(db.String(100), nullable=False, index=True)
     callee = db.Column(db.String(100), nullable=False, index=True)
     group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=True, index=True)
+    call_message_id = db.Column(db.BigInteger, nullable=True)  # ID of the system message to update
     status = db.Column(db.String(20), default='pending')  # pending, answered, declined, ended, missed
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
@@ -593,7 +594,7 @@ class CallSession(db.Model):
             print(f"[WARN] Failed to schedule deletion for CallSession: {e}")
 
 
-def schedule_call_missed_check(session_id: int, timeout: int = 35):
+def schedule_call_missed_check(session_id: int, timeout: int = 45):
     """Start a background thread that will mark the call missed if still pending after timeout seconds."""
     def _worker(sid, t):
         try:
@@ -603,6 +604,41 @@ def schedule_call_missed_check(session_id: int, timeout: int = 35):
             print(f"[WARN] schedule_call_missed_check worker error: {e}")
 
     threading.Thread(target=_worker, args=(session_id, timeout), daemon=True).start()
+
+def cleanup_stale_call_sessions():
+    """Delete stale pending CallSession records older than 2 minutes on startup."""
+    try:
+        cutoff_time = datetime.datetime.utcnow() - datetime.timedelta(minutes=2)
+        stale_sessions = CallSession.query.filter(
+            CallSession.status == 'pending',
+            CallSession.created_at < cutoff_time
+        ).all()
+        
+        if stale_sessions:
+            for sess in stale_sessions:
+                db.session.delete(sess)
+            db.session.commit()
+            print(f"[CLEANUP] Deleted {len(stale_sessions)} stale pending CallSession records")
+        else:
+            print("[CLEANUP] No stale CallSession records found")
+    except Exception as e:
+        print(f"[ERROR] Failed to cleanup stale CallSessions: {e}")
+        db.session.rollback()
+
+def cleanup_old_signals():
+    """Delete Signal records older than 60 seconds to prevent stale signal delivery."""
+    try:
+        cutoff_time = datetime.datetime.utcnow() - datetime.timedelta(seconds=60)
+        old_signals = Signal.query.filter(Signal.created_at < cutoff_time).all()
+        
+        if old_signals:
+            for sig in old_signals:
+                db.session.delete(sig)
+            db.session.commit()
+            print(f"[CLEANUP] Deleted {len(old_signals)} old Signal records")
+    except Exception as e:
+        print(f"[WARN] Failed to cleanup old Signals: {e}")
+        db.session.rollback()
 
 
 def mark_call_missed(session_id: int):
@@ -616,29 +652,36 @@ def mark_call_missed(session_id: int):
         # Mark missed
         sess.mark_status('missed')
 
-        # Create system message in DM or group if available
+        # Update system message in DM or group if available
         group_id = sess.group_id
-        if group_id:
+        if group_id and sess.call_message_id:
             try:
-                system_payload = {
-                    'event': 'call_missed',
-                    'from': sess.caller,
-                    'to': sess.callee,
-                    'ts': int(time.time())
-                }
-                plaintext = json.dumps(system_payload)
-                ciphertext = encrypt_message(plaintext)
-                sys_msg = Message(group_id=group_id, username=sess.caller, content=ciphertext, message_type='system')
-                db.session.add(sys_msg)
-                db.session.commit()
+                # Find the existing system message
+                sys_msg = Message.query.get(sess.call_message_id)
+                
+                if sys_msg:
+                    # Update the existing message
+                    system_payload = {
+                        'event': 'call_missed',
+                        'from': sess.caller,
+                        'to': sess.callee,
+                        'ts': int(time.time())
+                    }
+                    plaintext = json.dumps(system_payload)
+                    ciphertext = encrypt_message(plaintext)
+                    sys_msg.content = ciphertext
+                    sys_msg.created_at = datetime.datetime.utcnow()  # Update timestamp
+                    db.session.commit()
 
-                # Publish SSE
-                try:
-                    ts = sys_msg.format_time()
-                    pubtext = f"[ID:{sys_msg.id}][{ts}] SYSTEM:call_missed:{sess.caller}->{sess.callee}"
-                    r.publish(f"chat:group:{group_id}", pubtext.encode('utf-8'))
-                except Exception as e:
-                    print(f"[WARN] Failed to publish missed call system message: {e}")
+                    # Publish SSE for update
+                    try:
+                        ts = sys_msg.format_time()
+                        pubtext = f"[ID:{sys_msg.id}][{ts}] SYSTEM:call_missed:{sess.caller}->{sess.callee}"
+                        r.publish(f"chat:group:{group_id}", pubtext.encode('utf-8'))
+                    except Exception as e:
+                        print(f"[WARN] Failed to publish missed call system message: {e}")
+                else:
+                    print(f"[WARN] System message {sess.call_message_id} not found for missed call")
 
                 # Push notification to callee
                 try:
@@ -654,10 +697,11 @@ def mark_call_missed(session_id: int):
                     print(f"[WARN] Failed to send missed-call push: {e}")
 
             except Exception as e:
-                print(f"[ERROR] Failed to record missed call: {e}")
+                print(f"[ERROR] Failed to update missed call message: {e}")
 
     except Exception as e:
         print(f"[ERROR] mark_call_missed error: {e}")
+
 
 
 def cleanup_call_sessions_loop(interval_seconds: int = 3600):
@@ -6027,7 +6071,7 @@ def send_signal():
         )
         db.session.add(signal)
         db.session.commit()
-        # --- Create system chat messages and push notifications for call events ---
+        # --- Create/update system chat messages and push notifications for call events ---
         try:
             # Only handle call-related signal types
             if signal_type in ('offer', 'answer', 'decline', 'hangup'):
@@ -6035,59 +6079,101 @@ def send_signal():
                 users = sorted([sender, receiver])
                 dm_name = f"dm_{users[0]}_{users[1]}"
                 group = Group.query.filter_by(name=dm_name, is_dm=True).first()
-                # For offers: create a CallSession and schedule missed-check
+                
+                # For offers: create a CallSession, system message, and schedule missed-check
                 if signal_type == 'offer':
                     try:
                         grp_id = group.id if group else None
                         cs = CallSession(caller=sender, callee=receiver, group_id=grp_id, status='pending')
                         db.session.add(cs)
+                        db.session.flush()  # Get the ID
+                        
+                        # Create initial system message
+                        if group:
+                            system_payload = {
+                                'event': 'call_ringing',
+                                'from': sender,
+                                'to': receiver,
+                                'ts': int(time.time())
+                            }
+                            plaintext = json.dumps(system_payload)
+                            ciphertext = encrypt_message(plaintext)
+                            sys_msg = Message(group_id=group.id, username=sender, content=ciphertext, message_type='system')
+                            db.session.add(sys_msg)
+                            db.session.flush()  # Get message ID
+                            
+                            # Store message ID in CallSession
+                            cs.call_message_id = sys_msg.id
+                            
                         db.session.commit()
-                        timeout = int(os.environ.get('CALL_TIMEOUT', '35'))
+                        
+                        # Schedule missed call check
+                        timeout = int(os.environ.get('CALL_TIMEOUT', '45'))
                         schedule_call_missed_check(cs.id, timeout)
+                        
+                        # Publish SSE for new message
+                        if group:
+                            try:
+                                ts = sys_msg.format_time()
+                                pubtext = f"[ID:{sys_msg.id}][{ts}] SYSTEM:call_ringing:{sender}->{receiver}"
+                                r.publish(f"chat:group:{group.id}", pubtext.encode('utf-8'))
+                            except Exception as e:
+                                print(f"[WARN] Failed to publish system call message: {e}")
+                                
                     except Exception as e:
                         print(f"[WARN] Failed to create CallSession: {e}")
+                        db.session.rollback()
 
-                # For answer/decline/hangup: update latest pending CallSession
-                if signal_type in ('answer', 'decline', 'hangup'):
+                # For answer/decline/hangup: update latest pending CallSession and its system message
+                elif signal_type in ('answer', 'decline', 'hangup'):
                     try:
                         sess = CallSession.query.filter(
                             ((CallSession.caller == sender) & (CallSession.callee == receiver)) |
                             ((CallSession.caller == receiver) & (CallSession.callee == sender))
                         ).order_by(CallSession.created_at.desc()).first()
+                        
                         if sess and sess.status == 'pending':
+                            # Update CallSession status
                             if signal_type == 'answer':
                                 sess.mark_status('answered')
+                                event_name = 'call_answered'
                             elif signal_type == 'decline':
                                 sess.mark_status('declined')
+                                event_name = 'call_declined'
                             elif signal_type == 'hangup':
                                 sess.mark_status('ended')
+                                event_name = 'call_ended'
+                            
+                            # Update the existing system message
+                            if group and sess.call_message_id:
+                                sys_msg = Message.query.get(sess.call_message_id)
+                                if sys_msg:
+                                    system_payload = {
+                                        'event': event_name,
+                                        'from': sender,
+                                        'to': receiver,
+                                        'ts': int(time.time())
+                                    }
+                                    plaintext = json.dumps(system_payload)
+                                    ciphertext = encrypt_message(plaintext)
+                                    sys_msg.content = ciphertext
+                                    sys_msg.created_at = datetime.datetime.utcnow()  # Update timestamp
+                                    db.session.commit()
+                                    
+                                    # Publish SSE for update
+                                    try:
+                                        ts = sys_msg.format_time()
+                                        pubtext = f"[ID:{sys_msg.id}][{ts}] SYSTEM:{event_name}:{sender}->{receiver}"
+                                        r.publish(f"chat:group:{group.id}", pubtext.encode('utf-8'))
+                                    except Exception as e:
+                                        print(f"[WARN] Failed to publish updated system call message: {e}")
+                                else:
+                                    print(f"[WARN] System message {sess.call_message_id} not found for call update")
                     except Exception as e:
                         print(f"[WARN] Failed to update CallSession status: {e}")
+                
+                # Send web-push notifications
                 if group:
-                    group_id = group.id
-                    now_ts = int(time.time())
-                    # Build system payload
-                    system_payload = {
-                        'event': f'call_{signal_type}',
-                        'from': sender,
-                        'to': receiver,
-                        'ts': now_ts
-                    }
-                    plaintext = json.dumps(system_payload)
-                    ciphertext = encrypt_message(plaintext)
-                    sys_msg = Message(group_id=group_id, username=sender, content=ciphertext, message_type='system')
-                    db.session.add(sys_msg)
-                    db.session.commit()
-
-                    # Publish to group SSE channel so clients show system message immediately
-                    try:
-                        ts = sys_msg.format_time()
-                        pubtext = f"[ID:{sys_msg.id}][{ts}] SYSTEM:{system_payload['event']}:{sender}->{receiver}"
-                        r.publish(f"chat:group:{group_id}", pubtext.encode('utf-8'))
-                    except Exception as e:
-                        print(f"[WARN] Failed to publish system call message: {e}")
-
-                    # Send web-push to the callee to wake device (incoming offer only) and for other events
                     try:
                         # Find subscriptions for receiver only
                         subs = PushSubscription.query.filter_by(username=receiver).all()
@@ -6101,13 +6187,13 @@ def send_signal():
                         elif signal_type == 'hangup':
                             notif_body = f"Call ended by {sender}"
 
-                        extra = {"type": f"call_{signal_type}", "caller": sender, "group_id": group_id, "title": group.name}
+                        extra = {"type": f"call_{signal_type}", "caller": sender, "group_id": group.id, "title": group.name}
                         for sub in subs:
                             threading.Thread(target=send_push_notification, args=(sub, notif_body, extra)).start()
                     except Exception as e:
                         print(f"[WARN] Failed to send call push: {e}")
         except Exception as e:
-            print(f"[WARN] Failed to create system call message: {e}")
+            print(f"[WARN] Failed to handle call system message: {e}")
         
         return jsonify({'status': 'ok'}), 200
     except Exception as e:
@@ -6124,6 +6210,9 @@ def get_signals():
         return jsonify({'error': 'Unauthorized'}), 401
     
     try:
+        # Cleanup old signals first to prevent stale signal delivery
+        cleanup_old_signals()
+        
         # Fetch signals
         signals_query = Signal.query.filter_by(receiver=username).all()
         
@@ -6148,8 +6237,15 @@ def get_signals():
         db.session.rollback()
         return jsonify({'error': 'Fetch failed'}), 500
 
+
 if __name__ == "__main__":
     print(f"[INFO] Starting Flask app on http://127.0.0.1:5000")
     print(f"[INFO] Debug mode: {app.config['DEBUG']}")
     print(f"[INFO] Production mode: {is_production}")
+    
+    # Cleanup stale call sessions on startup
+    with app.app_context():
+        cleanup_stale_call_sessions()
+    
     app.run(host="0.0.0.0", port=5000, debug=app.config["DEBUG"])
+

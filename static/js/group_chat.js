@@ -394,6 +394,7 @@ class CallManager {
         this.pendingCandidates = [];
         this.autoAction = null; // 'accept' or 'decline' from notification
         this.autoActionCaller = null;
+        this.isMinimized = false;
 
         // STUN servers
         this.iceServers = {
@@ -417,7 +418,13 @@ class CallManager {
         this.overlay = document.getElementById('call-overlay');
         this.localVideo = document.getElementById('local-video');
         this.remoteVideo = document.getElementById('remote-video');
-        this.statusText = document.getElementById('call-status');
+
+        // Avatar elements
+        this.remoteAvatarImg = document.getElementById('remote-avatar');
+        this.localAvatarImg = document.getElementById('local-avatar');
+        this.remoteMutedIndicator = document.getElementById('remote-muted-indicator');
+        this.localMutedIndicator = document.getElementById('local-muted-indicator');
+        this.remoteNameDisplay = document.getElementById('remote-name');
 
         // Incoming call modal
         this.incomingModal = document.getElementById('incoming-call-modal');
@@ -429,6 +436,10 @@ class CallManager {
         this.btnEnd = document.getElementById('btn-end-call');
         this.btnMic = document.getElementById('btn-toggle-mic');
         this.btnCam = document.getElementById('btn-toggle-cam');
+
+        // Minimize/expand buttons (mobile)
+        this.btnMinimize = document.getElementById('btn-minimize-call');
+        this.btnExpand = document.getElementById('btn-expand-call');
 
         // Handlers
         if (this.btnCall) {
@@ -452,8 +463,13 @@ class CallManager {
                 const track = this.localStream.getAudioTracks()[0];
                 if (track) {
                     track.enabled = !track.enabled;
-                    this.btnMic.textContent = track.enabled ? '🎤' : '🔇';
-                    this.btnMic.style.background = track.enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.5)';
+                    this.btnMic.innerHTML = track.enabled ? '<span class="btn-icon">🎤</span>' : '<span class="btn-icon">🔇</span>';
+                    this.btnMic.style.background = track.enabled ? 'rgba(255,255,255,0.15)' : 'rgba(255,0,0,0.5)';
+
+                    // Show/hide muted indicator
+                    if (this.localMutedIndicator) {
+                        this.localMutedIndicator.style.display = track.enabled ? 'none' : 'block';
+                    }
                 } else {
                     showError('ℹ️ No microphone available');
                 }
@@ -465,8 +481,23 @@ class CallManager {
                 const track = this.localStream.getVideoTracks()[0];
                 if (track) {
                     track.enabled = !track.enabled;
-                    this.btnCam.textContent = track.enabled ? '📷' : '🚫';
-                    this.btnCam.style.background = track.enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.5)';
+                    this.btnCam.innerHTML = track.enabled ? '<span class="btn-icon">📷</span>' : '<span class="btn-icon">🚫</span>';
+                    this.btnCam.style.background = track.enabled ? 'rgba(255,255,255,0.15)' : 'rgba(255,0,0,0.5)';
+
+                    // Show/hide local video and avatar
+                    if (track.enabled) {
+                        // Camera on: show video, hide avatar
+                        this.localVideo.style.display = 'block';
+                        if (this.localAvatarImg) {
+                            this.localAvatarImg.parentElement.style.display = 'none';
+                        }
+                    } else {
+                        // Camera off: hide video, show avatar
+                        this.localVideo.style.display = 'none';
+                        if (this.localAvatarImg) {
+                            this.localAvatarImg.parentElement.style.display = 'flex';
+                        }
+                    }
                 } else {
                     showError('ℹ️ No camera available');
                 }
@@ -489,6 +520,55 @@ class CallManager {
                 ringtone.currentTime = 0;
             }
         };
+
+        // Minimize/expand handlers (mobile)
+        if (this.btnMinimize) {
+            this.btnMinimize.onclick = () => this.minimizeCall();
+        }
+        if (this.btnExpand) {
+            this.btnExpand.onclick = () => this.expandCall();
+        }
+    }
+
+    minimizeCall() {
+        console.log('[Call] Minimizing call');
+        this.isMinimized = true;
+        this.overlay.setAttribute('data-minimized', 'true');
+        if (this.btnMinimize) this.btnMinimize.style.display = 'none';
+        if (this.btnExpand) this.btnExpand.style.display = 'block';
+    }
+
+    expandCall() {
+        console.log('[Call] Expanding call');
+        this.isMinimized = false;
+        this.overlay.setAttribute('data-minimized', 'false');
+        if (this.btnMinimize) this.btnMinimize.style.display = 'block';
+        if (this.btnExpand) this.btnExpand.style.display = 'none';
+    }
+
+    loadAvatars() {
+        console.log('[Call] Loading avatars');
+
+        // Load remote avatar
+        if (this.peerUsername) {
+            const remoteAvatarUrl = `/user/profile-pic/${this.peerUsername}`;
+            console.log('[Call] Loading remote avatar:', remoteAvatarUrl);
+            if (this.remoteAvatarImg) {
+                this.remoteAvatarImg.src = remoteAvatarUrl;
+            }
+            if (this.remoteNameDisplay) {
+                this.remoteNameDisplay.textContent = this.peerUsername;
+            }
+        }
+
+        // Load local avatar
+        if (TEMPLATE_USER) {
+            const localAvatarUrl = `/user/profile-pic/${TEMPLATE_USER}`;
+            console.log('[Call] Loading local avatar:', localAvatarUrl);
+            if (this.localAvatarImg) {
+                this.localAvatarImg.src = localAvatarUrl;
+            }
+        }
     }
 
     async getMedia() {
@@ -616,9 +696,13 @@ class CallManager {
 
         this.peerConnection.ontrack = (event) => {
             console.log('[Call] Received remote track:', event.track.kind);
-            this.remoteVideo.srcObject = event.streams[0];
+
+            if (event.track.kind === 'video') {
+                this.remoteVideo.srcObject = event.streams[0];
+                // Video element will automatically hide avatar via CSS
+            }
+
             this.remoteStream = event.streams[0];
-            this.statusText.style.display = 'none';
         };
 
         this.peerConnection.onconnectionstatechange = () => {
@@ -717,9 +801,11 @@ class CallManager {
 
         this.isCaller = true;
         this.isCallActive = true;
+        this.overlay.setAttribute('data-minimized', 'false');
         this.overlay.style.display = 'flex';
-        this.statusText.textContent = 'Calling ' + this.peerUsername + '...';
-        this.statusText.style.display = 'block';
+
+        // Load avatars
+        this.loadAvatars();
 
         // Get media access with detailed logging
         console.log('[Call] Getting media for outgoing call...');
@@ -834,6 +920,22 @@ class CallManager {
                 console.error('[Call] Error setting answer:', e);
             }
 
+        } else if (signal.type === 'decline') {
+            console.log('[Call] Call declined by remote peer');
+
+            if (this.isCallActive) {
+                showError('❌ Call declined');
+                this.endCall(false); // Don't send signal back
+            }
+
+        } else if (signal.type === 'hangup') {
+            console.log('[Call] Remote peer hung up');
+
+            if (this.isCallActive) {
+                showError('ℹ️ Call ended by remote peer');
+                this.endCall(false); // Don't send signal back (avoid loop)
+            }
+
         } else if (signal.type === 'candidate') {
             console.log('[Call] Received ICE candidate');
 
@@ -890,9 +992,11 @@ class CallManager {
 
         this.isCaller = false;
         this.isCallActive = true;
+        this.overlay.setAttribute('data-minimized', 'false');
         this.overlay.style.display = 'flex';
-        this.statusText.textContent = 'Connecting...';
-        this.statusText.style.display = 'block';
+
+        // Load avatars
+        this.loadAvatars();
 
         // Get media access with detailed logging
         console.log('[Call] Getting media for accepting call...');
@@ -1066,9 +1170,9 @@ class CallManager {
     }
 
     startSignalingLoop() {
-        console.log('[Call] Starting signaling loop (polling every 1.5s)');
+        console.log('[Call] Starting signaling loop (polling every 500ms)');
 
-        // Poll every 1.5 seconds
+        // Poll every 500ms for faster signal delivery
         setInterval(async () => {
             try {
                 const res = await fetch('/api/signals', { credentials: 'include' });
@@ -1089,7 +1193,7 @@ class CallManager {
             } catch (e) {
                 console.error('[Call] Signaling loop error:', e);
             }
-        }, 1500);
+        }, 500);
     }
 }
 
